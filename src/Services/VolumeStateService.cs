@@ -97,13 +97,13 @@ internal sealed class VolumeStateService
         }
 
         string volumeName = OpencodeWrapConstants.XDG_VOLUME_NAME;
-        var inspect = await ProcessRunner.CommandSucceedsAsync("docker", ["volume", "inspect", volumeName]);
+        var inspect = await ProcessRunner.RunAsync("docker", ["volume", "inspect", volumeName]);
         if(!inspect.Success)
         {
             return (true, false);
         }
 
-        var remove = await ProcessRunner.CommandSucceedsAsync("docker", ["volume", "rm", "-f", volumeName]);
+        var remove = await ProcessRunner.RunAsync("docker", ["volume", "rm", "-f", volumeName]);
         if(!remove.Success)
         {
             AppIO.WriteError($"Failed to remove Docker volume '{volumeName}'.");
@@ -130,13 +130,13 @@ internal sealed class VolumeStateService
 
     private async Task<bool> EnsureVolumeAsync(string volumeName)
     {
-        var inspect = await ProcessRunner.CommandSucceedsAsync("docker", ["volume", "inspect", volumeName]);
+        var inspect = await ProcessRunner.RunAsync("docker", ["volume", "inspect", volumeName]);
         if(inspect.Success)
         {
             return true;
         }
 
-        var create = await ProcessRunner.CommandSucceedsAsync("docker", ["volume", "create", volumeName]);
+        var create = await ProcessRunner.RunAsync("docker", ["volume", "create", volumeName]);
         if(!create.Success)
         {
             AppIO.WriteError($"Failed to create Docker volume '{volumeName}'.");
@@ -153,7 +153,7 @@ internal sealed class VolumeStateService
 
     private async Task<bool> EnsureVolumeIsWritableAsync(string volumeName, string userSpec)
     {
-        var result = await ProcessRunner.CommandSucceedsAsync(
+        var result = await ProcessRunner.RunAsync(
             "docker",
             [
                 "run",
@@ -164,15 +164,23 @@ internal sealed class VolumeStateService
                 "bash",
                 "-lc",
                 $"set -e; mkdir -p /target; chown -R {userSpec} /target; chmod -R u+rwX /target"
-            ],
-            onFailurePrefix: $"Failed to set permissions on Docker volume '{volumeName}'.");
+            ]);
+
+        if(!result.Success)
+        {
+            AppIO.WriteError($"Failed to set permissions on Docker volume '{volumeName}'.");
+            if(!String.IsNullOrWhiteSpace(result.StdErr))
+            {
+                AppIO.WriteError(result.StdErr.Trim());
+            }
+        }
 
         return result.Success;
     }
 
     private async Task<bool> CopyHostXdgDirectoryToVolumeAsync(string sourceRootDirectory, string volumeName)
     {
-        var result = await ProcessRunner.CommandSucceedsAsync(
+        var result = await ProcessRunner.RunAsync(
             "docker",
             [
                 "run",
@@ -184,8 +192,16 @@ internal sealed class VolumeStateService
                 "bash",
                 "-lc",
                 "set -e; mkdir -p /target/.local/share /target/.local/state; rm -rf /target/.local/share/opencode /target/.local/state/opencode /target/share/opencode /target/state/opencode; if [ -d /source/.local/share/opencode ]; then cp -a /source/.local/share/opencode /target/.local/share/opencode; fi; if [ -d /source/.local/state/opencode ]; then cp -a /source/.local/state/opencode /target/.local/state/opencode; fi; find /target/.local/share/opencode /target/.local/state/opencode -type f -name '*-shm' -delete 2>/dev/null || true; find /target/.local/share/opencode /target/.local/state/opencode -type f -name '*-wal' -delete 2>/dev/null || true"
-            ],
-            onFailurePrefix: $"Failed to import state from '{sourceRootDirectory}' into volume '{volumeName}'.");
+            ]);
+
+        if(!result.Success)
+        {
+            AppIO.WriteError($"Failed to import state from '{sourceRootDirectory}' into volume '{volumeName}'.");
+            if(!String.IsNullOrWhiteSpace(result.StdErr))
+            {
+                AppIO.WriteError(result.StdErr.Trim());
+            }
+        }
 
         return result.Success;
     }
@@ -210,10 +226,18 @@ internal sealed class VolumeStateService
             $"set -e; rm -rf /target/* /target/.[!.]* /target/..?* 2>/dev/null || true; mkdir -p /target; source_dir=/source/{sourceSubdirectory}; legacy_dir=/source/{GetLegacyVolumeSubdirectory(sourceSubdirectory)}; if [ -d \"$source_dir\" ]; then cp -a \"$source_dir\"/. /target/; elif [ -d \"$legacy_dir\" ]; then cp -a \"$legacy_dir\"/. /target/; fi; find /target -type f -name '*-shm' -delete 2>/dev/null || true; find /target -type f -name '*-wal' -delete 2>/dev/null || true"
         ]);
 
-        var result = await ProcessRunner.CommandSucceedsAsync(
+        var result = await ProcessRunner.RunAsync(
             "docker",
-            runArgs,
-            onFailurePrefix: $"Failed to export state from volume '{volumeName}/{sourceSubdirectory}' to '{destinationDirectory}'.");
+            runArgs);
+
+        if(!result.Success)
+        {
+            AppIO.WriteError($"Failed to export state from volume '{volumeName}/{sourceSubdirectory}' to '{destinationDirectory}'.");
+            if(!String.IsNullOrWhiteSpace(result.StdErr))
+            {
+                AppIO.WriteError(result.StdErr.Trim());
+            }
+        }
 
         return result.Success;
     }
@@ -230,7 +254,7 @@ internal sealed class VolumeStateService
 
     private async Task<(bool Success, bool HasState)> TryVolumeHasImportedStateAsync(string volumeName)
     {
-        var result = await ProcessRunner.TryGetCommandOutputAsync(
+        var result = await ProcessRunner.RunAsync(
             "docker",
             [
                 "run",

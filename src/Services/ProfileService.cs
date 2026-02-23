@@ -38,7 +38,7 @@ internal sealed class ProfileService
             return (false, emptyProfile);
         }
 
-        ProfileCatalog catalog = catalogResult.Catalog;
+        var catalog = catalogResult.Catalog;
 
         string selectedProfileName = requestedProfileName?.Trim() ?? String.Empty;
         if(selectedProfileName.Length == 0)
@@ -92,7 +92,7 @@ internal sealed class ProfileService
             return (false, CreateEmptyCatalog());
         }
 
-        Dictionary<string, string> profileDirectories = DiscoverProfileDirectories(configRoot);
+        var profileDirectories = DiscoverProfileDirectories(configRoot);
         var catalog = new ProfileCatalog(configRoot, OpencodeWrapConstants.DEFAULT_PROFILE_NAME, profileDirectories);
         return (true, catalog);
     }
@@ -186,7 +186,7 @@ internal sealed class ProfileService
             throw new InvalidOperationException($"Missing embedded resource '{resourceNameSuffix}'.");
         }
 
-        using Stream? stream = assembly.GetManifestResourceStream(fullResourceName);
+        using var stream = assembly.GetManifestResourceStream(fullResourceName);
         if(stream is null)
         {
             throw new InvalidOperationException($"Cannot open embedded resource '{fullResourceName}'.");

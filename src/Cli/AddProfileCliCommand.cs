@@ -38,7 +38,7 @@ internal sealed class AddProfileCliCommand : Command
             return 1;
         }
 
-        ProfileCatalog catalog = catalogResult.Catalog;
+        var catalog = catalogResult.Catalog;
         if(catalog.ProfileDirectories.ContainsKey(normalizedName))
         {
             AppIO.WriteError($"Profile '{normalizedName}' already exists.");

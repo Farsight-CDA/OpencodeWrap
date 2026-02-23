@@ -20,7 +20,7 @@ internal sealed class ListProfilesCliCommand : Command
             return 1;
         }
 
-        ProfileCatalog catalog = catalogResult.Catalog;
+        var catalog = catalogResult.Catalog;
         if(catalog.ProfileDirectories.Count == 0)
         {
             AppIO.WriteWarning("No profiles found.");

@@ -14,7 +14,7 @@ internal sealed class DockerImageService
 
         imageTag = await BuildImageTagAsync(dockerfilePath);
 
-        var inspect = await ProcessRunner.CommandSucceedsAsync("docker", ["image", "inspect", imageTag]);
+        var inspect = await ProcessRunner.RunAsync("docker", ["image", "inspect", imageTag]);
         if(inspect.Success)
         {
             return (true, imageTag);
@@ -58,7 +58,7 @@ internal sealed class DockerImageService
             "."
         ]);
 
-        bool built = await ProcessRunner.RunAttachedProcessAsync("docker", buildArgs, buildContextDirectory) == 0;
+        bool built = (await ProcessRunner.RunAsync("docker", buildArgs, captureOutput: false, workDir: buildContextDirectory)).Success;
         if(!built)
         {
             AppIO.WriteError($"Failed to build Docker image '{imageTag}'.");

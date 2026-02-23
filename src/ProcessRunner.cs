@@ -2,94 +2,44 @@ using System.Diagnostics;
 
 internal static class ProcessRunner
 {
-    public static async Task<(bool Success, string StdOut, string StdErr)> TryGetCommandOutputAsync(string fileName, IReadOnlyList<string> args)
+    internal readonly record struct ProcessRunResult(bool Started, int ExitCode, string StdOut, string StdErr)
     {
-        var psi = new ProcessStartInfo(fileName)
-        {
-            UseShellExecute = false,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true
-        };
+        public bool Success => Started && ExitCode == 0;
+    }
 
-        foreach(string arg in args)
+    public static bool CommandSucceedsBlocking(string fileName, IReadOnlyList<string> args)
+    {
+        try
         {
-            psi.ArgumentList.Add(arg);
+            return RunAsync(fileName, args).GetAwaiter().GetResult().Success;
         }
+        catch
+        {
+            return false;
+        }
+    }
+
+    public static async Task<ProcessRunResult> RunAsync(string fileName, IReadOnlyList<string> args, bool captureOutput = true, string? workDir = null)
+    {
+        var psi = CreateProcessStartInfo(fileName, args, captureOutput: captureOutput, workDir: workDir);
 
         try
         {
-            using var process = Process.Start(psi);
-            if(process is null)
-            {
-                return (false, String.Empty, "Unable to start process.");
-            }
-
-            Task<string> stdOutTask = process.StandardOutput.ReadToEndAsync();
-            Task<string> stdErrTask = process.StandardError.ReadToEndAsync();
-            await Task.WhenAll(stdOutTask, stdErrTask, process.WaitForExitAsync());
-            return (process.ExitCode == 0, await stdOutTask, await stdErrTask);
+            return await RunProcessAsync(psi, captureOutput: captureOutput);
         }
         catch(Exception ex)
         {
-            return (false, String.Empty, ex.Message);
+            return new ProcessRunResult(false, 1, String.Empty, ex.Message);
         }
     }
 
-    public static async Task<(bool Success, string StdErr)> CommandSucceedsAsync(string fileName, IReadOnlyList<string> args, string? onFailurePrefix = null)
-    {
-        var command = await TryGetCommandOutputAsync(fileName, args);
-        bool success = command.Success;
-        string stdErr = command.StdErr;
-
-        if(!success && !String.IsNullOrWhiteSpace(onFailurePrefix))
-        {
-            AppIO.WriteError(onFailurePrefix);
-            if(!String.IsNullOrWhiteSpace(stdErr))
-            {
-                AppIO.WriteError(stdErr.Trim());
-            }
-        }
-
-        return (success, stdErr);
-    }
-
-    public static async Task<bool> TryOpenDirectoryAsync(string directoryPath, bool isWindows, string? onFailurePrefix = null)
-    {
-        if(isWindows)
-        {
-            try
-            {
-                using var process = Process.Start(new ProcessStartInfo
-                {
-                    FileName = directoryPath,
-                    UseShellExecute = true
-                });
-
-                return true;
-            }
-            catch(Exception ex)
-            {
-                if(!String.IsNullOrWhiteSpace(onFailurePrefix))
-                {
-                    AppIO.WriteError(onFailurePrefix);
-                }
-
-                AppIO.WriteError(ex.Message);
-                return false;
-            }
-        }
-
-        var openResult = await CommandSucceedsAsync("xdg-open", [directoryPath], onFailurePrefix);
-        return openResult.Success;
-    }
-
-    public static async Task<int> RunAttachedProcessAsync(string fileName, IReadOnlyList<string> args, string? workDir = null)
+    private static ProcessStartInfo CreateProcessStartInfo(string fileName, IReadOnlyList<string> args, bool captureOutput, string? workDir = null)
     {
         var psi = new ProcessStartInfo(fileName)
         {
             UseShellExecute = false,
-            RedirectStandardOutput = false,
-            RedirectStandardError = false,
+            RedirectStandardOutput = captureOutput,
+            RedirectStandardError = captureOutput,
             RedirectStandardInput = false
         };
 
@@ -103,22 +53,29 @@ internal static class ProcessRunner
             psi.ArgumentList.Add(arg);
         }
 
-        try
-        {
-            using var process = Process.Start(psi);
-            if(process is null)
-            {
-                AppIO.WriteError($"Failed to start process '{fileName}'.");
-                return 1;
-            }
+        return psi;
+    }
 
-            await process.WaitForExitAsync();
-            return process.ExitCode;
-        }
-        catch(Exception ex)
+    private static async Task<ProcessRunResult> RunProcessAsync(ProcessStartInfo psi, bool captureOutput)
+    {
+        using var process = Process.Start(psi);
+        if(process is null)
         {
-            AppIO.WriteError($"Failed to run '{fileName}': {ex.Message}");
-            return 1;
+            return new ProcessRunResult(false, 1, String.Empty, "Unable to start process.");
         }
+
+        if(!captureOutput)
+        {
+            await process.WaitForExitAsync();
+            return new ProcessRunResult(true, process.ExitCode, String.Empty, String.Empty);
+        }
+
+        var stdOutTask = process.StandardOutput.ReadToEndAsync();
+        var stdErrTask = process.StandardError.ReadToEndAsync();
+        await Task.WhenAll(stdOutTask, stdErrTask, process.WaitForExitAsync());
+
+        string stdOut = await stdOutTask;
+        string stdErr = await stdErrTask;
+        return new ProcessRunResult(true, process.ExitCode, stdOut, stdErr);
     }
 }

@@ -4,6 +4,11 @@ internal static class OpencodeWrapCli
 {
     public static async Task<int> RunAsync(string[] args)
     {
+        if(ContainerCleanupWatchdog.IsWatchdogInvocation(args))
+        {
+            return await ContainerCleanupWatchdog.RunWatchdogAsync(args);
+        }
+
         var services = new OpencodeWrapServices();
         var rootCommand = new OpencodeWrapRootCommand(services);
 

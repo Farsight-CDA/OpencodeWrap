@@ -44,7 +44,7 @@ internal sealed class DeleteProfileCliCommand : Command
             return 1;
         }
 
-        ProfileCatalog catalog = catalogResult.Catalog;
+        var catalog = catalogResult.Catalog;
         if(!catalog.ProfileDirectories.ContainsKey(normalizedName))
         {
             AppIO.WriteError($"Profile '{normalizedName}' does not exist.");

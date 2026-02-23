@@ -13,7 +13,7 @@ internal sealed class DockerHostService
             return false;
         }
 
-        var dockerCheck = await ProcessRunner.CommandSucceedsAsync("docker", ["version"]);
+        var dockerCheck = await ProcessRunner.RunAsync("docker", ["version"]);
         if(dockerCheck.Success)
         {
             return true;
@@ -38,7 +38,7 @@ internal sealed class DockerHostService
 
     public async Task<(bool Success, string UserSpec)> TryGetLinuxUserSpecAsync()
     {
-        var uidResult = await ProcessRunner.TryGetCommandOutputAsync("id", ["-u"]);
+        var uidResult = await ProcessRunner.RunAsync("id", ["-u"]);
         if(!uidResult.Success)
         {
             AppIO.WriteError("Failed to resolve current Linux user ID.");
@@ -50,7 +50,7 @@ internal sealed class DockerHostService
             return (false, String.Empty);
         }
 
-        var gidResult = await ProcessRunner.TryGetCommandOutputAsync("id", ["-g"]);
+        var gidResult = await ProcessRunner.RunAsync("id", ["-g"]);
         if(!gidResult.Success)
         {
             AppIO.WriteError("Failed to resolve current Linux group ID.");

@@ -1,4 +1,5 @@
 using System.CommandLine;
+using System.Diagnostics;
 
 internal sealed class OpenProfileDirectoryCliCommand : Command
 {
@@ -26,10 +27,7 @@ internal sealed class OpenProfileDirectoryCliCommand : Command
             return 1;
         }
 
-        bool opened = await ProcessRunner.TryOpenDirectoryAsync(
-            configRoot,
-            _hostService.IsWindows,
-            onFailurePrefix: $"Failed to open profile directory '{configRoot}'.");
+        bool opened = await TryOpenDirectoryAsync(configRoot);
 
         if(!opened)
         {
@@ -38,5 +36,40 @@ internal sealed class OpenProfileDirectoryCliCommand : Command
 
         AppIO.WriteInfo($"Opened profile directory: '{configRoot}'.");
         return 0;
+    }
+
+    private async Task<bool> TryOpenDirectoryAsync(string directoryPath)
+    {
+        if(_hostService.IsWindows)
+        {
+            try
+            {
+                using var process = Process.Start(new ProcessStartInfo
+                {
+                    FileName = directoryPath,
+                    UseShellExecute = true
+                });
+
+                return true;
+            }
+            catch(Exception ex)
+            {
+                AppIO.WriteError($"Failed to open profile directory '{directoryPath}'.");
+                AppIO.WriteError(ex.Message);
+                return false;
+            }
+        }
+
+        var openResult = await ProcessRunner.RunAsync("xdg-open", [directoryPath]);
+        if(!openResult.Success)
+        {
+            AppIO.WriteError($"Failed to open profile directory '{directoryPath}'.");
+            if(!String.IsNullOrWhiteSpace(openResult.StdErr))
+            {
+                AppIO.WriteError(openResult.StdErr.Trim());
+            }
+        }
+
+        return openResult.Success;
     }
 }

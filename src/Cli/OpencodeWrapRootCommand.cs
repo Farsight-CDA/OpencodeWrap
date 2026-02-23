@@ -1,10 +1,13 @@
 using System.CommandLine;
+using System.Runtime.InteropServices;
 
 internal sealed class OpencodeWrapRootCommand : RootCommand
 {
     private readonly OpencodeWrapServices _services;
+    private static readonly TimeSpan WatchdogReadyTimeout = TimeSpan.FromSeconds(2);
     private int _cleanupStarted;
     private string? _containerName;
+    private readonly List<PosixSignalRegistration> _signalRegistrations = [];
 
     public OpencodeWrapRootCommand(OpencodeWrapServices services)
         : base("Run opencode in Docker and manage persisted Opencode state. Any command not matched to an ocw subcommand is forwarded to opencode in the container.")
@@ -68,6 +71,7 @@ internal sealed class OpencodeWrapRootCommand : RootCommand
 
         _containerName = $"opencode-wrap-{Guid.NewGuid():N}"[..27];
         RegisterCleanupHandlers();
+        await EnsureCleanupWatchdogAsync(_containerName);
 
         string? userSpec = await _services.Host.GetContainerUserSpecAsync();
         var runArgs = new List<string> { "run" };
@@ -117,8 +121,8 @@ internal sealed class OpencodeWrapRootCommand : RootCommand
             runArgs.Add(arg);
         }
 
-        int exitCode = await ProcessRunner.RunAttachedProcessAsync("docker", runArgs);
-        await CleanupContainerAsync(force: false);
+        int exitCode = (await ProcessRunner.RunAsync("docker", runArgs, captureOutput: false)).ExitCode;
+        CleanupContainer(force: false);
         return exitCode;
     }
 
@@ -142,11 +146,24 @@ internal sealed class OpencodeWrapRootCommand : RootCommand
 
     private void RegisterCleanupHandlers()
     {
-        AppDomain.CurrentDomain.ProcessExit += (_, _) => _ = CleanupContainerAsync(force: true);
-        AppDomain.CurrentDomain.UnhandledException += (_, _) => _ = CleanupContainerAsync(force: true);
+        AppDomain.CurrentDomain.ProcessExit += (_, _) => CleanupContainer(force: true);
+        AppDomain.CurrentDomain.UnhandledException += (_, _) => CleanupContainer(force: true);
+
+        if(OperatingSystem.IsLinux() || OperatingSystem.IsMacOS())
+        {
+            _signalRegistrations.Add(PosixSignalRegistration.Create(PosixSignal.SIGHUP, HandleTerminationSignal));
+            _signalRegistrations.Add(PosixSignalRegistration.Create(PosixSignal.SIGTERM, HandleTerminationSignal));
+        }
     }
 
-    private async Task CleanupContainerAsync(bool force)
+    private void HandleTerminationSignal(PosixSignalContext context)
+    {
+        context.Cancel = true;
+        CleanupContainer(force: true);
+        Environment.Exit(128 + (int)context.Signal);
+    }
+
+    private void CleanupContainer(bool force)
     {
         if(Interlocked.Exchange(ref _cleanupStarted, 1) != 0)
         {
@@ -162,6 +179,22 @@ internal sealed class OpencodeWrapRootCommand : RootCommand
             ? ["rm", "-f", _containerName]
             : ["rm", _containerName];
 
-        _ = await ProcessRunner.CommandSucceedsAsync("docker", args);
+        _ = ProcessRunner.CommandSucceedsBlocking("docker", args);
+
+        foreach(var registration in _signalRegistrations)
+        {
+            registration.Dispose();
+        }
+
+        _signalRegistrations.Clear();
+    }
+
+    private static async Task EnsureCleanupWatchdogAsync(string containerName)
+    {
+        bool watchdogReady = await ContainerCleanupWatchdog.TryStartDetachedAndWaitReadyAsync(containerName, WatchdogReadyTimeout);
+        if(!watchdogReady)
+        {
+            AppIO.WriteWarning("cleanup watchdog failed to initialize; terminal-close cleanup may be less reliable.");
+        }
     }
 }
