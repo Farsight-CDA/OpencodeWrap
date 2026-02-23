@@ -3,42 +3,27 @@ internal sealed record ProfileCatalog(string ConfigRoot, string DefaultProfileNa
 
 internal sealed class ProfileService
 {
-    private readonly DockerHostService _host;
+    private static string DefaultDockerfile { get; } = LoadEmbeddedTextResource("ProfileTemplates.default.Dockerfile");
+    private static string DotnetDockerfile { get; } = LoadEmbeddedTextResource("ProfileTemplates.dotnet.Dockerfile");
+    private static string DefaultOpencodeConfig { get; } = LoadEmbeddedTextResource("ProfileTemplates.default.opencode.json");
+    private static string DotnetOpencodeConfig { get; } = LoadEmbeddedTextResource("ProfileTemplates.dotnet.opencode.json");
 
-    private static readonly string DefaultDockerfile = LoadEmbeddedTextResource("ProfileTemplates.default.Dockerfile");
-    private static readonly string DotnetDockerfile = LoadEmbeddedTextResource("ProfileTemplates.dotnet.Dockerfile");
-    private static readonly string DefaultOpencodeConfig = LoadEmbeddedTextResource("ProfileTemplates.default.opencode.json");
-    private static readonly string DotnetOpencodeConfig = LoadEmbeddedTextResource("ProfileTemplates.dotnet.opencode.json");
+    public const string INVALID_PROFILE_NAME_MESSAGE = "Profile name may only contain letters, numbers, '-', '_', and '.'.";
+    public static string StarterDockerfileTemplate => DefaultDockerfile;
 
-    public const string InvalidProfileNameMessage = "Profile name may only contain letters, numbers, '-', '_', and '.'.";
-    public string StarterDockerfileTemplate => DefaultDockerfile;
+    public static Task<bool> TryEnsureInitializedAsync() => !DockerHostService.TryEnsureGlobalConfigDirectory(out string configRoot)
+            ? Task.FromResult(false)
+            : TryBootstrapIfConfigRootIsEmptyAsync(configRoot);
 
-    public ProfileService(DockerHostService host)
-    {
-        _host = host;
-    }
-
-    public Task<bool> TryEnsureInitializedAsync()
-    {
-        if(!_host.TryEnsureGlobalConfigDirectory(out string configRoot))
-        {
-            return Task.FromResult(false);
-        }
-
-        return TryBootstrapIfConfigRootIsEmptyAsync(configRoot);
-    }
-
-    public async Task<(bool Success, ResolvedProfile Profile)> TryResolveProfileAsync(string? requestedProfileName)
+    public static async Task<(bool Success, ResolvedProfile Profile)> TryResolveProfileAsync(string? requestedProfileName)
     {
         var emptyProfile = new ResolvedProfile(String.Empty, String.Empty, String.Empty);
 
-        var catalogResult = await TryLoadProfileCatalogAsync();
-        if(!catalogResult.Success)
+        var (success, catalog) = await TryLoadProfileCatalogAsync();
+        if(!success)
         {
             return (false, emptyProfile);
         }
-
-        var catalog = catalogResult.Catalog;
 
         string selectedProfileName = requestedProfileName?.Trim() ?? String.Empty;
         if(selectedProfileName.Length == 0)
@@ -48,7 +33,7 @@ internal sealed class ProfileService
 
         if(!IsValidProfileName(selectedProfileName))
         {
-            AppIO.WriteError(InvalidProfileNameMessage);
+            AppIO.WriteError(INVALID_PROFILE_NAME_MESSAGE);
             return (false, emptyProfile);
         }
 
@@ -80,14 +65,14 @@ internal sealed class ProfileService
         return (true, new ResolvedProfile(selectedProfileName, profileDirectoryPath, dockerfilePath));
     }
 
-    public async Task<(bool Success, ProfileCatalog Catalog)> TryLoadProfileCatalogAsync()
+    public static async Task<(bool Success, ProfileCatalog Catalog)> TryLoadProfileCatalogAsync()
     {
         if(!await TryEnsureInitializedAsync())
         {
             return (false, CreateEmptyCatalog());
         }
 
-        if(!_host.TryEnsureGlobalConfigDirectory(out string configRoot))
+        if(!DockerHostService.TryEnsureGlobalConfigDirectory(out string configRoot))
         {
             return (false, CreateEmptyCatalog());
         }
@@ -152,13 +137,10 @@ internal sealed class ProfileService
         return PathIsWithin(configRoot, profileDirectoryPath);
     }
 
-    private static ProfileCatalog CreateEmptyCatalog()
-    {
-        return new ProfileCatalog(
+    private static ProfileCatalog CreateEmptyCatalog() => new ProfileCatalog(
             String.Empty,
             String.Empty,
             new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase));
-    }
 
     private static bool PathIsWithin(string parentDirectoryPath, string childDirectoryPath)
     {
@@ -179,18 +161,9 @@ internal sealed class ProfileService
         string[] resourceNames = assembly.GetManifestResourceNames();
 
         string? fullResourceName = resourceNames.FirstOrDefault(name =>
-            name.EndsWith(resourceNameSuffix, StringComparison.Ordinal));
+            name.EndsWith(resourceNameSuffix, StringComparison.Ordinal)) ?? throw new InvalidOperationException($"Missing embedded resource '{resourceNameSuffix}'.");
 
-        if(fullResourceName is null)
-        {
-            throw new InvalidOperationException($"Missing embedded resource '{resourceNameSuffix}'.");
-        }
-
-        using var stream = assembly.GetManifestResourceStream(fullResourceName);
-        if(stream is null)
-        {
-            throw new InvalidOperationException($"Cannot open embedded resource '{fullResourceName}'.");
-        }
+        using var stream = assembly.GetManifestResourceStream(fullResourceName) ?? throw new InvalidOperationException($"Cannot open embedded resource '{fullResourceName}'.");
 
         using var reader = new StreamReader(stream);
         return reader.ReadToEnd();

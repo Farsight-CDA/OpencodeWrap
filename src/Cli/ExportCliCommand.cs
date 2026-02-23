@@ -27,7 +27,7 @@ internal sealed class ExportCliCommand : Command
 
     private async Task<int> ExecuteAsync(string archivePath)
     {
-        if(!await AppIO.WithStatusAsync("Checking Docker volume...", () => _volumeService.EnsureVolumeReadyAsync()))
+        if(!await AppIO.WithStatusAsync("Checking Docker volume...", _volumeService.EnsureVolumeReadyAsync))
         {
             return 1;
         }
@@ -75,23 +75,14 @@ internal sealed class ExportCliCommand : Command
     private static string ResolveDestinationArchivePath(string archivePath)
     {
         string resolvedPath = Path.GetFullPath(archivePath);
-        if(Directory.Exists(resolvedPath) || Path.EndsInDirectorySeparator(archivePath))
-        {
-            return Path.Combine(resolvedPath, DEFAULT_EXPORT_ARCHIVE_NAME);
-        }
-
-        return resolvedPath;
+        return Directory.Exists(resolvedPath) || Path.EndsInDirectorySeparator(archivePath)
+            ? Path.Combine(resolvedPath, DEFAULT_EXPORT_ARCHIVE_NAME)
+            : resolvedPath;
     }
 
     private async Task<bool> ExportStateToDirectoryAsync(string destinationShare, string destinationState)
-    {
-        if(!await _volumeService.ExportVolumeSubdirectoryToHostDirectoryAsync(OpencodeWrapConstants.VOLUME_SHARE_SUBDIRECTORY, destinationShare))
-        {
-            return false;
-        }
-
-        return await _volumeService.ExportVolumeSubdirectoryToHostDirectoryAsync(OpencodeWrapConstants.VOLUME_STATE_SUBDIRECTORY, destinationState);
-    }
+        => await _volumeService.ExportVolumeSubdirectoryToHostDirectoryAsync(OpencodeWrapConstants.VOLUME_SHARE_SUBDIRECTORY, destinationShare)
+            && await _volumeService.ExportVolumeSubdirectoryToHostDirectoryAsync(OpencodeWrapConstants.VOLUME_STATE_SUBDIRECTORY, destinationState);
 
     private static async Task<bool> CreateArchiveAsync(string sourceDirectory, string destinationArchive)
     {

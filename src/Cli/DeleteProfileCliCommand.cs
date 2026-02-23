@@ -2,13 +2,11 @@ using System.CommandLine;
 
 internal sealed class DeleteProfileCliCommand : Command
 {
-    private readonly ProfileService _profileService;
     private readonly Argument<string> _nameArgument;
 
-    public DeleteProfileCliCommand(ProfileService profileService)
+    public DeleteProfileCliCommand(ProfileService _)
         : base("delete", "Delete a profile and its directory.")
     {
-        _profileService = profileService;
         _nameArgument = new Argument<string>("name")
         {
             Description = "Profile name to delete."
@@ -23,12 +21,12 @@ internal sealed class DeleteProfileCliCommand : Command
         });
     }
 
-    private async Task<int> ExecuteAsync(string profileName)
+    private static async Task<int> ExecuteAsync(string profileName)
     {
         string normalizedName = profileName.Trim();
         if(!ProfileService.IsValidProfileName(normalizedName))
         {
-            AppIO.WriteError(ProfileService.InvalidProfileNameMessage);
+            AppIO.WriteError(ProfileService.INVALID_PROFILE_NAME_MESSAGE);
             return 1;
         }
 
@@ -38,13 +36,11 @@ internal sealed class DeleteProfileCliCommand : Command
             return 1;
         }
 
-        var catalogResult = await _profileService.TryLoadProfileCatalogAsync();
-        if(!catalogResult.Success)
+        var (success, catalog) = await ProfileService.TryLoadProfileCatalogAsync();
+        if(!success)
         {
             return 1;
         }
-
-        var catalog = catalogResult.Catalog;
         if(!catalog.ProfileDirectories.ContainsKey(normalizedName))
         {
             AppIO.WriteError($"Profile '{normalizedName}' does not exist.");

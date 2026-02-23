@@ -2,25 +2,19 @@ using System.CommandLine;
 
 internal sealed class ListProfilesCliCommand : Command
 {
-    private readonly ProfileService _profileService;
-
-    public ListProfilesCliCommand(ProfileService profileService)
+    public ListProfilesCliCommand(ProfileService _)
         : base("list", "List all configured profiles.")
     {
-        _profileService = profileService;
-
         SetAction(async _ => await ExecuteAsync());
     }
 
-    private async Task<int> ExecuteAsync()
+    private static async Task<int> ExecuteAsync()
     {
-        var catalogResult = await _profileService.TryLoadProfileCatalogAsync();
-        if(!catalogResult.Success)
+        var (success, catalog) = await ProfileService.TryLoadProfileCatalogAsync();
+        if(!success)
         {
             return 1;
         }
-
-        var catalog = catalogResult.Catalog;
         if(catalog.ProfileDirectories.Count == 0)
         {
             AppIO.WriteWarning("No profiles found.");

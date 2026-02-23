@@ -24,19 +24,13 @@ internal sealed class DockerHostService
         return false;
     }
 
-    public async Task<string?> GetContainerUserSpecAsync()
-    {
-        if(!IsLinux)
-        {
-            return null;
-        }
-
-        return await TryGetLinuxUserSpecAsync() is { Success: true, UserSpec: string userSpec }
+    public async Task<string?> GetContainerUserSpecAsync() => !IsLinux
+            ? null
+            : await TryGetLinuxUserSpecAsync() is { Success: true, UserSpec: string userSpec }
             ? userSpec
             : null;
-    }
 
-    public async Task<(bool Success, string UserSpec)> TryGetLinuxUserSpecAsync()
+    public static async Task<(bool Success, string UserSpec)> TryGetLinuxUserSpecAsync()
     {
         var uidResult = await ProcessRunner.RunAsync("id", ["-u"]);
         if(!uidResult.Success)
@@ -73,7 +67,7 @@ internal sealed class DockerHostService
         return (true, $"{uid}:{gid}");
     }
 
-    public bool TryEnsureGlobalConfigDirectory(out string configDirectory)
+    public static bool TryEnsureGlobalConfigDirectory(out string configDirectory)
     {
         configDirectory = String.Empty;
 

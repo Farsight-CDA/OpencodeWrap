@@ -2,7 +2,7 @@ using System.Security.Cryptography;
 
 internal sealed class DockerImageService
 {
-    public async Task<(bool Success, string ImageTag)> TryEnsureImageAsync(string dockerfilePath)
+    public static async Task<(bool Success, string ImageTag)> TryEnsureImageAsync(string dockerfilePath)
     {
         string imageTag = "opencode-wrap:unavailable";
 
@@ -24,7 +24,7 @@ internal sealed class DockerImageService
         return await TryBuildImageAsync(dockerfilePath, imageTag, noCache: false);
     }
 
-    public async Task<(bool Success, string ImageTag)> TryBuildImageAsync(string dockerfilePath, bool noCache)
+    public static async Task<(bool Success, string ImageTag)> TryBuildImageAsync(string dockerfilePath, bool noCache)
     {
         string imageTag = "opencode-wrap:unavailable";
 
@@ -75,5 +75,4 @@ internal sealed class DockerImageService
         string hash = Convert.ToHexString(hashBytes).ToLowerInvariant();
         return $"opencode-wrap:{hash[..12]}";
     }
-
 }

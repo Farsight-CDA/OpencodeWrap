@@ -8,30 +8,19 @@ internal static class ContainerCleanupWatchdog
     private const string WATCHDOG_ENVIRONMENT_VARIABLE = "OCW_INTERNAL_WATCHDOG";
     private const string WATCHDOG_READY_FILE_PREFIX = "ocw-watchdog-";
     private const string WATCHDOG_READY_FILE_SUFFIX = ".ready";
-    private static readonly TimeSpan ParentPollInterval = TimeSpan.FromMilliseconds(500);
-    private static readonly TimeSpan ReadyPollInterval = TimeSpan.FromMilliseconds(25);
-    private static readonly TimeSpan RemovalRetryDuration = TimeSpan.FromSeconds(20);
-    private static readonly TimeSpan RemovalRetryInterval = TimeSpan.FromMilliseconds(250);
-    private static readonly Lock SignalRegistrationLock = new();
+    private static readonly TimeSpan _parentPollInterval = TimeSpan.FromMilliseconds(500);
+    private static readonly TimeSpan _readyPollInterval = TimeSpan.FromMilliseconds(25);
+    private static readonly TimeSpan _removalRetryDuration = TimeSpan.FromSeconds(20);
+    private static readonly TimeSpan _removalRetryInterval = TimeSpan.FromMilliseconds(250);
+    private static readonly Lock _signalRegistrationLock = new();
     private static List<PosixSignalRegistration>? _ignoreSignalRegistrations;
     private readonly record struct WatchdogRunConfig(int ParentPid, long ParentStartTicks, string ContainerName, string ReadyFilePath);
 
-    public static bool IsWatchdogInvocation(IReadOnlyList<string> args)
-    {
-        return args.Count > 0
+    public static bool IsWatchdogInvocation(IReadOnlyList<string> args) => args.Count > 0
             && String.Equals(args[0], WATCHDOG_MODE, StringComparison.Ordinal)
             && String.Equals(Environment.GetEnvironmentVariable(WATCHDOG_ENVIRONMENT_VARIABLE), "1", StringComparison.Ordinal);
-    }
 
-    public static Task<int> RunWatchdogAsync(IReadOnlyList<string> args)
-    {
-        if(!TryParseWatchdogRunConfig(args, out WatchdogRunConfig config))
-        {
-            return Task.FromResult(1);
-        }
-
-        return WaitForParentAndCleanupAsync(config);
-    }
+    public static Task<int> RunWatchdogAsync(IReadOnlyList<string> args) => !TryParseWatchdogRunConfig(args, out var config) ? Task.FromResult(1) : WaitForParentAndCleanupAsync(config);
 
     public static async Task<bool> TryStartDetachedAndWaitReadyAsync(string containerName, TimeSpan timeout)
     {
@@ -49,7 +38,7 @@ internal static class ContainerCleanupWatchdog
 
         if(OperatingSystem.IsLinux() || OperatingSystem.IsMacOS())
         {
-            if(TryStartWatchdog("setsid", [executablePath!, ..watchdogArgs]))
+            if(TryStartWatchdog("setsid", [executablePath!, .. watchdogArgs]))
             {
                 return await WaitForReadyAsync(readyFilePath, timeout);
             }
@@ -100,7 +89,7 @@ internal static class ContainerCleanupWatchdog
 
         while(IsParentAlive(config.ParentPid, config.ParentStartTicks))
         {
-            await Task.Delay(ParentPollInterval);
+            await Task.Delay(_parentPollInterval);
         }
 
         await RetryCleanupContainerAsync(config.ContainerName);
@@ -109,7 +98,7 @@ internal static class ContainerCleanupWatchdog
 
     private static async Task RetryCleanupContainerAsync(string containerName)
     {
-        DateTime deadlineUtc = DateTime.UtcNow + RemovalRetryDuration;
+        var deadlineUtc = DateTime.UtcNow + _removalRetryDuration;
         bool sawContainer = false;
 
         while(DateTime.UtcNow < deadlineUtc)
@@ -129,13 +118,13 @@ internal static class ContainerCleanupWatchdog
                 return;
             }
 
-            await Task.Delay(RemovalRetryInterval);
+            await Task.Delay(_removalRetryInterval);
         }
     }
 
     private static async Task<bool> WaitForReadyAsync(string readyFilePath, TimeSpan timeout)
     {
-        DateTime deadlineUtc = DateTime.UtcNow + timeout;
+        var deadlineUtc = DateTime.UtcNow + timeout;
         while(DateTime.UtcNow < deadlineUtc)
         {
             if(File.Exists(readyFilePath))
@@ -144,7 +133,7 @@ internal static class ContainerCleanupWatchdog
                 return true;
             }
 
-            await Task.Delay(ReadyPollInterval);
+            await Task.Delay(_readyPollInterval);
         }
 
         TryDeleteFile(readyFilePath);
@@ -189,12 +178,7 @@ internal static class ContainerCleanupWatchdog
         try
         {
             using var process = Process.GetProcessById(parentPid);
-            if(process.HasExited)
-            {
-                return false;
-            }
-
-            return process.StartTime.ToUniversalTime().Ticks == parentStartTicks;
+            return !process.HasExited && process.StartTime.ToUniversalTime().Ticks == parentStartTicks;
         }
         catch
         {
@@ -249,12 +233,12 @@ internal static class ContainerCleanupWatchdog
             return false;
         }
 
-        if(!int.TryParse(args[1], NumberStyles.None, CultureInfo.InvariantCulture, out int parentPid) || parentPid <= 0)
+        if(!Int32.TryParse(args[1], NumberStyles.None, CultureInfo.InvariantCulture, out int parentPid) || parentPid <= 0)
         {
             return false;
         }
 
-        if(!long.TryParse(args[2], NumberStyles.None, CultureInfo.InvariantCulture, out long parentStartTicks) || parentStartTicks <= 0)
+        if(!Int64.TryParse(args[2], NumberStyles.None, CultureInfo.InvariantCulture, out long parentStartTicks) || parentStartTicks <= 0)
         {
             return false;
         }
@@ -275,10 +259,7 @@ internal static class ContainerCleanupWatchdog
         return true;
     }
 
-    private static bool ContainerExists(string containerName)
-    {
-        return ProcessRunner.CommandSucceedsBlocking("docker", ["container", "inspect", containerName]);
-    }
+    private static bool ContainerExists(string containerName) => ProcessRunner.CommandSucceedsBlocking("docker", ["container", "inspect", containerName]);
 
     private static void RegisterIgnoreTerminationHandlers()
     {
@@ -287,7 +268,7 @@ internal static class ContainerCleanupWatchdog
             return;
         }
 
-        lock(SignalRegistrationLock)
+        lock(_signalRegistrationLock)
         {
             if(_ignoreSignalRegistrations is not null)
             {

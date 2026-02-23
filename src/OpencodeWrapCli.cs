@@ -12,7 +12,7 @@ internal static class OpencodeWrapCli
         var services = new OpencodeWrapServices();
         var rootCommand = new OpencodeWrapRootCommand(services);
 
-        if(!await services.Profiles.TryEnsureInitializedAsync())
+        if(!await ProfileService.TryEnsureInitializedAsync())
         {
             return 1;
         }
@@ -22,13 +22,14 @@ internal static class OpencodeWrapCli
             return await InvokeAsync(rootCommand, ["--help"]);
         }
 
-        if(String.Equals(args[0], "data", StringComparison.OrdinalIgnoreCase)
-            || String.Equals(args[0], "run", StringComparison.OrdinalIgnoreCase)
-            || String.Equals(args[0], "profile", StringComparison.OrdinalIgnoreCase))
+        bool isReservedTopLevelCommand = rootCommand.Subcommands.Any(subcommand =>
+            String.Equals(subcommand.Name, args[0], StringComparison.OrdinalIgnoreCase));
+
+        if(isReservedTopLevelCommand)
         {
             return await InvokeAsync(rootCommand, args);
         }
-
+        //
         return await OpencodeWrapRootCommand.ExecuteOpencodeAsync(services, args, requestedProfileName: null, includeProfileConfig: false);
     }
 

@@ -9,7 +9,7 @@ internal sealed class OpencodeWrapServices
     {
         Host = new DockerHostService();
         Image = new DockerImageService();
-        Profiles = new ProfileService(Host);
+        Profiles = new ProfileService();
         Volume = new VolumeStateService(Host);
     }
 }

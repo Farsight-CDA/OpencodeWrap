@@ -32,12 +32,12 @@ internal sealed class ImportArchiveCliCommand : Command
 
     private async Task<int> ExecuteAsync(string archivePath, bool force)
     {
-        if(!await AppIO.WithStatusAsync("Checking Docker volume...", () => _volumeService.EnsureVolumeReadyAsync()))
+        if(!await AppIO.WithStatusAsync("Checking Docker volume...", _volumeService.EnsureVolumeReadyAsync))
         {
             return 1;
         }
 
-        if(!await _volumeService.ValidateImportTargetStateAsync(force))
+        if(!await VolumeStateService.ValidateImportTargetStateAsync(force))
         {
             return 1;
         }

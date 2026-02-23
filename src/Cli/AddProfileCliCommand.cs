@@ -2,13 +2,11 @@ using System.CommandLine;
 
 internal sealed class AddProfileCliCommand : Command
 {
-    private readonly ProfileService _profileService;
     private readonly Argument<string> _nameArgument;
 
-    public AddProfileCliCommand(ProfileService profileService)
+    public AddProfileCliCommand(ProfileService _)
         : base("add", "Add a new profile with a starter Dockerfile.")
     {
-        _profileService = profileService;
         _nameArgument = new Argument<string>("name")
         {
             Description = "New profile name."
@@ -23,22 +21,20 @@ internal sealed class AddProfileCliCommand : Command
         });
     }
 
-    private async Task<int> ExecuteAsync(string profileName)
+    private static async Task<int> ExecuteAsync(string profileName)
     {
         string normalizedName = profileName.Trim();
         if(!ProfileService.IsValidProfileName(normalizedName))
         {
-            AppIO.WriteError(ProfileService.InvalidProfileNameMessage);
+            AppIO.WriteError(ProfileService.INVALID_PROFILE_NAME_MESSAGE);
             return 1;
         }
 
-        var catalogResult = await _profileService.TryLoadProfileCatalogAsync();
-        if(!catalogResult.Success)
+        var (success, catalog) = await ProfileService.TryLoadProfileCatalogAsync();
+        if(!success)
         {
             return 1;
         }
-
-        var catalog = catalogResult.Catalog;
         if(catalog.ProfileDirectories.ContainsKey(normalizedName))
         {
             AppIO.WriteError($"Profile '{normalizedName}' already exists.");
@@ -62,7 +58,7 @@ internal sealed class AddProfileCliCommand : Command
                 return 1;
             }
 
-            await File.WriteAllTextAsync(dockerfilePath, _profileService.StarterDockerfileTemplate);
+            await File.WriteAllTextAsync(dockerfilePath, ProfileService.StarterDockerfileTemplate);
         }
         catch(Exception ex)
         {

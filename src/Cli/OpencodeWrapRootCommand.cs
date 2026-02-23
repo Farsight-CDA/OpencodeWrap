@@ -4,7 +4,7 @@ using System.Runtime.InteropServices;
 internal sealed class OpencodeWrapRootCommand : RootCommand
 {
     private readonly OpencodeWrapServices _services;
-    private static readonly TimeSpan WatchdogReadyTimeout = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan _watchdogReadyTimeout = TimeSpan.FromSeconds(2);
     private int _cleanupStarted;
     private string? _containerName;
     private readonly List<PosixSignalRegistration> _signalRegistrations = [];
@@ -23,33 +23,26 @@ internal sealed class OpencodeWrapRootCommand : RootCommand
         IReadOnlyList<string> opencodeArgs,
         string? requestedProfileName,
         bool includeProfileConfig,
-        bool disableWorkspaceMount = false)
-    {
-        return new OpencodeWrapRootCommand(services).ExecuteOpencodeAsync(opencodeArgs, requestedProfileName, includeProfileConfig, disableWorkspaceMount);
-    }
+        bool disableWorkspaceMount = false) => new OpencodeWrapRootCommand(services).ExecuteOpencodeAsync(opencodeArgs, requestedProfileName, includeProfileConfig, disableWorkspaceMount);
 
     private async Task<int> ExecuteOpencodeAsync(IReadOnlyList<string> opencodeArgs, string? requestedProfileName, bool includeProfileConfig, bool disableWorkspaceMount)
     {
-        var profileResolution = await _services.Profiles.TryResolveProfileAsync(includeProfileConfig ? requestedProfileName : null);
-        if(!profileResolution.Success)
+        var (success, profile) = await ProfileService.TryResolveProfileAsync(includeProfileConfig ? requestedProfileName : null);
+        if(!success)
         {
             return 1;
         }
 
-        var profile = profileResolution.Profile;
-
-        if(!await AppIO.WithStatusAsync("Checking Docker volume...", () => _services.Volume.EnsureVolumeReadyAsync()))
+        if(!await AppIO.WithStatusAsync("Checking Docker volume...", _services.Volume.EnsureVolumeReadyAsync))
         {
             return 1;
         }
 
-        var imageResult = await _services.Image.TryEnsureImageAsync(profile.DockerfilePath);
-        if(!imageResult.Success)
+        var (imageReady, imageTag) = await DockerImageService.TryEnsureImageAsync(profile.DockerfilePath);
+        if(!imageReady)
         {
             return 1;
         }
-
-        string imageTag = imageResult.ImageTag;
 
         string? hostWorkDir = null;
         string containerWorkDir;
@@ -136,12 +129,9 @@ internal sealed class OpencodeWrapRootCommand : RootCommand
         }
 
         string directoryName = Path.GetFileName(trimmedPath);
-        if(String.IsNullOrWhiteSpace(directoryName) || directoryName.Contains('/') || directoryName.Contains('\\'))
-        {
-            return OpencodeWrapConstants.CONTAINER_WORKSPACE;
-        }
-
-        return $"{OpencodeWrapConstants.CONTAINER_WORKSPACE}/{directoryName}";
+        return String.IsNullOrWhiteSpace(directoryName) || directoryName.Contains('/') || directoryName.Contains('\\')
+            ? OpencodeWrapConstants.CONTAINER_WORKSPACE
+            : $"{OpencodeWrapConstants.CONTAINER_WORKSPACE}/{directoryName}";
     }
 
     private void RegisterCleanupHandlers()
@@ -160,7 +150,7 @@ internal sealed class OpencodeWrapRootCommand : RootCommand
     {
         context.Cancel = true;
         CleanupContainer(force: true);
-        Environment.Exit(128 + (int)context.Signal);
+        Environment.Exit(128 + (int) context.Signal);
     }
 
     private void CleanupContainer(bool force)
@@ -191,7 +181,7 @@ internal sealed class OpencodeWrapRootCommand : RootCommand
 
     private static async Task EnsureCleanupWatchdogAsync(string containerName)
     {
-        bool watchdogReady = await ContainerCleanupWatchdog.TryStartDetachedAndWaitReadyAsync(containerName, WatchdogReadyTimeout);
+        bool watchdogReady = await ContainerCleanupWatchdog.TryStartDetachedAndWaitReadyAsync(containerName, _watchdogReadyTimeout);
         if(!watchdogReady)
         {
             AppIO.WriteWarning("cleanup watchdog failed to initialize; terminal-close cleanup may be less reliable.");

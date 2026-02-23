@@ -3,13 +3,11 @@ using System.Diagnostics;
 
 internal sealed class OpenProfileDirectoryCliCommand : Command
 {
-    private readonly ProfileService _profileService;
     private readonly DockerHostService _hostService;
 
-    public OpenProfileDirectoryCliCommand(ProfileService profileService, DockerHostService hostService)
+    public OpenProfileDirectoryCliCommand(ProfileService _, DockerHostService hostService)
         : base("open", "Open $HOME/.opencode-wrap in the file explorer.")
     {
-        _profileService = profileService;
         _hostService = hostService;
 
         SetAction(async _ => await ExecuteAsync());
@@ -17,12 +15,12 @@ internal sealed class OpenProfileDirectoryCliCommand : Command
 
     private async Task<int> ExecuteAsync()
     {
-        if(!await _profileService.TryEnsureInitializedAsync())
+        if(!await ProfileService.TryEnsureInitializedAsync())
         {
             return 1;
         }
 
-        if(!_hostService.TryEnsureGlobalConfigDirectory(out string configRoot))
+        if(!DockerHostService.TryEnsureGlobalConfigDirectory(out string configRoot))
         {
             return 1;
         }
