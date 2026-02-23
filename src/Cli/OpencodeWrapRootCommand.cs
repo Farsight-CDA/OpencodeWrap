@@ -12,7 +12,7 @@ internal sealed class OpencodeWrapRootCommand : RootCommand
         _services = services;
         Add(new RunCliCommand(_services));
         Add(new DataCliCommand(_services.Volume));
-        Add(new ProfileCliCommand(_services.Profiles, _services.Image));
+        Add(new ProfileCliCommand(_services.Profiles, _services.Image, _services.Host));
     }
 
     public static Task<int> ExecuteOpencodeAsync(
@@ -137,7 +137,7 @@ internal sealed class OpencodeWrapRootCommand : RootCommand
             return OpencodeWrapConstants.CONTAINER_WORKSPACE;
         }
 
-        return $"/{directoryName}";
+        return $"{OpencodeWrapConstants.CONTAINER_WORKSPACE}/{directoryName}";
     }
 
     private void RegisterCleanupHandlers()

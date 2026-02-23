@@ -1,4 +1,5 @@
 internal sealed record ResolvedProfile(string Name, string DirectoryPath, string DockerfilePath);
+internal sealed record ProfileCatalog(string ConfigRoot, string DefaultProfileName, IReadOnlyDictionary<string, string> ProfileDirectories);
 
 internal sealed class ProfileService
 {
@@ -8,6 +9,9 @@ internal sealed class ProfileService
     private static readonly string DotnetDockerfile = LoadEmbeddedTextResource("ProfileTemplates.dotnet.Dockerfile");
     private static readonly string DefaultOpencodeConfig = LoadEmbeddedTextResource("ProfileTemplates.default.opencode.json");
     private static readonly string DotnetOpencodeConfig = LoadEmbeddedTextResource("ProfileTemplates.dotnet.opencode.json");
+
+    public const string InvalidProfileNameMessage = "Profile name may only contain letters, numbers, '-', '_', and '.'.";
+    public string StarterDockerfileTemplate => DefaultDockerfile;
 
     public ProfileService(DockerHostService host)
     {
@@ -24,194 +28,39 @@ internal sealed class ProfileService
         return TryBootstrapIfConfigRootIsEmptyAsync(configRoot);
     }
 
-    public async Task<bool> TryAddProfileAsync(string profileName)
-    {
-        string normalizedName = profileName.Trim();
-        if(!TryValidateProfileName(normalizedName))
-        {
-            AppIO.WriteError("Profile name may only contain letters, numbers, '-', '_', and '.'.");
-            return false;
-        }
-
-        var config = await TryLoadConfigAsync();
-        if(!config.Success)
-        {
-            return false;
-        }
-
-        if(config.ProfileDirectories.ContainsKey(normalizedName))
-        {
-            AppIO.WriteError($"Profile '{normalizedName}' already exists.");
-            return false;
-        }
-
-        string profileDirectoryPath = Path.GetFullPath(Path.Combine(config.ConfigRoot, normalizedName));
-        if(!PathIsWithin(config.ConfigRoot, profileDirectoryPath))
-        {
-            AppIO.WriteError($"Profile directory '{profileDirectoryPath}' resolves outside '{config.ConfigRoot}'.");
-            return false;
-        }
-
-        string dockerfilePath = Path.Combine(profileDirectoryPath, OpencodeWrapConstants.PROFILE_DOCKERFILE_NAME);
-
-        try
-        {
-            Directory.CreateDirectory(profileDirectoryPath);
-            if(File.Exists(dockerfilePath))
-            {
-                AppIO.WriteError($"Cannot add profile '{normalizedName}' because '{dockerfilePath}' already exists.");
-                return false;
-            }
-
-            await File.WriteAllTextAsync(dockerfilePath, DefaultDockerfile);
-        }
-        catch(Exception ex)
-        {
-            AppIO.WriteError($"Failed to add profile '{normalizedName}': {ex.Message}");
-            return false;
-        }
-
-        AppIO.WriteSuccess($"Added profile '{normalizedName}' at '{profileDirectoryPath}'.");
-        return true;
-    }
-
-    public async Task<bool> TryDeleteProfileAsync(string profileName)
-    {
-        string normalizedName = profileName.Trim();
-        if(!TryValidateProfileName(normalizedName))
-        {
-            AppIO.WriteError("Profile name may only contain letters, numbers, '-', '_', and '.'.");
-            return false;
-        }
-
-        if(String.Equals(OpencodeWrapConstants.DEFAULT_PROFILE_NAME, normalizedName, StringComparison.OrdinalIgnoreCase))
-        {
-            AppIO.WriteError($"Cannot delete default profile '{normalizedName}'.");
-            return false;
-        }
-
-        var config = await TryLoadConfigAsync();
-        if(!config.Success)
-        {
-            return false;
-        }
-
-        if(!config.ProfileDirectories.ContainsKey(normalizedName))
-        {
-            AppIO.WriteError($"Profile '{normalizedName}' does not exist.");
-            return false;
-        }
-
-        string profileDirectoryPath = Path.GetFullPath(Path.Combine(config.ConfigRoot, normalizedName));
-        if(!PathIsWithin(config.ConfigRoot, profileDirectoryPath))
-        {
-            AppIO.WriteError($"Profile '{normalizedName}' directory resolves outside '{config.ConfigRoot}'.");
-            return false;
-        }
-
-        try
-        {
-            if(Directory.Exists(profileDirectoryPath))
-            {
-                Directory.Delete(profileDirectoryPath, recursive: true);
-            }
-        }
-        catch(Exception ex)
-        {
-            AppIO.WriteError($"Failed to delete profile '{normalizedName}': {ex.Message}");
-            return false;
-        }
-
-        AppIO.WriteSuccess($"Deleted profile '{normalizedName}'.");
-        return true;
-    }
-
-    public async Task<bool> TryOpenProfilesDirectoryAsync()
-    {
-        if(!await TryEnsureInitializedAsync())
-        {
-            return false;
-        }
-
-        if(!_host.TryEnsureGlobalConfigDirectory(out string configRoot))
-        {
-            return false;
-        }
-
-        bool opened = await ProcessRunner.TryOpenDirectoryAsync(
-            configRoot,
-            _host.IsWindows,
-            onFailurePrefix: $"Failed to open profile directory '{configRoot}'.");
-
-        if(!opened)
-        {
-            return false;
-        }
-
-        AppIO.WriteInfo($"Opened profile directory: '{configRoot}'.");
-        return true;
-    }
-
-    public async Task<bool> TryListProfilesAsync()
-    {
-        var config = await TryLoadConfigAsync();
-        if(!config.Success)
-        {
-            return false;
-        }
-
-        if(config.ProfileDirectories.Count == 0)
-        {
-            AppIO.WriteWarning("No profiles found.");
-            return true;
-        }
-
-        AppIO.WriteInfo($"Profiles ('{config.DefaultProfileName}' is the fixed built-in default profile name):");
-
-        foreach(var kvp in config.ProfileDirectories.OrderBy(p => p.Key, StringComparer.OrdinalIgnoreCase))
-        {
-            string marker = String.Equals(kvp.Key, config.DefaultProfileName, StringComparison.OrdinalIgnoreCase)
-                ? " [default]"
-                : String.Empty;
-
-            AppIO.WriteInfo($"- {kvp.Key}{marker} ({kvp.Value})");
-        }
-
-        return true;
-    }
-
     public async Task<(bool Success, ResolvedProfile Profile)> TryResolveProfileAsync(string? requestedProfileName)
     {
         var emptyProfile = new ResolvedProfile(String.Empty, String.Empty, String.Empty);
 
-        var config = await TryLoadConfigAsync();
-        if(!config.Success)
+        var catalogResult = await TryLoadProfileCatalogAsync();
+        if(!catalogResult.Success)
         {
             return (false, emptyProfile);
         }
+
+        ProfileCatalog catalog = catalogResult.Catalog;
 
         string selectedProfileName = requestedProfileName?.Trim() ?? String.Empty;
         if(selectedProfileName.Length == 0)
         {
-            selectedProfileName = config.DefaultProfileName;
+            selectedProfileName = catalog.DefaultProfileName;
         }
 
-        if(!TryValidateProfileName(selectedProfileName))
+        if(!IsValidProfileName(selectedProfileName))
         {
-            AppIO.WriteError("Profile name may only contain letters, numbers, '-', '_', and '.'.");
+            AppIO.WriteError(InvalidProfileNameMessage);
             return (false, emptyProfile);
         }
 
-        if(!config.ProfileDirectories.TryGetValue(selectedProfileName, out string? relativeDirectoryPath))
+        if(!catalog.ProfileDirectories.TryGetValue(selectedProfileName, out string? relativeDirectoryPath))
         {
             AppIO.WriteError($"Profile '{selectedProfileName}' does not exist.");
             return (false, emptyProfile);
         }
 
-        string profileDirectoryPath = Path.GetFullPath(Path.Combine(config.ConfigRoot, relativeDirectoryPath));
-        if(!PathIsWithin(config.ConfigRoot, profileDirectoryPath))
+        if(!TryResolveProfileDirectoryPath(catalog.ConfigRoot, relativeDirectoryPath, out string profileDirectoryPath))
         {
-            AppIO.WriteError($"Profile '{selectedProfileName}' directory resolves outside '{config.ConfigRoot}'.");
+            AppIO.WriteError($"Profile '{selectedProfileName}' directory resolves outside '{catalog.ConfigRoot}'.");
             return (false, emptyProfile);
         }
 
@@ -231,20 +80,21 @@ internal sealed class ProfileService
         return (true, new ResolvedProfile(selectedProfileName, profileDirectoryPath, dockerfilePath));
     }
 
-    private async Task<(bool Success, string ConfigRoot, string DefaultProfileName, Dictionary<string, string> ProfileDirectories)> TryLoadConfigAsync()
+    public async Task<(bool Success, ProfileCatalog Catalog)> TryLoadProfileCatalogAsync()
     {
         if(!await TryEnsureInitializedAsync())
         {
-            return (false, String.Empty, String.Empty, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase));
+            return (false, CreateEmptyCatalog());
         }
 
         if(!_host.TryEnsureGlobalConfigDirectory(out string configRoot))
         {
-            return (false, String.Empty, String.Empty, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase));
+            return (false, CreateEmptyCatalog());
         }
 
-        var profileDirectories = DiscoverProfileDirectories(configRoot);
-        return (true, configRoot, OpencodeWrapConstants.DEFAULT_PROFILE_NAME, profileDirectories);
+        Dictionary<string, string> profileDirectories = DiscoverProfileDirectories(configRoot);
+        var catalog = new ProfileCatalog(configRoot, OpencodeWrapConstants.DEFAULT_PROFILE_NAME, profileDirectories);
+        return (true, catalog);
     }
 
     private static Dictionary<string, string> DiscoverProfileDirectories(string configRoot)
@@ -265,7 +115,7 @@ internal sealed class ProfileService
         foreach(string directoryPath in directories)
         {
             string profileName = Path.GetFileName(directoryPath);
-            if(!TryValidateProfileName(profileName))
+            if(!IsValidProfileName(profileName))
             {
                 continue;
             }
@@ -276,7 +126,7 @@ internal sealed class ProfileService
         return profileDirectories;
     }
 
-    private static bool TryValidateProfileName(string profileName)
+    public static bool IsValidProfileName(string profileName)
     {
         if(profileName.Length == 0)
         {
@@ -294,6 +144,20 @@ internal sealed class ProfileService
         }
 
         return true;
+    }
+
+    public static bool TryResolveProfileDirectoryPath(string configRoot, string profileRelativePath, out string profileDirectoryPath)
+    {
+        profileDirectoryPath = Path.GetFullPath(Path.Combine(configRoot, profileRelativePath));
+        return PathIsWithin(configRoot, profileDirectoryPath);
+    }
+
+    private static ProfileCatalog CreateEmptyCatalog()
+    {
+        return new ProfileCatalog(
+            String.Empty,
+            String.Empty,
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase));
     }
 
     private static bool PathIsWithin(string parentDirectoryPath, string childDirectoryPath)

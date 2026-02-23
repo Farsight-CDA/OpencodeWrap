@@ -12,9 +12,7 @@
       "appsettings.json": "deny",
       "**/appsettings.json": "deny",
       "appsettings.*.json": "deny",
-      "**/appsettings.*.json": "deny",
-      "appsetttings.*.json": "deny",
-      "**/appsetttings.*.json": "deny"
+      "**/appsettings.*.json": "deny"
     }
   }
 }

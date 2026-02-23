@@ -6,10 +6,10 @@ internal static class OpencodeWrapConstants
     public const string DEFAULT_PROFILE_NAME = "default";
     public const string PROFILE_DOCKERFILE_NAME = "Dockerfile";
     public const string XDG_VOLUME_NAME = "opencode-wrap-xdg";
-    public const string CONTAINER_XDG_ROOT = "/home/opencode/.xdg";
+    public const string CONTAINER_XDG_ROOT = "/home/opencode/";
     public const string CONTAINER_XDG_CONFIG_HOME = "/home/opencode/.config";
-    public const string CONTAINER_XDG_DATA_HOME = "/home/opencode/.xdg/.local/share";
-    public const string CONTAINER_XDG_STATE_HOME = "/home/opencode/.xdg/.local/state";
+    public const string CONTAINER_XDG_DATA_HOME = "/home/opencode/.local/share";
+    public const string CONTAINER_XDG_STATE_HOME = "/home/opencode/.local/state";
     public const string CONTAINER_HOST_CONFIG_SOURCE = "/opt/opencode-wrap/host-config";
     public const string VOLUME_SHARE_SUBDIRECTORY = ".local/share/opencode";
     public const string VOLUME_STATE_SUBDIRECTORY = ".local/state/opencode";
