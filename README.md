@@ -11,15 +11,11 @@ Run [OpenCode](https://opencode.ai) in Docker with persistent state and lightwei
 
 ## Quick Start
 
-Requirements:
+Requirement: Docker (daemon running).
 
-- Docker (daemon running)
-
-Download a prebuilt binary from GitHub Actions artifacts:
-
-- Open the latest **Build Artifacts** workflow run and download `ocw-linux-x64` or `ocw-win-x64`.
-
-Import existing host OpenCode state into the Docker volume:
+1. Download a prebuilt binary from the latest **Build Artifacts** workflow run (`ocw-linux-x64` or `ocw-win-x64`).
+2. Extract it and run `ocw --help` (or `ocw.exe --help` on Windows).
+3. Optional: import existing host OpenCode state into the Docker volume:
 
 ```bash
 ocw data import-host
