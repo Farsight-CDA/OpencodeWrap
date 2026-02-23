@@ -14,23 +14,26 @@ Run [OpenCode](https://opencode.ai) in Docker with persistent state and lightwei
 Requirements:
 
 - Docker (daemon running)
-- .NET 10 SDK (only needed if building from source)
 
 Download a prebuilt binary from GitHub Actions artifacts:
 
 - Open the latest **Build Artifacts** workflow run and download `ocw-linux-x64` or `ocw-win-x64`.
 
-Build a standalone binary:
-
-```bash
-dotnet publish src/OpencodeWrap.csproj -c Release -r linux-x64 --self-contained true
-./src/bin/Release/net10.0/linux-x64/publish/ocw --help
-```
-
 Import existing host OpenCode state into the Docker volume:
 
 ```bash
 ocw data import-host
+```
+
+## Build From Source
+
+Developer requirement:
+
+- .NET 10 SDK
+
+```bash
+dotnet publish src/OpencodeWrap.csproj -c Release -r linux-x64 --self-contained true
+./src/bin/Release/net10.0/linux-x64/publish/ocw --help
 ```
 
 ## Usage
