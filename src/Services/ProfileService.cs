@@ -166,7 +166,7 @@ internal sealed class ProfileService
             return true;
         }
 
-        AppIO.WriteInfo($"Profiles (default: '{config.DefaultProfileName}'):");
+        AppIO.WriteInfo($"Profiles ('{config.DefaultProfileName}' is the fixed built-in default profile name):");
 
         foreach(var kvp in config.ProfileDirectories.OrderBy(p => p.Key, StringComparer.OrdinalIgnoreCase))
         {

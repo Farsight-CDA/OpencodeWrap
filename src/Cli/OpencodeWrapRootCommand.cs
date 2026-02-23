@@ -19,12 +19,13 @@ internal sealed class OpencodeWrapRootCommand : RootCommand
         OpencodeWrapServices services,
         IReadOnlyList<string> opencodeArgs,
         string? requestedProfileName,
-        bool includeProfileConfig)
+        bool includeProfileConfig,
+        bool disableWorkspaceMount = false)
     {
-        return new OpencodeWrapRootCommand(services).ExecuteOpencodeAsync(opencodeArgs, requestedProfileName, includeProfileConfig);
+        return new OpencodeWrapRootCommand(services).ExecuteOpencodeAsync(opencodeArgs, requestedProfileName, includeProfileConfig, disableWorkspaceMount);
     }
 
-    private async Task<int> ExecuteOpencodeAsync(IReadOnlyList<string> opencodeArgs, string? requestedProfileName, bool includeProfileConfig)
+    private async Task<int> ExecuteOpencodeAsync(IReadOnlyList<string> opencodeArgs, string? requestedProfileName, bool includeProfileConfig, bool disableWorkspaceMount)
     {
         var profileResolution = await _services.Profiles.TryResolveProfileAsync(includeProfileConfig ? requestedProfileName : null);
         if(!profileResolution.Success)
@@ -47,14 +48,23 @@ internal sealed class OpencodeWrapRootCommand : RootCommand
 
         string imageTag = imageResult.ImageTag;
 
-        string hostWorkDir = Path.GetFullPath(Directory.GetCurrentDirectory());
-        if(!Directory.Exists(hostWorkDir))
+        string? hostWorkDir = null;
+        string containerWorkDir;
+        if(disableWorkspaceMount)
         {
-            AppIO.WriteError($"Workspace directory not found: '{hostWorkDir}'.");
-            return 1;
+            containerWorkDir = OpencodeWrapConstants.CONTAINER_HOME;
         }
+        else
+        {
+            hostWorkDir = Path.GetFullPath(Directory.GetCurrentDirectory());
+            if(!Directory.Exists(hostWorkDir))
+            {
+                AppIO.WriteError($"Workspace directory not found: '{hostWorkDir}'.");
+                return 1;
+            }
 
-        string containerWorkDir = ResolveContainerWorkspacePath(hostWorkDir);
+            containerWorkDir = ResolveContainerWorkspacePath(hostWorkDir);
+        }
 
         _containerName = $"opencode-wrap-{Guid.NewGuid():N}"[..27];
         RegisterCleanupHandlers();
@@ -78,9 +88,13 @@ internal sealed class OpencodeWrapRootCommand : RootCommand
             "-e", "FORCE_HYPERLINK=0",
             "-e", $"XDG_CONFIG_HOME={OpencodeWrapConstants.CONTAINER_XDG_CONFIG_HOME}",
             "-e", $"XDG_DATA_HOME={OpencodeWrapConstants.CONTAINER_XDG_DATA_HOME}",
-            "-e", $"XDG_STATE_HOME={OpencodeWrapConstants.CONTAINER_XDG_STATE_HOME}",
-            "--mount", VolumeStateService.BuildBindMount(hostWorkDir, containerWorkDir)
+            "-e", $"XDG_STATE_HOME={OpencodeWrapConstants.CONTAINER_XDG_STATE_HOME}"
         ]);
+
+        if(!disableWorkspaceMount)
+        {
+            runArgs.AddRange(["--mount", VolumeStateService.BuildBindMount(hostWorkDir!, containerWorkDir)]);
+        }
 
         if(includeProfileConfig)
         {

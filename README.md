@@ -20,6 +20,7 @@ The CLI entrypoints are implemented with `System.CommandLine`.
   - common shell utilities (`bash`, `curl`, `git`, `jq`, etc.)
 - Mounts:
   - Current host directory -> `/<current-directory-name>` (falls back to `/workspace` when name cannot be resolved, e.g. drive root)
+    - With `ocw run <profile> --no-mount`, this workspace mount is skipped.
   - For `ocw run <profile>`, selected profile directory from `$HOME/.opencode-wrap/<profile>` (read-only) -> `/opt/opencode-wrap/host-config`
   - Docker named volume `opencode-wrap-xdg` -> `$HOME/.xdg` in container
 - Sets XDG homes so Opencode config is loaded from host config and data/state persist in the volume:
@@ -30,6 +31,7 @@ The CLI entrypoints are implemented with `System.CommandLine`.
 - Uses host UID/GID on Linux (`--user <uid>:<gid>`), runs as root on Windows.
 - Runs and attaches to `opencode` in the container with interactive TTY.
 - `ocw run <profile>` runs `opencode` with the specified profile config.
+  - `ocw run <profile> --no-mount` runs from container home (`/home/opencode`) without mounting the current host directory.
 - Any command that is not `run` or `data` is forwarded directly to `opencode` (no profile config mount/copy).
 - Stops and deletes the container on process termination/disconnect (`--rm` + explicit cleanup).
 - Supports state migration commands under `data`:
@@ -47,7 +49,7 @@ The CLI entrypoints are implemented with `System.CommandLine`.
     - Import fails if the target volume already has Opencode state unless `-f`/`--force` is provided.
   - `ocw data reset-volume` prompts for confirmation and deletes the named Docker volume (`opencode-wrap-xdg`).
 - Supports profile management commands under `profile`:
-  - `ocw profile list` prints all profile directories from `$HOME/.opencode-wrap` and marks the default profile.
+  - `ocw profile list` prints all profile directories from `$HOME/.opencode-wrap` and marks `default` (fixed built-in name, not user-configurable).
   - `ocw profile add <name>` creates `$HOME/.opencode-wrap/<name>/` and writes a starter `Dockerfile`.
   - `ocw profile delete <name>` deletes `$HOME/.opencode-wrap/<name>/`.
     - Deleting the default profile is not allowed.
