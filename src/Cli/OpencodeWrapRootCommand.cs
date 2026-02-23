@@ -32,7 +32,7 @@ internal sealed class OpencodeWrapRootCommand : RootCommand
             return 1;
         }
 
-        ResolvedProfile profile = profileResolution.Profile;
+        var profile = profileResolution.Profile;
 
         if(!await AppIO.WithStatusAsync("Checking Docker volume...", () => _services.Volume.EnsureVolumeReadyAsync()))
         {
@@ -71,6 +71,7 @@ internal sealed class OpencodeWrapRootCommand : RootCommand
             "-it",
             "--name", _containerName,
             "-e", $"HOME={OpencodeWrapConstants.CONTAINER_HOME}",
+            "-e", "FORCE_HYPERLINK=0",
             "-e", $"XDG_CONFIG_HOME={OpencodeWrapConstants.CONTAINER_XDG_CONFIG_HOME}",
             "-e", $"XDG_DATA_HOME={OpencodeWrapConstants.CONTAINER_XDG_DATA_HOME}",
             "-e", $"XDG_STATE_HOME={OpencodeWrapConstants.CONTAINER_XDG_STATE_HOME}",
@@ -99,19 +100,17 @@ internal sealed class OpencodeWrapRootCommand : RootCommand
         }
 
         int exitCode = await ProcessRunner.RunAttachedProcessAsync("docker", runArgs);
-        await CleanupContainerAsync();
-        _cleanupStarted = 0;
+        await CleanupContainerAsync(force: false);
         return exitCode;
     }
 
     private void RegisterCleanupHandlers()
     {
-        Console.CancelKeyPress += (_, _) => _ = CleanupContainerAsync();
-        AppDomain.CurrentDomain.ProcessExit += (_, _) => _ = CleanupContainerAsync();
-        AppDomain.CurrentDomain.UnhandledException += (_, _) => _ = CleanupContainerAsync();
+        AppDomain.CurrentDomain.ProcessExit += (_, _) => _ = CleanupContainerAsync(force: true);
+        AppDomain.CurrentDomain.UnhandledException += (_, _) => _ = CleanupContainerAsync(force: true);
     }
 
-    private async Task CleanupContainerAsync()
+    private async Task CleanupContainerAsync(bool force)
     {
         if(Interlocked.Exchange(ref _cleanupStarted, 1) != 0)
         {
@@ -123,6 +122,10 @@ internal sealed class OpencodeWrapRootCommand : RootCommand
             return;
         }
 
-        _ = await ProcessRunner.CommandSucceedsAsync("docker", ["rm", "-f", _containerName]);
+        string[] args = force
+            ? ["rm", "-f", _containerName]
+            : ["rm", _containerName];
+
+        _ = await ProcessRunner.CommandSucceedsAsync("docker", args);
     }
 }

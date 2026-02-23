@@ -111,7 +111,7 @@ ENV PATH="/opt/opencode/.opencode/bin:/opt/opencode/.local/share/opencode/bin:/o
             return false;
         }
 
-        Dictionary<string, string> profileDirectories = config.ProfileDirectories;
+        var profileDirectories = config.ProfileDirectories;
         if(profileDirectories.ContainsKey(normalizedName))
         {
             AppIO.WriteError($"Profile '{normalizedName}' already exists.");
@@ -306,7 +306,7 @@ ENV PATH="/opt/opencode/.opencode/bin:/opt/opencode/.local/share/opencode/bin:/o
         }
 
         string defaultProfileName = loadedProfiles.DefaultProfileName;
-        Dictionary<string, string> profileDirectories = loadedProfiles.ProfileDirectories;
+        var profileDirectories = loadedProfiles.ProfileDirectories;
 
         string selectedProfileName = requestedProfileName?.Trim() ?? String.Empty;
         if(selectedProfileName.Length == 0)

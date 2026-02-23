@@ -27,7 +27,7 @@ internal sealed class BuildProfileCliCommand : Command
                 return 1;
             }
 
-            ResolvedProfile profile = profileResolution.Profile;
+            var profile = profileResolution.Profile;
             AppIO.WriteInfo($"Rebuilding Docker image for profile '{profile.Name}' without cache...");
 
             var buildResult = await _imageService.TryBuildImageAsync(profile.DockerfilePath, noCache: true);
