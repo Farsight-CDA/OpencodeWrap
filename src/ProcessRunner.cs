@@ -120,5 +120,28 @@ internal static class ProcessRunner
             AppIO.WriteError($"Failed to run '{fileName}': {ex.Message}");
             return 1;
         }
+        finally
+        {
+            RestoreTerminalState();
+        }
+    }
+
+    private static void RestoreTerminalState()
+    {
+        if(Console.IsOutputRedirected)
+        {
+            return;
+        }
+
+        const string reset = "\x1b[0m\x1b[?25h\x1b[?7h\r\n";
+
+        try
+        {
+            Console.Out.Write(reset);
+            Console.Out.Flush();
+        }
+        catch
+        {
+        }
     }
 }

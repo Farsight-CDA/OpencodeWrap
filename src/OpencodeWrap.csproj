@@ -32,4 +32,8 @@
     <PackageReference Include="System.CommandLine" Version="2.0.3" />
   </ItemGroup>
 
+  <ItemGroup>
+    <EmbeddedResource Include="ProfileTemplates/**" />
+  </ItemGroup>
+
 </Project>

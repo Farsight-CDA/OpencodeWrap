@@ -9,17 +9,18 @@ The CLI entrypoints are implemented with `System.CommandLine`.
 - Expects host OS to be Windows or Linux.
 - Ensures host config directory `$HOME/.opencode-wrap` exists every time `ocw` starts.
 - If `$HOME/.opencode-wrap` is empty, initializes profile scaffolding:
-  - `profiles.yaml`
-  - `profiles/default/Dockerfile`
-  - `profiles/dotnet/Dockerfile` (includes `dotnet-sdk-10.0`)
+  - `default/Dockerfile`
+  - `default/opencode.json` (allows external directory access for full filesystem read/write; keeps default `.env` read protections)
+  - `dotnet/Dockerfile` (includes `dotnet-sdk-10.0`)
+  - `dotnet/opencode.json` (same as default, plus denies reads for `appsettings.json`, `appsettings.*.json`, and `appsetttings.*.json`)
 - Builds a local Docker image (`opencode-wrap:<content-hash>`) if it does not exist.
 - Container includes:
   - Opencode installed via `curl -fsSL https://opencode.ai/install | bash`
   - `python3`
   - common shell utilities (`bash`, `curl`, `git`, `jq`, etc.)
 - Mounts:
-  - Current host directory -> `/workspace`
-  - For `ocw run <profile>`, selected profile directory from `$HOME/.opencode-wrap/profiles/*` (read-only) -> `/opt/opencode-wrap/host-config`
+  - Current host directory -> `/<current-directory-name>` (falls back to `/workspace` when name cannot be resolved, e.g. drive root)
+  - For `ocw run <profile>`, selected profile directory from `$HOME/.opencode-wrap/<profile>` (read-only) -> `/opt/opencode-wrap/host-config`
   - Docker named volume `opencode-wrap-xdg` -> `$HOME/.xdg` in container
 - Sets XDG homes so Opencode config is loaded from host config and data/state persist in the volume:
   - `XDG_CONFIG_HOME=$HOME/.config`
@@ -46,12 +47,12 @@ The CLI entrypoints are implemented with `System.CommandLine`.
     - Import fails if the target volume already has Opencode state unless `-f`/`--force` is provided.
   - `ocw data reset-volume` prompts for confirmation and deletes the named Docker volume (`opencode-wrap-xdg`).
 - Supports profile management commands under `profile`:
-  - `ocw profile list` prints all profiles from `profiles.yaml` and marks the default profile.
-  - `ocw profile add <name>` adds a profile entry in `profiles.yaml`, creates `profiles/<name>/`, and writes a starter `Dockerfile`.
-  - `ocw profile delete <name>` removes a profile entry from `profiles.yaml` and deletes `profiles/<name>/`.
+  - `ocw profile list` prints all profile directories from `$HOME/.opencode-wrap` and marks the default profile.
+  - `ocw profile add <name>` creates `$HOME/.opencode-wrap/<name>/` and writes a starter `Dockerfile`.
+  - `ocw profile delete <name>` deletes `$HOME/.opencode-wrap/<name>/`.
     - Deleting the default profile is not allowed.
   - `ocw profile build <name>` rebuilds that profile's Docker image with `docker build --no-cache`.
-  - `ocw profile open` opens `$HOME/.opencode-wrap/profiles` in the host file explorer.
+  - `ocw profile open` opens `$HOME/.opencode-wrap` in the host file explorer.
 
 ## Prerequisites
 
@@ -97,7 +98,7 @@ Pass args through to Opencode:
 ocw --model gpt-5
 ```
 
-Choose any profile defined in `$HOME/.opencode-wrap/profiles.yaml`.
+Choose any profile with a directory in `$HOME/.opencode-wrap`.
 
 Import existing Opencode state:
 

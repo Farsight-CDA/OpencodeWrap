@@ -3,8 +3,6 @@ internal static class OpencodeWrapConstants
     public const string CONTAINER_WORKSPACE = "/workspace";
     public const string CONTAINER_HOME = "/home/opencode";
     public const string HOST_GLOBAL_CONFIG_DIRECTORY_NAME = ".opencode-wrap";
-    public const string HOST_PROFILES_FILE_NAME = "profiles.yaml";
-    public const string HOST_PROFILES_DIRECTORY_NAME = "profiles";
     public const string DEFAULT_PROFILE_NAME = "default";
     public const string PROFILE_DOCKERFILE_NAME = "Dockerfile";
     public const string XDG_VOLUME_NAME = "opencode-wrap-xdg";

@@ -54,6 +54,8 @@ internal sealed class OpencodeWrapRootCommand : RootCommand
             return 1;
         }
 
+        string containerWorkDir = ResolveContainerWorkspacePath(hostWorkDir);
+
         _containerName = $"opencode-wrap-{Guid.NewGuid():N}"[..27];
         RegisterCleanupHandlers();
 
@@ -71,11 +73,13 @@ internal sealed class OpencodeWrapRootCommand : RootCommand
             "-it",
             "--name", _containerName,
             "-e", $"HOME={OpencodeWrapConstants.CONTAINER_HOME}",
+            "-e", "TERM=xterm-256color",
+            "-e", "COLORTERM=truecolor",
             "-e", "FORCE_HYPERLINK=0",
             "-e", $"XDG_CONFIG_HOME={OpencodeWrapConstants.CONTAINER_XDG_CONFIG_HOME}",
             "-e", $"XDG_DATA_HOME={OpencodeWrapConstants.CONTAINER_XDG_DATA_HOME}",
             "-e", $"XDG_STATE_HOME={OpencodeWrapConstants.CONTAINER_XDG_STATE_HOME}",
-            "--mount", VolumeStateService.BuildBindMount(hostWorkDir, OpencodeWrapConstants.CONTAINER_WORKSPACE)
+            "--mount", VolumeStateService.BuildBindMount(hostWorkDir, containerWorkDir)
         ]);
 
         if(includeProfileConfig)
@@ -86,7 +90,7 @@ internal sealed class OpencodeWrapRootCommand : RootCommand
         runArgs.AddRange(
         [
             "--mount", VolumeStateService.BuildVolumeMount(OpencodeWrapConstants.XDG_VOLUME_NAME, OpencodeWrapConstants.CONTAINER_XDG_ROOT),
-            "-w", OpencodeWrapConstants.CONTAINER_WORKSPACE,
+            "-w", containerWorkDir,
             imageTag,
             "bash",
             "-lc",
@@ -102,6 +106,24 @@ internal sealed class OpencodeWrapRootCommand : RootCommand
         int exitCode = await ProcessRunner.RunAttachedProcessAsync("docker", runArgs);
         await CleanupContainerAsync(force: false);
         return exitCode;
+    }
+
+    private static string ResolveContainerWorkspacePath(string hostWorkDir)
+    {
+        string trimmedPath = Path.TrimEndingDirectorySeparator(hostWorkDir);
+        string? rootPath = Path.GetPathRoot(trimmedPath);
+        if(!String.IsNullOrEmpty(rootPath) && String.Equals(trimmedPath, Path.TrimEndingDirectorySeparator(rootPath), StringComparison.OrdinalIgnoreCase))
+        {
+            return OpencodeWrapConstants.CONTAINER_WORKSPACE;
+        }
+
+        string directoryName = Path.GetFileName(trimmedPath);
+        if(String.IsNullOrWhiteSpace(directoryName) || directoryName.Contains('/') || directoryName.Contains('\\'))
+        {
+            return OpencodeWrapConstants.CONTAINER_WORKSPACE;
+        }
+
+        return $"/{directoryName}";
     }
 
     private void RegisterCleanupHandlers()

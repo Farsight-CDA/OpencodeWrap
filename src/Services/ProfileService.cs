@@ -4,82 +4,10 @@ internal sealed class ProfileService
 {
     private readonly DockerHostService _host;
 
-    private const string DefaultProfilesYaml = "default: default\nprofiles:\n  default:\n    directory: profiles/default\n  dotnet:\n    directory: profiles/dotnet\n";
-
-    private const string DefaultDockerfile = """
-FROM ubuntu:24.04
-
-ENV DEBIAN_FRONTEND=noninteractive
-
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-        bash \
-        ca-certificates \
-        coreutils \
-        curl \
-        file \
-        git \
-        iproute2 \
-        jq \
-        less \
-        procps \
-        python3 \
-        unzip \
-        zip \
-    && rm -rf /var/lib/apt/lists/*
-
-RUN mkdir -p /opt/opencode /home/opencode \
-    && chmod 755 /opt/opencode \
-    && chmod 777 /home/opencode
-
-RUN HOME=/opt/opencode bash -lc "curl -fsSL https://opencode.ai/install | bash -s -- --no-modify-path"
-
-WORKDIR /workspace
-
-ENV PATH="/opt/opencode/.opencode/bin:/opt/opencode/.local/share/opencode/bin:/opt/opencode/.local/bin:${PATH}"
-""";
-
-    private const string DotnetDockerfile = """
-FROM ubuntu:24.04
-
-ENV DEBIAN_FRONTEND=noninteractive
-
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-        bash \
-        ca-certificates \
-        coreutils \
-        curl \
-        file \
-        git \
-        gpg \
-        iproute2 \
-        jq \
-        less \
-        procps \
-        python3 \
-        unzip \
-        zip \
-    && rm -rf /var/lib/apt/lists/*
-
-RUN mkdir -p /etc/apt/keyrings \
-    && curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor -o /etc/apt/keyrings/microsoft.gpg \
-    && chmod go+r /etc/apt/keyrings/microsoft.gpg \
-    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/microsoft.gpg] https://packages.microsoft.com/ubuntu/24.04/prod noble main" > /etc/apt/sources.list.d/microsoft-prod.list \
-    && apt-get update \
-    && apt-get install -y --no-install-recommends dotnet-sdk-10.0 \
-    && rm -rf /var/lib/apt/lists/*
-
-RUN mkdir -p /opt/opencode /home/opencode \
-    && chmod 755 /opt/opencode \
-    && chmod 777 /home/opencode
-
-RUN HOME=/opt/opencode bash -lc "curl -fsSL https://opencode.ai/install | bash -s -- --no-modify-path"
-
-WORKDIR /workspace
-
-ENV PATH="/opt/opencode/.opencode/bin:/opt/opencode/.local/share/opencode/bin:/opt/opencode/.local/bin:${PATH}"
-""";
+    private static readonly string DefaultDockerfile = LoadEmbeddedTextResource("ProfileTemplates.default.Dockerfile");
+    private static readonly string DotnetDockerfile = LoadEmbeddedTextResource("ProfileTemplates.dotnet.Dockerfile");
+    private static readonly string DefaultOpencodeConfig = LoadEmbeddedTextResource("ProfileTemplates.default.opencode.json");
+    private static readonly string DotnetOpencodeConfig = LoadEmbeddedTextResource("ProfileTemplates.dotnet.opencode.json");
 
     public ProfileService(DockerHostService host)
     {
@@ -111,15 +39,13 @@ ENV PATH="/opt/opencode/.opencode/bin:/opt/opencode/.local/share/opencode/bin:/o
             return false;
         }
 
-        var profileDirectories = config.ProfileDirectories;
-        if(profileDirectories.ContainsKey(normalizedName))
+        if(config.ProfileDirectories.ContainsKey(normalizedName))
         {
             AppIO.WriteError($"Profile '{normalizedName}' already exists.");
             return false;
         }
 
-        string relativeDirectoryPath = BuildDefaultRelativeProfilePath(normalizedName);
-        string profileDirectoryPath = Path.GetFullPath(Path.Combine(config.ConfigRoot, relativeDirectoryPath));
+        string profileDirectoryPath = Path.GetFullPath(Path.Combine(config.ConfigRoot, normalizedName));
         if(!PathIsWithin(config.ConfigRoot, profileDirectoryPath))
         {
             AppIO.WriteError($"Profile directory '{profileDirectoryPath}' resolves outside '{config.ConfigRoot}'.");
@@ -138,11 +64,6 @@ ENV PATH="/opt/opencode/.opencode/bin:/opt/opencode/.local/share/opencode/bin:/o
             }
 
             await File.WriteAllTextAsync(dockerfilePath, DefaultDockerfile);
-            profileDirectories[normalizedName] = relativeDirectoryPath;
-            if(!await TryWriteProfilesAsync(config.ProfilesFilePath, config.DefaultProfileName, profileDirectories))
-            {
-                return false;
-            }
         }
         catch(Exception ex)
         {
@@ -163,25 +84,25 @@ ENV PATH="/opt/opencode/.opencode/bin:/opt/opencode/.local/share/opencode/bin:/o
             return false;
         }
 
+        if(String.Equals(OpencodeWrapConstants.DEFAULT_PROFILE_NAME, normalizedName, StringComparison.OrdinalIgnoreCase))
+        {
+            AppIO.WriteError($"Cannot delete default profile '{normalizedName}'.");
+            return false;
+        }
+
         var config = await TryLoadConfigAsync();
         if(!config.Success)
         {
             return false;
         }
 
-        if(!config.ProfileDirectories.TryGetValue(normalizedName, out string? relativeDirectoryPath))
+        if(!config.ProfileDirectories.ContainsKey(normalizedName))
         {
             AppIO.WriteError($"Profile '{normalizedName}' does not exist.");
             return false;
         }
 
-        if(String.Equals(config.DefaultProfileName, normalizedName, StringComparison.OrdinalIgnoreCase))
-        {
-            AppIO.WriteError($"Cannot delete default profile '{normalizedName}'.");
-            return false;
-        }
-
-        string profileDirectoryPath = Path.GetFullPath(Path.Combine(config.ConfigRoot, relativeDirectoryPath));
+        string profileDirectoryPath = Path.GetFullPath(Path.Combine(config.ConfigRoot, normalizedName));
         if(!PathIsWithin(config.ConfigRoot, profileDirectoryPath))
         {
             AppIO.WriteError($"Profile '{normalizedName}' directory resolves outside '{config.ConfigRoot}'.");
@@ -190,12 +111,6 @@ ENV PATH="/opt/opencode/.opencode/bin:/opt/opencode/.local/share/opencode/bin:/o
 
         try
         {
-            config.ProfileDirectories.Remove(normalizedName);
-            if(!await TryWriteProfilesAsync(config.ProfilesFilePath, config.DefaultProfileName, config.ProfileDirectories))
-            {
-                return false;
-            }
-
             if(Directory.Exists(profileDirectoryPath))
             {
                 Directory.Delete(profileDirectoryPath, recursive: true);
@@ -223,29 +138,17 @@ ENV PATH="/opt/opencode/.opencode/bin:/opt/opencode/.local/share/opencode/bin:/o
             return false;
         }
 
-        string profilesDirectoryPath = Path.Combine(configRoot, OpencodeWrapConstants.HOST_PROFILES_DIRECTORY_NAME);
-
-        try
-        {
-            Directory.CreateDirectory(profilesDirectoryPath);
-        }
-        catch(Exception ex)
-        {
-            AppIO.WriteError($"Failed to ensure profiles directory '{profilesDirectoryPath}': {ex.Message}");
-            return false;
-        }
-
         bool opened = await ProcessRunner.TryOpenDirectoryAsync(
-            profilesDirectoryPath,
+            configRoot,
             _host.IsWindows,
-            onFailurePrefix: $"Failed to open profile directory '{profilesDirectoryPath}'.");
+            onFailurePrefix: $"Failed to open profile directory '{configRoot}'.");
 
         if(!opened)
         {
             return false;
         }
 
-        AppIO.WriteInfo($"Opened profile directory: '{profilesDirectoryPath}'.");
+        AppIO.WriteInfo($"Opened profile directory: '{configRoot}'.");
         return true;
     }
 
@@ -271,8 +174,7 @@ ENV PATH="/opt/opencode/.opencode/bin:/opt/opencode/.local/share/opencode/bin:/o
                 ? " [default]"
                 : String.Empty;
 
-            string relativeDirectoryPath = kvp.Value.Replace('\\', '/');
-            AppIO.WriteInfo($"- {kvp.Key}{marker} ({relativeDirectoryPath})");
+            AppIO.WriteInfo($"- {kvp.Key}{marker} ({kvp.Value})");
         }
 
         return true;
@@ -282,48 +184,34 @@ ENV PATH="/opt/opencode/.opencode/bin:/opt/opencode/.local/share/opencode/bin:/o
     {
         var emptyProfile = new ResolvedProfile(String.Empty, String.Empty, String.Empty);
 
-        if(!await TryEnsureInitializedAsync())
+        var config = await TryLoadConfigAsync();
+        if(!config.Success)
         {
             return (false, emptyProfile);
         }
-
-        if(!_host.TryEnsureGlobalConfigDirectory(out string configRoot))
-        {
-            return (false, emptyProfile);
-        }
-
-        string profilesFilePath = Path.Combine(configRoot, OpencodeWrapConstants.HOST_PROFILES_FILE_NAME);
-        if(!File.Exists(profilesFilePath))
-        {
-            AppIO.WriteError($"Profiles file not found: '{profilesFilePath}'.");
-            return (false, emptyProfile);
-        }
-
-        var loadedProfiles = await TryLoadProfilesAsync(profilesFilePath);
-        if(!loadedProfiles.Success)
-        {
-            return (false, emptyProfile);
-        }
-
-        string defaultProfileName = loadedProfiles.DefaultProfileName;
-        var profileDirectories = loadedProfiles.ProfileDirectories;
 
         string selectedProfileName = requestedProfileName?.Trim() ?? String.Empty;
         if(selectedProfileName.Length == 0)
         {
-            selectedProfileName = defaultProfileName;
+            selectedProfileName = config.DefaultProfileName;
         }
 
-        if(!profileDirectories.TryGetValue(selectedProfileName, out string? relativeDirectoryPath))
+        if(!TryValidateProfileName(selectedProfileName))
         {
-            AppIO.WriteError($"Profile '{selectedProfileName}' is not defined in '{profilesFilePath}'.");
+            AppIO.WriteError("Profile name may only contain letters, numbers, '-', '_', and '.'.");
             return (false, emptyProfile);
         }
 
-        string profileDirectoryPath = Path.GetFullPath(Path.Combine(configRoot, relativeDirectoryPath));
-        if(!PathIsWithin(configRoot, profileDirectoryPath))
+        if(!config.ProfileDirectories.TryGetValue(selectedProfileName, out string? relativeDirectoryPath))
         {
-            AppIO.WriteError($"Profile '{selectedProfileName}' directory resolves outside '{configRoot}'.");
+            AppIO.WriteError($"Profile '{selectedProfileName}' does not exist.");
+            return (false, emptyProfile);
+        }
+
+        string profileDirectoryPath = Path.GetFullPath(Path.Combine(config.ConfigRoot, relativeDirectoryPath));
+        if(!PathIsWithin(config.ConfigRoot, profileDirectoryPath))
+        {
+            AppIO.WriteError($"Profile '{selectedProfileName}' directory resolves outside '{config.ConfigRoot}'.");
             return (false, emptyProfile);
         }
 
@@ -343,70 +231,49 @@ ENV PATH="/opt/opencode/.opencode/bin:/opt/opencode/.local/share/opencode/bin:/o
         return (true, new ResolvedProfile(selectedProfileName, profileDirectoryPath, dockerfilePath));
     }
 
-    private async Task<(bool Success, string ConfigRoot, string ProfilesFilePath, string DefaultProfileName, Dictionary<string, string> ProfileDirectories)> TryLoadConfigAsync()
+    private async Task<(bool Success, string ConfigRoot, string DefaultProfileName, Dictionary<string, string> ProfileDirectories)> TryLoadConfigAsync()
     {
         if(!await TryEnsureInitializedAsync())
         {
-            return (false, String.Empty, String.Empty, String.Empty, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase));
+            return (false, String.Empty, String.Empty, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase));
         }
 
         if(!_host.TryEnsureGlobalConfigDirectory(out string configRoot))
         {
-            return (false, String.Empty, String.Empty, String.Empty, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase));
+            return (false, String.Empty, String.Empty, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase));
         }
 
-        string profilesFilePath = Path.Combine(configRoot, OpencodeWrapConstants.HOST_PROFILES_FILE_NAME);
-        if(!File.Exists(profilesFilePath))
-        {
-            AppIO.WriteError($"Profiles file not found: '{profilesFilePath}'.");
-            return (false, String.Empty, String.Empty, String.Empty, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase));
-        }
-
-        var loadedProfiles = await TryLoadProfilesAsync(profilesFilePath);
-        if(!loadedProfiles.Success)
-        {
-            return (false, String.Empty, String.Empty, String.Empty, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase));
-        }
-
-        return (true, configRoot, profilesFilePath, loadedProfiles.DefaultProfileName, loadedProfiles.ProfileDirectories);
+        var profileDirectories = DiscoverProfileDirectories(configRoot);
+        return (true, configRoot, OpencodeWrapConstants.DEFAULT_PROFILE_NAME, profileDirectories);
     }
 
-    private static async Task<bool> TryWriteProfilesAsync(string profilesFilePath, string defaultProfileName, Dictionary<string, string> profileDirectories)
+    private static Dictionary<string, string> DiscoverProfileDirectories(string configRoot)
     {
-        if(!profileDirectories.ContainsKey(defaultProfileName))
-        {
-            AppIO.WriteError($"Default profile '{defaultProfileName}' is missing and cannot be written.");
-            return false;
-        }
+        var profileDirectories = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
+        IEnumerable<string> directories;
         try
         {
-            var yamlLines = new List<string>
-            {
-                $"default: {defaultProfileName}",
-                "profiles:"
-            };
-
-            foreach(var kvp in profileDirectories.OrderBy(p => p.Key, StringComparer.OrdinalIgnoreCase))
-            {
-                yamlLines.Add($"  {kvp.Key}:");
-                yamlLines.Add($"    directory: {kvp.Value.Replace('\\', '/')}");
-            }
-
-            string yamlContent = String.Join('\n', yamlLines) + '\n';
-            await File.WriteAllTextAsync(profilesFilePath, yamlContent);
-            return true;
+            directories = Directory.EnumerateDirectories(configRoot);
         }
         catch(Exception ex)
         {
-            AppIO.WriteError($"Failed to write profiles file '{profilesFilePath}': {ex.Message}");
-            return false;
+            AppIO.WriteError($"Failed to enumerate profiles in '{configRoot}': {ex.Message}");
+            return profileDirectories;
         }
-    }
 
-    private static string BuildDefaultRelativeProfilePath(string profileName)
-    {
-        return $"{OpencodeWrapConstants.HOST_PROFILES_DIRECTORY_NAME}/{profileName}";
+        foreach(string directoryPath in directories)
+        {
+            string profileName = Path.GetFileName(directoryPath);
+            if(!TryValidateProfileName(profileName))
+            {
+                continue;
+            }
+
+            profileDirectories[profileName] = profileName.Replace('\\', '/');
+        }
+
+        return profileDirectories;
     }
 
     private static bool TryValidateProfileName(string profileName)
@@ -429,155 +296,6 @@ ENV PATH="/opt/opencode/.opencode/bin:/opt/opencode/.local/share/opencode/bin:/o
         return true;
     }
 
-    private static async Task<(bool Success, string DefaultProfileName, Dictionary<string, string> ProfileDirectories)> TryLoadProfilesAsync(string profilesFilePath)
-    {
-        string defaultProfileName = String.Empty;
-        var profileDirectories = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-
-        bool inProfilesSection = false;
-        string? currentProfileName = null;
-        string[] lines;
-        try
-        {
-            lines = await File.ReadAllLinesAsync(profilesFilePath);
-        }
-        catch(Exception ex)
-        {
-            AppIO.WriteError($"Failed to read profiles file '{profilesFilePath}': {ex.Message}");
-            return (false, String.Empty, profileDirectories);
-        }
-
-        foreach(string rawLine in lines)
-        {
-            string withoutComment = StripComment(rawLine);
-            string line = withoutComment.Trim();
-            if(line.Length == 0)
-            {
-                continue;
-            }
-
-            int indentLevel = CountLeadingSpaces(withoutComment);
-            if(!TryParseYamlMapping(line, out string key, out string value))
-            {
-                continue;
-            }
-
-            if(indentLevel == 0)
-            {
-                inProfilesSection = String.Equals(key, "profiles", StringComparison.OrdinalIgnoreCase);
-                currentProfileName = null;
-
-                if(String.Equals(key, "default", StringComparison.OrdinalIgnoreCase))
-                {
-                    defaultProfileName = UnquoteYamlValue(value);
-                }
-
-                continue;
-            }
-
-            if(!inProfilesSection)
-            {
-                continue;
-            }
-
-            if(indentLevel == 2)
-            {
-                currentProfileName = key;
-                continue;
-            }
-
-            if(indentLevel == 4 && currentProfileName is not null)
-            {
-                if(String.Equals(key, "directory", StringComparison.OrdinalIgnoreCase))
-                {
-                    profileDirectories[currentProfileName] = UnquoteYamlValue(value);
-                }
-            }
-        }
-
-        if(defaultProfileName.Length == 0)
-        {
-            AppIO.WriteError($"Profiles file '{profilesFilePath}' must define a default profile.");
-            return (false, String.Empty, profileDirectories);
-        }
-
-        if(!profileDirectories.ContainsKey(defaultProfileName))
-        {
-            AppIO.WriteError($"Default profile '{defaultProfileName}' is missing a 'profiles.{defaultProfileName}.directory' entry in '{profilesFilePath}'.");
-            return (false, String.Empty, profileDirectories);
-        }
-
-        return (true, defaultProfileName, profileDirectories);
-    }
-
-    private static string StripComment(string line)
-    {
-        bool inSingleQuotes = false;
-        bool inDoubleQuotes = false;
-
-        for(int i = 0; i < line.Length; i++)
-        {
-            char c = line[i];
-            if(c == '\'' && !inDoubleQuotes)
-            {
-                inSingleQuotes = !inSingleQuotes;
-                continue;
-            }
-
-            if(c == '"' && !inSingleQuotes)
-            {
-                inDoubleQuotes = !inDoubleQuotes;
-                continue;
-            }
-
-            if(c == '#' && !inSingleQuotes && !inDoubleQuotes)
-            {
-                return line[..i];
-            }
-        }
-
-        return line;
-    }
-
-    private static int CountLeadingSpaces(string line)
-    {
-        int count = 0;
-        while(count < line.Length && line[count] == ' ')
-        {
-            count++;
-        }
-
-        return count;
-    }
-
-    private static bool TryParseYamlMapping(string line, out string key, out string value)
-    {
-        int colonIndex = line.IndexOf(':');
-        if(colonIndex <= 0)
-        {
-            key = String.Empty;
-            value = String.Empty;
-            return false;
-        }
-
-        key = line[..colonIndex].Trim();
-        value = line[(colonIndex + 1)..].Trim();
-        return key.Length > 0;
-    }
-
-    private static string UnquoteYamlValue(string value)
-    {
-        if(value.Length >= 2)
-        {
-            if((value.StartsWith('"') && value.EndsWith('"')) || (value.StartsWith('\'') && value.EndsWith('\'')))
-            {
-                return value[1..^1];
-            }
-        }
-
-        return value;
-    }
-
     private static bool PathIsWithin(string parentDirectoryPath, string childDirectoryPath)
     {
         string normalizedParent = Path.GetFullPath(parentDirectoryPath)
@@ -589,6 +307,29 @@ ENV PATH="/opt/opencode/.opencode/bin:/opt/opencode/.local/share/opencode/bin:/o
             + Path.DirectorySeparatorChar;
 
         return normalizedChild.StartsWith(normalizedParent, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string LoadEmbeddedTextResource(string resourceNameSuffix)
+    {
+        var assembly = typeof(ProfileService).Assembly;
+        string[] resourceNames = assembly.GetManifestResourceNames();
+
+        string? fullResourceName = resourceNames.FirstOrDefault(name =>
+            name.EndsWith(resourceNameSuffix, StringComparison.Ordinal));
+
+        if(fullResourceName is null)
+        {
+            throw new InvalidOperationException($"Missing embedded resource '{resourceNameSuffix}'.");
+        }
+
+        using Stream? stream = assembly.GetManifestResourceStream(fullResourceName);
+        if(stream is null)
+        {
+            throw new InvalidOperationException($"Cannot open embedded resource '{fullResourceName}'.");
+        }
+
+        using var reader = new StreamReader(stream);
+        return reader.ReadToEnd();
     }
 
     private static async Task<bool> TryBootstrapIfConfigRootIsEmptyAsync(string configRoot)
@@ -609,19 +350,21 @@ ENV PATH="/opt/opencode/.opencode/bin:/opt/opencode/.local/share/opencode/bin:/o
             return true;
         }
 
-        string profilesFilePath = Path.Combine(configRoot, OpencodeWrapConstants.HOST_PROFILES_FILE_NAME);
-        string defaultProfileDirectory = Path.Combine(configRoot, OpencodeWrapConstants.HOST_PROFILES_DIRECTORY_NAME, OpencodeWrapConstants.DEFAULT_PROFILE_NAME);
+        string defaultProfileDirectory = Path.Combine(configRoot, OpencodeWrapConstants.DEFAULT_PROFILE_NAME);
         string defaultDockerfilePath = Path.Combine(defaultProfileDirectory, OpencodeWrapConstants.PROFILE_DOCKERFILE_NAME);
-        string dotnetProfileDirectory = Path.Combine(configRoot, OpencodeWrapConstants.HOST_PROFILES_DIRECTORY_NAME, "dotnet");
+        string defaultOpencodeConfigPath = Path.Combine(defaultProfileDirectory, "opencode.json");
+        string dotnetProfileDirectory = Path.Combine(configRoot, "dotnet");
         string dotnetDockerfilePath = Path.Combine(dotnetProfileDirectory, OpencodeWrapConstants.PROFILE_DOCKERFILE_NAME);
+        string dotnetOpencodeConfigPath = Path.Combine(dotnetProfileDirectory, "opencode.json");
 
         try
         {
             Directory.CreateDirectory(defaultProfileDirectory);
             Directory.CreateDirectory(dotnetProfileDirectory);
-            await File.WriteAllTextAsync(profilesFilePath, DefaultProfilesYaml);
             await File.WriteAllTextAsync(defaultDockerfilePath, DefaultDockerfile);
             await File.WriteAllTextAsync(dotnetDockerfilePath, DotnetDockerfile);
+            await File.WriteAllTextAsync(defaultOpencodeConfigPath, DefaultOpencodeConfig);
+            await File.WriteAllTextAsync(dotnetOpencodeConfigPath, DotnetOpencodeConfig);
             return true;
         }
         catch(Exception ex)

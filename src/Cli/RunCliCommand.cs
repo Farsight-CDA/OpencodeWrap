@@ -11,7 +11,7 @@ internal sealed class RunCliCommand : Command
         _services = services;
         _profileArgument = new Argument<string>("profile")
         {
-            Description = "Profile name from $HOME/.opencode-wrap/profiles.yaml."
+            Description = "Profile name from a directory under $HOME/.opencode-wrap."
         };
 
         Add(_profileArgument);
