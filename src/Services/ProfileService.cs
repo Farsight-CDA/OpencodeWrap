@@ -249,6 +249,35 @@ ENV PATH="/opt/opencode/.opencode/bin:/opt/opencode/.local/share/opencode/bin:/o
         return true;
     }
 
+    public async Task<bool> TryListProfilesAsync()
+    {
+        var config = await TryLoadConfigAsync();
+        if(!config.Success)
+        {
+            return false;
+        }
+
+        if(config.ProfileDirectories.Count == 0)
+        {
+            AppIO.WriteWarning("No profiles found.");
+            return true;
+        }
+
+        AppIO.WriteInfo($"Profiles (default: '{config.DefaultProfileName}'):");
+
+        foreach(var kvp in config.ProfileDirectories.OrderBy(p => p.Key, StringComparer.OrdinalIgnoreCase))
+        {
+            string marker = String.Equals(kvp.Key, config.DefaultProfileName, StringComparison.OrdinalIgnoreCase)
+                ? " [default]"
+                : String.Empty;
+
+            string relativeDirectoryPath = kvp.Value.Replace('\\', '/');
+            AppIO.WriteInfo($"- {kvp.Key}{marker} ({relativeDirectoryPath})");
+        }
+
+        return true;
+    }
+
     public async Task<(bool Success, ResolvedProfile Profile)> TryResolveProfileAsync(string? requestedProfileName)
     {
         var emptyProfile = new ResolvedProfile(String.Empty, String.Empty, String.Empty);

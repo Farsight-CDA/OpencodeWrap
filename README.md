@@ -46,6 +46,7 @@ The CLI entrypoints are implemented with `System.CommandLine`.
     - Import fails if the target volume already has Opencode state unless `-f`/`--force` is provided.
   - `ocw data reset-volume` prompts for confirmation and deletes the named Docker volume (`opencode-wrap-xdg`).
 - Supports profile management commands under `profile`:
+  - `ocw profile list` prints all profiles from `profiles.yaml` and marks the default profile.
   - `ocw profile add <name>` adds a profile entry in `profiles.yaml`, creates `profiles/<name>/`, and writes a starter `Dockerfile`.
   - `ocw profile delete <name>` removes a profile entry from `profiles.yaml` and deletes `profiles/<name>/`.
     - Deleting the default profile is not allowed.
@@ -143,6 +144,12 @@ Add a new profile:
 
 ```bash
 ocw profile add myprofile
+```
+
+List all profiles:
+
+```bash
+ocw profile list
 ```
 
 Delete a profile:
