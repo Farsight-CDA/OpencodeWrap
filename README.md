@@ -1,174 +1,53 @@
-# ocw
+# OpencodeWrap (`ocw`)
 
-`ocw` is a standalone C# CLI launcher that starts an interactive Docker container, mounts your current directory, keeps global Opencode config on the host, persists Opencode data/state in a Docker named volume, then attaches to `opencode` inside the container.
+Run [OpenCode](https://opencode.ai) in Docker with persistent state and lightweight profile management.
 
-The CLI entrypoints are implemented with `System.CommandLine`.
+## Highlights
 
-## Behavior
+- Runs OpenCode in an isolated Docker container on Linux/Windows hosts.
+- Persists OpenCode data across runs using a named Docker volume.
+- Uses profile-based Dockerfiles/configs from `~/.opencode-wrap`.
+- Includes built-in starter profiles: `default` and `dotnet`.
 
-- Expects host OS to be Windows or Linux.
-- Ensures host config directory `$HOME/.opencode-wrap` exists every time `ocw` starts.
-- If `$HOME/.opencode-wrap` is empty, initializes profile scaffolding:
-  - `default/Dockerfile`
-  - `default/opencode.json` (allows external directory access for full filesystem read/write; keeps default `.env` read protections)
-  - `dotnet/Dockerfile` (includes `dotnet-sdk-10.0`)
-  - `dotnet/opencode.json` (same as default, plus denies reads for `appsettings.json`, `appsettings.*.json`, and `appsetttings.*.json`)
-- Builds a local Docker image (`opencode-wrap:<content-hash>`) if it does not exist.
-- Container includes:
-  - Opencode installed via `curl -fsSL https://opencode.ai/install | bash`
-  - `python3`
-  - common shell utilities (`bash`, `curl`, `git`, `jq`, etc.)
-- Mounts:
-  - Current host directory -> `/<current-directory-name>` (falls back to `/workspace` when name cannot be resolved, e.g. drive root)
-    - With `ocw run <profile> --no-mount`, this workspace mount is skipped.
-  - For `ocw run <profile>`, selected profile directory from `$HOME/.opencode-wrap/<profile>` (read-only) -> `/opt/opencode-wrap/host-config`
-  - Docker named volume `opencode-wrap-xdg` -> `$HOME/.xdg` in container
-- Sets XDG homes so Opencode config is loaded from host config and data/state persist in the volume:
-  - `XDG_CONFIG_HOME=$HOME/.config`
-  - `XDG_DATA_HOME=$HOME/.xdg/.local/share`
-  - `XDG_STATE_HOME=$HOME/.xdg/.local/state`
-- Before launching `opencode`, resets `$XDG_CONFIG_HOME/opencode`; for `ocw run <profile>`, copies all files from `/opt/opencode-wrap/host-config` into it.
-- Uses host UID/GID on Linux (`--user <uid>:<gid>`), runs as root on Windows.
-- Runs and attaches to `opencode` in the container with interactive TTY.
-- `ocw run <profile>` runs `opencode` with the specified profile config.
-  - `ocw run <profile> --no-mount` runs from container home (`/home/opencode`) without mounting the current host directory.
-- Any command that is not `run` or `data` is forwarded directly to `opencode` (no profile config mount/copy).
-- Stops and deletes the container on process termination/disconnect (`--rm` + explicit cleanup).
-- Supports state migration commands under `data`:
-  - `ocw data import <archive.zip>` extracts a ZIP and imports any of:
-    - `.local/share/opencode`
-    - `.local/state/opencode`
-    into the XDG volume.
-    - Import fails if the target volume already has Opencode state unless `-f`/`--force` is provided.
-  - `ocw data export <archive.zip>` exports volume contents into a single ZIP containing:
-    - `.local/share/opencode`
-    - `.local/state/opencode`
-  - `ocw data import-host` imports state directly from host home directory:
-    - `~/.local/share/opencode`
-    - `~/.local/state/opencode`
-    - Import fails if the target volume already has Opencode state unless `-f`/`--force` is provided.
-  - `ocw data reset-volume` prompts for confirmation and deletes the named Docker volume (`opencode-wrap-xdg`).
-- Supports profile management commands under `profile`:
-  - `ocw profile list` prints all profile directories from `$HOME/.opencode-wrap` and marks `default` (fixed built-in name, not user-configurable).
-  - `ocw profile add <name>` creates `$HOME/.opencode-wrap/<name>/` and writes a starter `Dockerfile`.
-  - `ocw profile delete <name>` deletes `$HOME/.opencode-wrap/<name>/`.
-    - Deleting the default profile is not allowed.
-  - `ocw profile build <name>` rebuilds that profile's Docker image with `docker build --no-cache`.
-  - `ocw profile open` opens `$HOME/.opencode-wrap` in the host file explorer.
+## Quick Start
 
-## Prerequisites
+Requirements:
 
-- Docker installed and daemon running
-- .NET SDK (for building/publishing)
+- Docker (daemon running)
+- .NET 10 SDK (only needed if building from source)
 
-## Build Standalone Binary
-
-This project defaults to Native AOT + single-file publishing.
-
-Publish Native AOT binaries:
-
-### Linux x64
+Run from source:
 
 ```bash
-dotnet publish -c Release -r linux-x64
+dotnet run --project src/OpencodeWrap.csproj -- --help
 ```
 
-### Windows x64
+Build a standalone binary:
 
-```powershell
-dotnet publish -c Release -r win-x64
+```bash
+dotnet publish src/OpencodeWrap.csproj -c Release -r linux-x64 --self-contained true
+./src/bin/Release/net10.0/linux-x64/publish/ocw --help
 ```
-
-Published output will be under:
-
-- `src/bin/Release/net10.0/linux-x64/publish/ocw`
-- `src/bin/Release/net10.0/win-x64/publish/ocw.exe`
-
-Put that binary on your `PATH` as `ocw`.
 
 ## Usage
 
-From any project directory:
-
 ```bash
-ocw run default
-```
+# Forward OpenCode args directly (default profile)
+ocw <opencode-args>
 
-Pass args through to Opencode:
+# Run with a specific profile config from ~/.opencode-wrap/<profile>
+ocw run dotnet
 
-```bash
-ocw --model gpt-5
-```
-
-Choose any profile with a directory in `$HOME/.opencode-wrap`.
-
-Import existing Opencode state:
-
-```bash
-ocw data import /path/to/backup.zip
-```
-
-Overwrite existing imported state in the volume:
-
-```bash
-ocw data import --force /path/to/backup.zip
-```
-
-Expected ZIP layout:
-
-- `.local/share/opencode`
-- `.local/state/opencode`
-
-Export current Opencode state:
-
-```bash
-ocw data export /path/to/backup.zip
-```
-
-Import state directly from host home directory:
-
-```bash
-ocw data import-host
-```
-
-Overwrite existing imported state in the volume:
-
-```bash
-ocw data import-host -f
-```
-
-Reset the named state volume (with confirmation prompt):
-
-```bash
-ocw data reset-volume
-```
-
-Add a new profile:
-
-```bash
-ocw profile add myprofile
-```
-
-List all profiles:
-
-```bash
+# Profile management
 ocw profile list
-```
-
-Delete a profile:
-
-```bash
-ocw profile delete myprofile
-```
-
-Open the profiles directory in your file explorer:
-
-```bash
-ocw profile open
-```
-
-Rebuild a profile image without Docker cache:
-
-```bash
+ocw profile add myprofile
 ocw profile build myprofile
+
+# Persisted state backup/restore
+ocw data export backup.ocw
+ocw data import backup.ocw
 ```
+
+## License
+
+MIT (see `LICENSE.txt`)
