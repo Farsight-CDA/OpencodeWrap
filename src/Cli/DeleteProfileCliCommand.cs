@@ -53,6 +53,12 @@ internal sealed class DeleteProfileCliCommand : Command
             return 1;
         }
 
+        if(!AppIO.Confirm($"Delete profile '{normalizedName}' and remove '{profileDirectoryPath}'?"))
+        {
+            AppIO.WriteWarning("profile delete cancelled.");
+            return 0;
+        }
+
         try
         {
             if(Directory.Exists(profileDirectoryPath))
