@@ -36,4 +36,7 @@ RUN HOME=/opt/opencode bash -lc "curl -fsSL https://opencode.ai/install | bash -
 
 WORKDIR /workspace
 
+ENV BaseIntermediateOutputPath="obj/opencode-wrap/"
+ENV DefaultItemExcludesInProjectFolder="$(DefaultItemExcludesInProjectFolder);obj/**"
+
 ENV PATH="/opt/opencode/.opencode/bin:/opt/opencode/.local/share/opencode/bin:/opt/opencode/.local/bin:${PATH}"
