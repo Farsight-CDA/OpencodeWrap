@@ -1,8 +1,10 @@
-internal sealed record ResolvedProfile(string Name, string DirectoryPath, string DockerfilePath);
+internal sealed record ResolvedProfile(string Name, string DirectoryPath, string DockerfilePath, string? ConfigDirectoryPath = null, string? CleanupDirectoryPath = null);
 internal sealed record ProfileCatalog(string ConfigRoot, string DefaultProfileName, IReadOnlyDictionary<string, string> ProfileDirectories);
 
 internal sealed class ProfileService
 {
+    private static readonly string[] _builtInProfileNames = [OpencodeWrapConstants.DEFAULT_PROFILE_NAME, OpencodeWrapConstants.DOTNET_PROFILE_NAME];
+
     private static string DefaultDockerfile { get; } = LoadEmbeddedTextResource("ProfileTemplates.default.Dockerfile");
     private static string DotnetDockerfile { get; } = LoadEmbeddedTextResource("ProfileTemplates.dotnet.Dockerfile");
     private static string DefaultOpencodeConfig { get; } = LoadEmbeddedTextResource("ProfileTemplates.default.opencode.json");
@@ -11,13 +13,30 @@ internal sealed class ProfileService
     public const string INVALID_PROFILE_NAME_MESSAGE = "Profile name may only contain letters, numbers, '-', '_', and '.'.";
     public static string StarterDockerfileTemplate => DefaultDockerfile;
 
-    public static Task<bool> TryEnsureInitializedAsync() => !DockerHostService.TryEnsureGlobalConfigDirectory(out string configRoot)
-            ? Task.FromResult(false)
-            : TryBootstrapIfConfigRootIsEmptyAsync(configRoot);
+    public static bool IsBuiltInProfileName(string profileName) => _builtInProfileNames.Contains(profileName, StringComparer.OrdinalIgnoreCase);
+
+    public static IReadOnlyList<string> GetBuiltInProfileNames() => _builtInProfileNames;
+
+    public static (string Dockerfile, string OpencodeConfig)? TryGetBuiltInProfileTemplate(string profileName)
+    {
+        if(String.Equals(profileName, OpencodeWrapConstants.DEFAULT_PROFILE_NAME, StringComparison.OrdinalIgnoreCase))
+        {
+            return (DefaultDockerfile, DefaultOpencodeConfig);
+        }
+
+        if(String.Equals(profileName, OpencodeWrapConstants.DOTNET_PROFILE_NAME, StringComparison.OrdinalIgnoreCase))
+        {
+            return (DotnetDockerfile, DotnetOpencodeConfig);
+        }
+
+        return null;
+    }
+
+    public static Task<bool> TryEnsureInitializedAsync() => Task.FromResult(DockerHostService.TryEnsureGlobalConfigDirectory(out _));
 
     public static async Task<(bool Success, ResolvedProfile Profile)> TryResolveProfileAsync(string? requestedProfileName)
     {
-        var emptyProfile = new ResolvedProfile(String.Empty, String.Empty, String.Empty);
+        var emptyProfile = new ResolvedProfile(String.Empty, String.Empty, String.Empty, null, null);
 
         var (success, catalog) = await TryLoadProfileCatalogAsync();
         if(!success)
@@ -35,6 +54,11 @@ internal sealed class ProfileService
         {
             AppIO.WriteError(INVALID_PROFILE_NAME_MESSAGE);
             return (false, emptyProfile);
+        }
+
+        if(IsBuiltInProfileName(selectedProfileName))
+        {
+            return await TryResolveBuiltInProfileAsync(catalog, selectedProfileName, emptyProfile);
         }
 
         if(!catalog.ProfileDirectories.TryGetValue(selectedProfileName, out string? relativeDirectoryPath))
@@ -62,7 +86,12 @@ internal sealed class ProfileService
             return (false, emptyProfile);
         }
 
-        return (true, new ResolvedProfile(selectedProfileName, profileDirectoryPath, dockerfilePath));
+        string configDirectoryPath = Path.Combine(profileDirectoryPath, OpencodeWrapConstants.PROFILE_OPENCODE_DIRECTORY_NAME);
+        return (true, new ResolvedProfile(
+            selectedProfileName,
+            profileDirectoryPath,
+            dockerfilePath,
+            ConfigDirectoryPath: Directory.Exists(configDirectoryPath) ? configDirectoryPath : null));
     }
 
     public static async Task<(bool Success, ProfileCatalog Catalog)> TryLoadProfileCatalogAsync()
@@ -169,45 +198,74 @@ internal sealed class ProfileService
         return reader.ReadToEnd();
     }
 
-    private static async Task<bool> TryBootstrapIfConfigRootIsEmptyAsync(string configRoot)
+    private static async Task<(bool Success, ResolvedProfile Profile)> TryResolveBuiltInProfileAsync(ProfileCatalog catalog, string profileName, ResolvedProfile emptyProfile)
     {
-        bool hasEntries;
+        string relativeDirectoryPath = catalog.ProfileDirectories.TryGetValue(profileName, out string? overrideRelativePath)
+            ? overrideRelativePath
+            : profileName;
+
+        if(!TryResolveProfileDirectoryPath(catalog.ConfigRoot, relativeDirectoryPath, out string overrideDirectoryPath))
+        {
+            AppIO.WriteError($"Profile '{profileName}' directory resolves outside '{catalog.ConfigRoot}'.");
+            return (false, emptyProfile);
+        }
+
+        if(Directory.Exists(overrideDirectoryPath))
+        {
+            string overrideDockerfilePath = Path.Combine(overrideDirectoryPath, OpencodeWrapConstants.PROFILE_DOCKERFILE_NAME);
+            if(!File.Exists(overrideDockerfilePath))
+            {
+                AppIO.WriteError($"Profile Dockerfile not found: '{overrideDockerfilePath}'.");
+                return (false, emptyProfile);
+            }
+
+            string overrideConfigDirectoryPath = Path.Combine(overrideDirectoryPath, OpencodeWrapConstants.PROFILE_OPENCODE_DIRECTORY_NAME);
+            return (true, new ResolvedProfile(
+                profileName,
+                overrideDirectoryPath,
+                overrideDockerfilePath,
+                ConfigDirectoryPath: Directory.Exists(overrideConfigDirectoryPath) ? overrideConfigDirectoryPath : null));
+        }
+
+        var builtInTemplate = TryGetBuiltInProfileTemplate(profileName);
+        if(builtInTemplate is null)
+        {
+            AppIO.WriteError($"Built-in profile template not found for '{profileName}'.");
+            return (false, emptyProfile);
+        }
+
+        var (materialized, temporaryDirectoryPath) = await TryMaterializeBuiltInProfileAsync(profileName, builtInTemplate.Value.Dockerfile, builtInTemplate.Value.OpencodeConfig);
+        if(!materialized)
+        {
+            return (false, emptyProfile);
+        }
+
+        return (true, new ResolvedProfile(
+            profileName,
+            temporaryDirectoryPath,
+            Path.Combine(temporaryDirectoryPath, OpencodeWrapConstants.PROFILE_DOCKERFILE_NAME),
+            ConfigDirectoryPath: Path.Combine(temporaryDirectoryPath, OpencodeWrapConstants.PROFILE_OPENCODE_DIRECTORY_NAME),
+            CleanupDirectoryPath: temporaryDirectoryPath));
+    }
+
+    private static async Task<(bool Success, string TemporaryDirectoryPath)> TryMaterializeBuiltInProfileAsync(string profileName, string dockerfile, string opencodeConfig)
+    {
+        string temporaryDirectoryPath = Path.Combine(Path.GetTempPath(), $"ocw-profile-{profileName}-{Guid.NewGuid():N}");
+
         try
         {
-            hasEntries = Directory.EnumerateFileSystemEntries(configRoot).Any();
+            Directory.CreateDirectory(temporaryDirectoryPath);
+            await File.WriteAllTextAsync(Path.Combine(temporaryDirectoryPath, OpencodeWrapConstants.PROFILE_DOCKERFILE_NAME), dockerfile);
+            string opencodeDirectoryPath = Path.Combine(temporaryDirectoryPath, OpencodeWrapConstants.PROFILE_OPENCODE_DIRECTORY_NAME);
+            Directory.CreateDirectory(opencodeDirectoryPath);
+            await File.WriteAllTextAsync(Path.Combine(opencodeDirectoryPath, "opencode.json"), opencodeConfig);
+            return (true, temporaryDirectoryPath);
         }
         catch(Exception ex)
         {
-            AppIO.WriteError($"Failed to inspect config directory '{configRoot}': {ex.Message}");
-            return false;
-        }
-
-        if(hasEntries)
-        {
-            return true;
-        }
-
-        string defaultProfileDirectory = Path.Combine(configRoot, OpencodeWrapConstants.DEFAULT_PROFILE_NAME);
-        string defaultDockerfilePath = Path.Combine(defaultProfileDirectory, OpencodeWrapConstants.PROFILE_DOCKERFILE_NAME);
-        string defaultOpencodeConfigPath = Path.Combine(defaultProfileDirectory, "opencode.json");
-        string dotnetProfileDirectory = Path.Combine(configRoot, "dotnet");
-        string dotnetDockerfilePath = Path.Combine(dotnetProfileDirectory, OpencodeWrapConstants.PROFILE_DOCKERFILE_NAME);
-        string dotnetOpencodeConfigPath = Path.Combine(dotnetProfileDirectory, "opencode.json");
-
-        try
-        {
-            Directory.CreateDirectory(defaultProfileDirectory);
-            Directory.CreateDirectory(dotnetProfileDirectory);
-            await File.WriteAllTextAsync(defaultDockerfilePath, DefaultDockerfile);
-            await File.WriteAllTextAsync(dotnetDockerfilePath, DotnetDockerfile);
-            await File.WriteAllTextAsync(defaultOpencodeConfigPath, DefaultOpencodeConfig);
-            await File.WriteAllTextAsync(dotnetOpencodeConfigPath, DotnetOpencodeConfig);
-            return true;
-        }
-        catch(Exception ex)
-        {
-            AppIO.WriteError($"Failed to initialize default profile in '{configRoot}': {ex.Message}");
-            return false;
+            AppIO.TryDeleteDirectory(temporaryDirectoryPath);
+            AppIO.WriteError($"Failed to prepare built-in profile '{profileName}': {ex.Message}");
+            return (false, String.Empty);
         }
     }
 }

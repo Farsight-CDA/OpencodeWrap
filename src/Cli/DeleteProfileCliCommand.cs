@@ -30,30 +30,38 @@ internal sealed class DeleteProfileCliCommand : Command
             return 1;
         }
 
-        if(String.Equals(OpencodeWrapConstants.DEFAULT_PROFILE_NAME, normalizedName, StringComparison.OrdinalIgnoreCase))
-        {
-            AppIO.WriteError($"Cannot delete default profile '{normalizedName}'.");
-            return 1;
-        }
-
         var (success, catalog) = await ProfileService.TryLoadProfileCatalogAsync();
         if(!success)
         {
             return 1;
         }
-        if(!catalog.ProfileDirectories.ContainsKey(normalizedName))
+
+        bool hasOverrideDirectory = catalog.ProfileDirectories.TryGetValue(normalizedName, out string? relativeDirectoryPath);
+        bool isBuiltIn = ProfileService.IsBuiltInProfileName(normalizedName);
+
+        if(!hasOverrideDirectory)
         {
+            if(isBuiltIn)
+            {
+                AppIO.WriteInfo($"Profile '{normalizedName}' is using the built-in template. Nothing to delete.");
+                return 0;
+            }
+
             AppIO.WriteError($"Profile '{normalizedName}' does not exist.");
             return 1;
         }
 
-        if(!ProfileService.TryResolveProfileDirectoryPath(catalog.ConfigRoot, normalizedName, out string profileDirectoryPath))
+        if(!ProfileService.TryResolveProfileDirectoryPath(catalog.ConfigRoot, relativeDirectoryPath!, out string profileDirectoryPath))
         {
             AppIO.WriteError($"Profile '{normalizedName}' directory resolves outside '{catalog.ConfigRoot}'.");
             return 1;
         }
 
-        if(!AppIO.Confirm($"Delete profile '{normalizedName}' and remove '{profileDirectoryPath}'?"))
+        string confirmMessage = isBuiltIn
+            ? $"Delete override profile '{normalizedName}' and remove '{profileDirectoryPath}'? This falls back to the built-in template."
+            : $"Delete profile '{normalizedName}' and remove '{profileDirectoryPath}'?";
+
+        if(!AppIO.Confirm(confirmMessage))
         {
             AppIO.WriteWarning("profile delete cancelled.");
             return 0;
@@ -70,6 +78,12 @@ internal sealed class DeleteProfileCliCommand : Command
         {
             AppIO.WriteError($"Failed to delete profile '{normalizedName}': {ex.Message}");
             return 1;
+        }
+
+        if(isBuiltIn)
+        {
+            AppIO.WriteSuccess($"Deleted override profile '{normalizedName}'. Now using built-in template.");
+            return 0;
         }
 
         AppIO.WriteSuccess($"Deleted profile '{normalizedName}'.");

@@ -22,16 +22,27 @@ internal sealed class BuildProfileCliCommand : Command
             {
                 return 1;
             }
-            AppIO.WriteInfo($"Rebuilding Docker image for profile '{profile.Name}' without cache...");
 
-            var (buildSuccess, imageTag) = await DockerImageService.TryBuildImageAsync(profile.DockerfilePath, noCache: true);
-            if(!buildSuccess)
+            try
             {
-                return 1;
-            }
+                AppIO.WriteInfo($"Rebuilding Docker image for profile '{profile.Name}' without cache...");
 
-            AppIO.WriteSuccess($"Rebuilt Docker image '{imageTag}' for profile '{profile.Name}'.");
-            return 0;
+                var (buildSuccess, imageTag) = await DockerImageService.TryBuildImageAsync(profile.DockerfilePath, noCache: true);
+                if(!buildSuccess)
+                {
+                    return 1;
+                }
+
+                AppIO.WriteSuccess($"Rebuilt Docker image '{imageTag}' for profile '{profile.Name}'.");
+                return 0;
+            }
+            finally
+            {
+                if(profile.CleanupDirectoryPath is not null)
+                {
+                    await AppIO.TryDeleteDirectoryAsync(profile.CleanupDirectoryPath);
+                }
+            }
         });
     }
 }
