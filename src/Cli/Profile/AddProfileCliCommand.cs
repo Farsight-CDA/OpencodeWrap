@@ -62,7 +62,7 @@ internal sealed class AddProfileCliCommand : Command
 
             Directory.CreateDirectory(opencodeDirectoryPath);
 
-            var builtInTemplate = ProfileService.TryGetBuiltInProfileTemplate(normalizedName);
+            var builtInTemplate = BuiltInProfileTemplateService.TryGetBuiltInProfileTemplate(normalizedName);
             if(builtInTemplate is not null)
             {
                 await File.WriteAllTextAsync(dockerfilePath, builtInTemplate.Value.Dockerfile);
@@ -70,7 +70,7 @@ internal sealed class AddProfileCliCommand : Command
             }
             else
             {
-                await File.WriteAllTextAsync(dockerfilePath, ProfileService.StarterDockerfileTemplate);
+                await File.WriteAllTextAsync(dockerfilePath, BuiltInProfileTemplateService.StarterDockerfileTemplate);
             }
         }
         catch(Exception ex)
@@ -79,7 +79,7 @@ internal sealed class AddProfileCliCommand : Command
             return 1;
         }
 
-        string mode = ProfileService.IsBuiltInProfileName(normalizedName) ? "override" : "profile";
+        string mode = BuiltInProfileTemplateService.IsBuiltInProfileName(normalizedName) ? "override" : "profile";
         AppIO.WriteSuccess($"Added {mode} '{normalizedName}' at '{profileDirectoryPath}'.");
         return 0;
     }

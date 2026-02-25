@@ -37,7 +37,7 @@ internal sealed class DeleteProfileCliCommand : Command
         }
 
         bool hasOverrideDirectory = catalog.ProfileDirectories.TryGetValue(normalizedName, out string? relativeDirectoryPath);
-        bool isBuiltIn = ProfileService.IsBuiltInProfileName(normalizedName);
+        bool isBuiltIn = BuiltInProfileTemplateService.IsBuiltInProfileName(normalizedName);
 
         if(!hasOverrideDirectory)
         {

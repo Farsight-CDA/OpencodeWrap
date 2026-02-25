@@ -49,7 +49,7 @@ internal sealed class RunCliCommand : Command
         }
 
         var profileNames = new HashSet<string>(catalog.ProfileDirectories.Keys, StringComparer.OrdinalIgnoreCase);
-        foreach(string builtInProfileName in ProfileService.GetBuiltInProfileNames())
+        foreach(string builtInProfileName in BuiltInProfileTemplateService.GetBuiltInProfileNames())
         {
             profileNames.Add(builtInProfileName);
         }

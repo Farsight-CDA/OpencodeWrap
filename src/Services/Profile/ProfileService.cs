@@ -3,45 +3,7 @@ internal sealed record ProfileCatalog(string ConfigRoot, string DefaultProfileNa
 
 internal sealed class ProfileService
 {
-    private static readonly string[] _builtInProfileNames = [
-        OpencodeWrapConstants.DEFAULT_PROFILE_NAME,
-        OpencodeWrapConstants.DOTNET_PROFILE_NAME,
-        OpencodeWrapConstants.DATA_SCIENCE_PROFILE_NAME
-    ];
-
-    private static string DefaultDockerfile { get; } = LoadEmbeddedTextResource("ProfileTemplates.default.Dockerfile");
-    private static string DotnetDockerfile { get; } = LoadEmbeddedTextResource("ProfileTemplates.dotnet.Dockerfile");
-    private static string DataScienceDockerfile { get; } = LoadEmbeddedTextResource("ProfileTemplates.data-science.Dockerfile");
-    private static string DefaultOpencodeConfig { get; } = LoadEmbeddedTextResource("ProfileTemplates.default.opencode.json");
-    private static string DotnetOpencodeConfig { get; } = LoadEmbeddedTextResource("ProfileTemplates.dotnet.opencode.json");
-    private static string DataScienceOpencodeConfig { get; } = LoadEmbeddedTextResource("ProfileTemplates.data-science.opencode.json");
-
     public const string INVALID_PROFILE_NAME_MESSAGE = "Profile name may only contain letters, numbers, '-', '_', and '.'.";
-    public static string StarterDockerfileTemplate => DefaultDockerfile;
-
-    public static bool IsBuiltInProfileName(string profileName) => _builtInProfileNames.Contains(profileName, StringComparer.OrdinalIgnoreCase);
-
-    public static IReadOnlyList<string> GetBuiltInProfileNames() => _builtInProfileNames;
-
-    public static (string Dockerfile, string OpencodeConfig)? TryGetBuiltInProfileTemplate(string profileName)
-    {
-        if(String.Equals(profileName, OpencodeWrapConstants.DEFAULT_PROFILE_NAME, StringComparison.OrdinalIgnoreCase))
-        {
-            return (DefaultDockerfile, DefaultOpencodeConfig);
-        }
-
-        if(String.Equals(profileName, OpencodeWrapConstants.DOTNET_PROFILE_NAME, StringComparison.OrdinalIgnoreCase))
-        {
-            return (DotnetDockerfile, DotnetOpencodeConfig);
-        }
-
-        if(String.Equals(profileName, OpencodeWrapConstants.DATA_SCIENCE_PROFILE_NAME, StringComparison.OrdinalIgnoreCase))
-        {
-            return (DataScienceDockerfile, DataScienceOpencodeConfig);
-        }
-
-        return null;
-    }
 
     public static bool TryEnsureInitialized() => DockerHostService.TryEnsureGlobalConfigDirectory(out _);
 
@@ -67,7 +29,7 @@ internal sealed class ProfileService
             return (false, emptyProfile);
         }
 
-        if(IsBuiltInProfileName(selectedProfileName))
+        if(BuiltInProfileTemplateService.IsBuiltInProfileName(selectedProfileName))
         {
             return await TryResolveBuiltInProfileAsync(catalog, selectedProfileName, emptyProfile);
         }
@@ -195,20 +157,6 @@ internal sealed class ProfileService
         return normalizedChild.StartsWith(normalizedParent, StringComparison.OrdinalIgnoreCase);
     }
 
-    private static string LoadEmbeddedTextResource(string resourceNameSuffix)
-    {
-        var assembly = typeof(ProfileService).Assembly;
-        string[] resourceNames = assembly.GetManifestResourceNames();
-
-        string? fullResourceName = resourceNames.FirstOrDefault(name =>
-            name.EndsWith(resourceNameSuffix, StringComparison.Ordinal)) ?? throw new InvalidOperationException($"Missing embedded resource '{resourceNameSuffix}'.");
-
-        using var stream = assembly.GetManifestResourceStream(fullResourceName) ?? throw new InvalidOperationException($"Cannot open embedded resource '{fullResourceName}'.");
-
-        using var reader = new StreamReader(stream);
-        return reader.ReadToEnd();
-    }
-
     private static async Task<(bool Success, ResolvedProfile Profile)> TryResolveBuiltInProfileAsync(ProfileCatalog catalog, string profileName, ResolvedProfile emptyProfile)
     {
         string relativeDirectoryPath = catalog.ProfileDirectories.TryGetValue(profileName, out string? overrideRelativePath)
@@ -238,14 +186,7 @@ internal sealed class ProfileService
                 ConfigDirectoryPath: Directory.Exists(overrideConfigDirectoryPath) ? overrideConfigDirectoryPath : null));
         }
 
-        var builtInTemplate = TryGetBuiltInProfileTemplate(profileName);
-        if(builtInTemplate is null)
-        {
-            AppIO.WriteError($"Built-in profile template not found for '{profileName}'.");
-            return (false, emptyProfile);
-        }
-
-        var (materialized, temporaryDirectoryPath) = await TryMaterializeBuiltInProfileAsync(profileName, builtInTemplate.Value.Dockerfile, builtInTemplate.Value.OpencodeConfig);
+        var (materialized, temporaryDirectoryPath) = await BuiltInProfileTemplateService.TryMaterializeBuiltInProfileAsync(profileName);
         if(!materialized)
         {
             return (false, emptyProfile);
@@ -259,24 +200,4 @@ internal sealed class ProfileService
             CleanupDirectoryPath: temporaryDirectoryPath));
     }
 
-    private static async Task<(bool Success, string TemporaryDirectoryPath)> TryMaterializeBuiltInProfileAsync(string profileName, string dockerfile, string opencodeConfig)
-    {
-        string temporaryDirectoryPath = Path.Combine(Path.GetTempPath(), $"ocw-profile-{profileName}-{Guid.NewGuid():N}");
-
-        try
-        {
-            Directory.CreateDirectory(temporaryDirectoryPath);
-            await File.WriteAllTextAsync(Path.Combine(temporaryDirectoryPath, OpencodeWrapConstants.PROFILE_DOCKERFILE_NAME), dockerfile);
-            string opencodeDirectoryPath = Path.Combine(temporaryDirectoryPath, OpencodeWrapConstants.PROFILE_OPENCODE_DIRECTORY_NAME);
-            Directory.CreateDirectory(opencodeDirectoryPath);
-            await File.WriteAllTextAsync(Path.Combine(opencodeDirectoryPath, "opencode.json"), opencodeConfig);
-            return (true, temporaryDirectoryPath);
-        }
-        catch(Exception ex)
-        {
-            AppIO.TryDeleteDirectory(temporaryDirectoryPath);
-            AppIO.WriteError($"Failed to prepare built-in profile '{profileName}': {ex.Message}");
-            return (false, String.Empty);
-        }
-    }
 }

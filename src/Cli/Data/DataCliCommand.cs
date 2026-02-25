@@ -2,12 +2,12 @@ using System.CommandLine;
 
 internal sealed class DataCliCommand : Command
 {
-    public DataCliCommand(VolumeStateService volumeService)
+    public DataCliCommand(ImportArchiveCliCommand importArchiveCliCommand, ExportCliCommand exportCliCommand, ImportHostCliCommand importHostCliCommand, ResetVolumeCliCommand resetVolumeCliCommand)
         : base("data", "Import, export, and manage persisted Opencode state.")
     {
-        Add(new ImportArchiveCliCommand(volumeService));
-        Add(new ExportCliCommand(volumeService));
-        Add(new ImportHostCliCommand(volumeService));
-        Add(new ResetVolumeCliCommand(volumeService));
+        Add(importArchiveCliCommand);
+        Add(exportCliCommand);
+        Add(importHostCliCommand);
+        Add(resetVolumeCliCommand);
     }
 }

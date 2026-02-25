@@ -18,7 +18,7 @@ internal sealed class ListProfilesCliCommand : Command
         }
 
         var allProfileNames = new HashSet<string>(catalog.ProfileDirectories.Keys, StringComparer.OrdinalIgnoreCase);
-        foreach(string builtInProfileName in ProfileService.GetBuiltInProfileNames())
+        foreach(string builtInProfileName in BuiltInProfileTemplateService.GetBuiltInProfileNames())
         {
             allProfileNames.Add(builtInProfileName);
         }
@@ -44,7 +44,7 @@ internal sealed class ListProfilesCliCommand : Command
             .ThenBy(name => name, StringComparer.OrdinalIgnoreCase))
         {
             bool isDefault = String.Equals(profileName, catalog.DefaultProfileName, StringComparison.OrdinalIgnoreCase);
-            bool isBuiltIn = ProfileService.IsBuiltInProfileName(profileName);
+            bool isBuiltIn = BuiltInProfileTemplateService.IsBuiltInProfileName(profileName);
             bool hasOverride = catalog.ProfileDirectories.ContainsKey(profileName);
 
             string typeLabel = isBuiltIn

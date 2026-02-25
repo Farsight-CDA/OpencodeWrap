@@ -2,13 +2,13 @@ using System.CommandLine;
 
 internal sealed class ProfileCliCommand : Command
 {
-    public ProfileCliCommand(DockerHostService hostService)
+    public ProfileCliCommand(ListProfilesCliCommand listProfilesCliCommand, AddProfileCliCommand addProfileCliCommand, DeleteProfileCliCommand deleteProfileCliCommand, BuildProfileCliCommand buildProfileCliCommand, OpenProfileDirectoryCliCommand openProfileDirectoryCliCommand)
         : base("profile", "Manage profile definitions.")
     {
-        Add(new ListProfilesCliCommand());
-        Add(new AddProfileCliCommand());
-        Add(new DeleteProfileCliCommand());
-        Add(new BuildProfileCliCommand());
-        Add(new OpenProfileDirectoryCliCommand(hostService));
+        Add(listProfilesCliCommand);
+        Add(addProfileCliCommand);
+        Add(deleteProfileCliCommand);
+        Add(buildProfileCliCommand);
+        Add(openProfileDirectoryCliCommand);
     }
 }
