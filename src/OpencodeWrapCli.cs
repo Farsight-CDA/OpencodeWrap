@@ -1,6 +1,8 @@
 using Microsoft.Extensions.DependencyInjection;
 using System.CommandLine;
 
+namespace OpencodeWrap;
+
 internal static class OpencodeWrapCli
 {
     public static async Task<int> RunAsync(string[] args, IServiceProvider services)
@@ -25,12 +27,9 @@ internal static class OpencodeWrapCli
         bool isReservedTopLevelCommand = rootCommand.Subcommands.Any(subcommand =>
             String.Equals(subcommand.Name, args[0], StringComparison.OrdinalIgnoreCase));
 
-        if(isReservedTopLevelCommand)
-        {
-            return await InvokeAsync(rootCommand, args);
-        }
-
-        return await rootCommand.ExecuteOpencodeAsync(args, requestedProfileName: null, includeProfileConfig: false);
+        return isReservedTopLevelCommand
+            ? await InvokeAsync(rootCommand, args)
+            : await rootCommand.ExecuteOpencodeAsync(args, requestedProfileName: null, includeProfileConfig: false);
     }
 
     private static Task<int> InvokeAsync(Command command, IReadOnlyList<string> args)

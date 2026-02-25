@@ -1,5 +1,7 @@
 using System.Diagnostics;
 
+namespace OpencodeWrap;
+
 internal static class ProcessRunner
 {
     internal readonly record struct ProcessRunResult(bool Started, int ExitCode, string StdOut, string StdErr)

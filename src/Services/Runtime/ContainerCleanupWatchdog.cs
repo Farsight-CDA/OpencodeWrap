@@ -2,6 +2,8 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Runtime.InteropServices;
 
+namespace OpencodeWrap.Services.Runtime;
+
 internal static class ContainerCleanupWatchdog
 {
     private const string WATCHDOG_MODE = "__watchdog";
@@ -21,14 +23,7 @@ internal static class ContainerCleanupWatchdog
             && String.Equals(Environment.GetEnvironmentVariable(WATCHDOG_ENVIRONMENT_VARIABLE), "1", StringComparison.Ordinal);
 
     public static async Task<int> RunWatchdogAsync(IReadOnlyList<string> args)
-    {
-        if(!TryParseWatchdogRunConfig(args, out var config))
-        {
-            return 1;
-        }
-
-        return await WaitForParentAndCleanupAsync(config);
-    }
+        => !TryParseWatchdogRunConfig(args, out var config) ? 1 : await WaitForParentAndCleanupAsync(config);
 
     public static async Task<bool> TryStartDetachedAndWaitReadyAsync(string containerName, TimeSpan timeout)
     {

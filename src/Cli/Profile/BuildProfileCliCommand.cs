@@ -1,5 +1,7 @@
 using System.CommandLine;
 
+namespace OpencodeWrap.Cli.Profile;
+
 internal sealed class BuildProfileCliCommand : Command
 {
     private readonly Argument<string> _nameArgument;

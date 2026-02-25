@@ -1,5 +1,7 @@
 using System.CommandLine;
 
+namespace OpencodeWrap.Cli.Data;
+
 internal sealed class DataCliCommand : Command
 {
     public DataCliCommand(ImportArchiveCliCommand importArchiveCliCommand, ExportCliCommand exportCliCommand, ImportHostCliCommand importHostCliCommand, ResetVolumeCliCommand resetVolumeCliCommand)

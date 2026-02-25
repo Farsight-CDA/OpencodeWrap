@@ -1,3 +1,5 @@
+namespace OpencodeWrap.Services.Docker;
+
 internal sealed class VolumeStateService(DockerHostService hostService)
 {
     private readonly DockerHostService _hostService = hostService;

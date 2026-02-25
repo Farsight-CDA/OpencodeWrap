@@ -1,5 +1,7 @@
 using System.CommandLine;
 
+namespace OpencodeWrap.Cli.Data;
+
 internal sealed class ImportHostCliCommand : Command
 {
     private readonly VolumeStateService _volumeService;

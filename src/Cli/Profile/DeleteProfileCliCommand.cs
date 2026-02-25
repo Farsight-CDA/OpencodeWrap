@@ -1,5 +1,7 @@
 using System.CommandLine;
 
+namespace OpencodeWrap.Cli.Profile;
+
 internal sealed class DeleteProfileCliCommand : Command
 {
     private readonly Argument<string> _nameArgument;
@@ -37,7 +39,8 @@ internal sealed class DeleteProfileCliCommand : Command
         }
 
         bool hasOverrideDirectory = catalog.ProfileDirectories.TryGetValue(normalizedName, out string? relativeDirectoryPath);
-        bool isBuiltIn = BuiltInProfileTemplateService.IsBuiltInProfileName(normalizedName);
+        bool isBuiltIn = BuiltInProfileTemplateService.BuiltInProfiles.Any(profile =>
+            profile.Name.Equals(normalizedName, StringComparison.OrdinalIgnoreCase));
 
         if(!hasOverrideDirectory)
         {

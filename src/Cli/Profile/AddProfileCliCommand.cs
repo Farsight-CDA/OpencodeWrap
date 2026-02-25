@@ -1,5 +1,7 @@
 using System.CommandLine;
 
+namespace OpencodeWrap.Cli.Profile;
+
 internal sealed class AddProfileCliCommand : Command
 {
     private readonly Argument<string> _nameArgument;
@@ -62,15 +64,17 @@ internal sealed class AddProfileCliCommand : Command
 
             Directory.CreateDirectory(opencodeDirectoryPath);
 
-            var builtInTemplate = BuiltInProfileTemplateService.TryGetBuiltInProfileTemplate(normalizedName);
-            if(builtInTemplate is not null)
+            var builtInProfile = BuiltInProfileTemplateService.BuiltInProfiles.FirstOrDefault(profile =>
+                profile.Name.Equals(normalizedName, StringComparison.OrdinalIgnoreCase));
+
+            if(builtInProfile is not null)
             {
-                await File.WriteAllTextAsync(dockerfilePath, builtInTemplate.Value.Dockerfile);
-                await File.WriteAllTextAsync(opencodeConfigPath, builtInTemplate.Value.OpencodeConfig);
+                await File.WriteAllTextAsync(dockerfilePath, builtInProfile.Dockerfile);
+                await File.WriteAllTextAsync(opencodeConfigPath, builtInProfile.OpencodeConfig);
             }
             else
             {
-                await File.WriteAllTextAsync(dockerfilePath, BuiltInProfileTemplateService.StarterDockerfileTemplate);
+                await File.WriteAllTextAsync(dockerfilePath, BuiltInProfileTemplateService.StarterProfile.Dockerfile);
             }
         }
         catch(Exception ex)
@@ -79,7 +83,10 @@ internal sealed class AddProfileCliCommand : Command
             return 1;
         }
 
-        string mode = BuiltInProfileTemplateService.IsBuiltInProfileName(normalizedName) ? "override" : "profile";
+        string mode = BuiltInProfileTemplateService.BuiltInProfiles.Any(profile =>
+            profile.Name.Equals(normalizedName, StringComparison.OrdinalIgnoreCase))
+            ? "override"
+            : "profile";
         AppIO.WriteSuccess($"Added {mode} '{normalizedName}' at '{profileDirectoryPath}'.");
         return 0;
     }

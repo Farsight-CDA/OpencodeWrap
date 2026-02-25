@@ -1,3 +1,5 @@
+namespace OpencodeWrap.Services.Profile;
+
 internal sealed record ResolvedProfile(string Name, string DirectoryPath, string DockerfilePath, string? ConfigDirectoryPath = null, string? CleanupDirectoryPath = null);
 internal sealed record ProfileCatalog(string ConfigRoot, string DefaultProfileName, IReadOnlyDictionary<string, string> ProfileDirectories);
 
@@ -29,7 +31,8 @@ internal sealed class ProfileService
             return (false, emptyProfile);
         }
 
-        if(BuiltInProfileTemplateService.IsBuiltInProfileName(selectedProfileName))
+        if(BuiltInProfileTemplateService.BuiltInProfiles.Any(profile =>
+            profile.Name.Equals(selectedProfileName, StringComparison.OrdinalIgnoreCase)))
         {
             return await TryResolveBuiltInProfileAsync(catalog, selectedProfileName, emptyProfile);
         }
@@ -80,7 +83,7 @@ internal sealed class ProfileService
         }
 
         var profileDirectories = DiscoverProfileDirectories(configRoot);
-        var catalog = new ProfileCatalog(configRoot, OpencodeWrapConstants.DEFAULT_PROFILE_NAME, profileDirectories);
+        var catalog = new ProfileCatalog(configRoot, BuiltInProfileTemplateService.StarterProfile.Name, profileDirectories);
         return (true, catalog);
     }
 
@@ -159,6 +162,14 @@ internal sealed class ProfileService
 
     private static async Task<(bool Success, ResolvedProfile Profile)> TryResolveBuiltInProfileAsync(ProfileCatalog catalog, string profileName, ResolvedProfile emptyProfile)
     {
+        var builtInProfile = BuiltInProfileTemplateService.BuiltInProfiles.FirstOrDefault(profile =>
+            profile.Name.Equals(profileName, StringComparison.OrdinalIgnoreCase));
+        if(builtInProfile is null)
+        {
+            AppIO.WriteError($"Built-in profile template not found for '{profileName}'.");
+            return (false, emptyProfile);
+        }
+
         string relativeDirectoryPath = catalog.ProfileDirectories.TryGetValue(profileName, out string? overrideRelativePath)
             ? overrideRelativePath
             : profileName;
@@ -186,7 +197,7 @@ internal sealed class ProfileService
                 ConfigDirectoryPath: Directory.Exists(overrideConfigDirectoryPath) ? overrideConfigDirectoryPath : null));
         }
 
-        var (materialized, temporaryDirectoryPath) = await BuiltInProfileTemplateService.TryMaterializeBuiltInProfileAsync(profileName);
+        var (materialized, temporaryDirectoryPath) = await BuiltInProfileTemplateService.TryMaterializeBuiltInProfileAsync(builtInProfile);
         if(!materialized)
         {
             return (false, emptyProfile);
@@ -199,5 +210,4 @@ internal sealed class ProfileService
             ConfigDirectoryPath: Path.Combine(temporaryDirectoryPath, OpencodeWrapConstants.PROFILE_OPENCODE_DIRECTORY_NAME),
             CleanupDirectoryPath: temporaryDirectoryPath));
     }
-
 }

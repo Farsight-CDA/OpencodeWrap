@@ -1,5 +1,7 @@
 using System.CommandLine;
 
+namespace OpencodeWrap.Cli.Profile;
+
 internal sealed class ProfileCliCommand : Command
 {
     public ProfileCliCommand(ListProfilesCliCommand listProfilesCliCommand, AddProfileCliCommand addProfileCliCommand, DeleteProfileCliCommand deleteProfileCliCommand, BuildProfileCliCommand buildProfileCliCommand, OpenProfileDirectoryCliCommand openProfileDirectoryCliCommand)

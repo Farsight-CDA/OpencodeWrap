@@ -1,11 +1,10 @@
+namespace OpencodeWrap;
+
 internal static class OpencodeWrapConstants
 {
     public const string CONTAINER_WORKSPACE = "/workspace";
     public const string CONTAINER_HOME = "/home/opencode";
     public const string HOST_GLOBAL_CONFIG_DIRECTORY_NAME = ".opencode-wrap";
-    public const string DEFAULT_PROFILE_NAME = "default";
-    public const string DOTNET_PROFILE_NAME = "dotnet";
-    public const string DATA_SCIENCE_PROFILE_NAME = "data-science";
     public const string PROFILE_DOCKERFILE_NAME = "Dockerfile";
     public const string PROFILE_OPENCODE_DIRECTORY_NAME = "opencode";
     public const string XDG_VOLUME_NAME = "opencode-wrap-xdg";

@@ -1,5 +1,7 @@
 using Spectre.Console;
 
+namespace OpencodeWrap;
+
 internal static class AppIO
 {
     public static void WriteError(string message)

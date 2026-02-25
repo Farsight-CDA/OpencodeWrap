@@ -1,5 +1,7 @@
 using System.Runtime.InteropServices;
 
+namespace OpencodeWrap.Services.Docker;
+
 internal sealed class DockerHostService
 {
     public bool IsWindows { get; } = RuntimeInformation.IsOSPlatform(OSPlatform.Windows);

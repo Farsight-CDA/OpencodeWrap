@@ -1,5 +1,7 @@
 using System.CommandLine;
 
+namespace OpencodeWrap.Cli;
+
 internal sealed class OpencodeWrapRootCommand : RootCommand
 {
     private readonly OpencodeLauncherService _launcherService;

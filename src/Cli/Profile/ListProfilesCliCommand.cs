@@ -1,6 +1,8 @@
 using Spectre.Console;
 using System.CommandLine;
 
+namespace OpencodeWrap.Cli.Profile;
+
 internal sealed class ListProfilesCliCommand : Command
 {
     public ListProfilesCliCommand()
@@ -18,9 +20,9 @@ internal sealed class ListProfilesCliCommand : Command
         }
 
         var allProfileNames = new HashSet<string>(catalog.ProfileDirectories.Keys, StringComparer.OrdinalIgnoreCase);
-        foreach(string builtInProfileName in BuiltInProfileTemplateService.GetBuiltInProfileNames())
+        foreach(var builtInProfile in BuiltInProfileTemplateService.BuiltInProfiles)
         {
-            allProfileNames.Add(builtInProfileName);
+            allProfileNames.Add(builtInProfile.Name);
         }
 
         if(allProfileNames.Count == 0)
@@ -44,7 +46,8 @@ internal sealed class ListProfilesCliCommand : Command
             .ThenBy(name => name, StringComparer.OrdinalIgnoreCase))
         {
             bool isDefault = String.Equals(profileName, catalog.DefaultProfileName, StringComparison.OrdinalIgnoreCase);
-            bool isBuiltIn = BuiltInProfileTemplateService.IsBuiltInProfileName(profileName);
+            bool isBuiltIn = BuiltInProfileTemplateService.BuiltInProfiles.Any(builtInProfile =>
+                builtInProfile.Name.Equals(profileName, StringComparison.OrdinalIgnoreCase));
             bool hasOverride = catalog.ProfileDirectories.ContainsKey(profileName);
 
             string typeLabel = isBuiltIn

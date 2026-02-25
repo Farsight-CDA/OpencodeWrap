@@ -1,21 +1,17 @@
 using System.Runtime.InteropServices;
 
-internal sealed class OpencodeLauncherService
+namespace OpencodeWrap.Services.Runtime;
+
+internal sealed class OpencodeLauncherService(DockerHostService hostService, VolumeStateService volumeService)
 {
     private static readonly TimeSpan _watchdogReadyTimeout = TimeSpan.FromSeconds(2);
 
-    private readonly DockerHostService _hostService;
-    private readonly VolumeStateService _volumeService;
+    private readonly DockerHostService _hostService = hostService;
+    private readonly VolumeStateService _volumeService = volumeService;
 
     private int _cleanupStarted;
     private string? _containerName;
     private readonly List<PosixSignalRegistration> _signalRegistrations = [];
-
-    public OpencodeLauncherService(DockerHostService hostService, VolumeStateService volumeService)
-    {
-        _hostService = hostService;
-        _volumeService = volumeService;
-    }
 
     public async Task<int> ExecuteAsync(
         IReadOnlyList<string> opencodeArgs,

@@ -1,5 +1,7 @@
 using System.Security.Cryptography;
 
+namespace OpencodeWrap.Services.Docker;
+
 internal sealed class DockerImageService
 {
     public static async Task<(bool Success, string ImageTag)> TryEnsureImageAsync(string dockerfilePath)

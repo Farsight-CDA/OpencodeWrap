@@ -1,6 +1,8 @@
 using System.CommandLine;
 using System.IO.Compression;
 
+namespace OpencodeWrap.Cli.Data;
+
 internal sealed class ImportArchiveCliCommand : Command
 {
     private readonly VolumeStateService _volumeService;

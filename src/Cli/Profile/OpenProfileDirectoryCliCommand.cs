@@ -1,6 +1,8 @@
 using System.CommandLine;
 using System.Diagnostics;
 
+namespace OpencodeWrap.Cli.Profile;
+
 internal sealed class OpenProfileDirectoryCliCommand : Command
 {
     private readonly DockerHostService _hostService;

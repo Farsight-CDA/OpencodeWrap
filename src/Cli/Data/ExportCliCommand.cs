@@ -1,6 +1,8 @@
 using System.CommandLine;
 using System.IO.Compression;
 
+namespace OpencodeWrap.Cli.Data;
+
 internal sealed class ExportCliCommand : Command
 {
     private const string DEFAULT_EXPORT_ARCHIVE_NAME = "export.ocw";

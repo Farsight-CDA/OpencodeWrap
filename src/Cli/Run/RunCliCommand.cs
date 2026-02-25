@@ -1,6 +1,8 @@
 using Spectre.Console;
 using System.CommandLine;
 
+namespace OpencodeWrap.Cli.Run;
+
 internal sealed class RunCliCommand : Command
 {
     private readonly OpencodeLauncherService _launcherService;
@@ -49,9 +51,9 @@ internal sealed class RunCliCommand : Command
         }
 
         var profileNames = new HashSet<string>(catalog.ProfileDirectories.Keys, StringComparer.OrdinalIgnoreCase);
-        foreach(string builtInProfileName in BuiltInProfileTemplateService.GetBuiltInProfileNames())
+        foreach(var builtInProfile in BuiltInProfileTemplateService.BuiltInProfiles)
         {
-            profileNames.Add(builtInProfileName);
+            profileNames.Add(builtInProfile.Name);
         }
 
         if(profileNames.Count == 0)
@@ -66,13 +68,12 @@ internal sealed class RunCliCommand : Command
             return null;
         }
 
-        List<ProfileChoice> profileChoices = profileNames
+        List<ProfileChoice> profileChoices = [.. profileNames
             .OrderByDescending(name => String.Equals(name, catalog.DefaultProfileName, StringComparison.OrdinalIgnoreCase))
             .ThenBy(name => name, StringComparer.OrdinalIgnoreCase)
-            .Select(name => new ProfileChoice(name, String.Equals(name, catalog.DefaultProfileName, StringComparison.OrdinalIgnoreCase)))
-            .ToList();
+            .Select(name => new ProfileChoice(name, String.Equals(name, catalog.DefaultProfileName, StringComparison.OrdinalIgnoreCase)))];
 
-        ProfileChoice selectedProfile = AnsiConsole.Prompt(
+        var selectedProfile = AnsiConsole.Prompt(
             new SelectionPrompt<ProfileChoice>()
                 .Title("Select a profile")
                 .PageSize(Math.Min(profileChoices.Count, 10))
