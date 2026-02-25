@@ -3,12 +3,18 @@ internal sealed record ProfileCatalog(string ConfigRoot, string DefaultProfileNa
 
 internal sealed class ProfileService
 {
-    private static readonly string[] _builtInProfileNames = [OpencodeWrapConstants.DEFAULT_PROFILE_NAME, OpencodeWrapConstants.DOTNET_PROFILE_NAME];
+    private static readonly string[] _builtInProfileNames = [
+        OpencodeWrapConstants.DEFAULT_PROFILE_NAME,
+        OpencodeWrapConstants.DOTNET_PROFILE_NAME,
+        OpencodeWrapConstants.DATA_SCIENCE_PROFILE_NAME
+    ];
 
     private static string DefaultDockerfile { get; } = LoadEmbeddedTextResource("ProfileTemplates.default.Dockerfile");
     private static string DotnetDockerfile { get; } = LoadEmbeddedTextResource("ProfileTemplates.dotnet.Dockerfile");
+    private static string DataScienceDockerfile { get; } = LoadEmbeddedTextResource("ProfileTemplates.data-science.Dockerfile");
     private static string DefaultOpencodeConfig { get; } = LoadEmbeddedTextResource("ProfileTemplates.default.opencode.json");
     private static string DotnetOpencodeConfig { get; } = LoadEmbeddedTextResource("ProfileTemplates.dotnet.opencode.json");
+    private static string DataScienceOpencodeConfig { get; } = LoadEmbeddedTextResource("ProfileTemplates.data-science.opencode.json");
 
     public const string INVALID_PROFILE_NAME_MESSAGE = "Profile name may only contain letters, numbers, '-', '_', and '.'.";
     public static string StarterDockerfileTemplate => DefaultDockerfile;
@@ -27,6 +33,11 @@ internal sealed class ProfileService
         if(String.Equals(profileName, OpencodeWrapConstants.DOTNET_PROFILE_NAME, StringComparison.OrdinalIgnoreCase))
         {
             return (DotnetDockerfile, DotnetOpencodeConfig);
+        }
+
+        if(String.Equals(profileName, OpencodeWrapConstants.DATA_SCIENCE_PROFILE_NAME, StringComparison.OrdinalIgnoreCase))
+        {
+            return (DataScienceDockerfile, DataScienceOpencodeConfig);
         }
 
         return null;
