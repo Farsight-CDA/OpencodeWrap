@@ -47,9 +47,12 @@ dotnet publish src/OpencodeWrap.csproj -c Release -r linux-x64 --self-contained 
 # Forward OpenCode args directly (default profile)
 ocw <opencode-args>
 
-# Run with a specific profile config from ~/.opencode-wrap/<profile>
-ocw run dotnet
-ocw run data-science
+# Run with profile selection prompt
+ocw run
+
+# Or specify a profile explicitly
+ocw run --profile dotnet
+ocw run -p data-science
 
 # Profile management
 ocw profile list
