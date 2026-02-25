@@ -5,6 +5,7 @@ namespace OpencodeWrap.Services.Runtime;
 internal sealed class OpencodeLauncherService(DockerHostService hostService, VolumeStateService volumeService)
 {
     private static readonly TimeSpan _watchdogReadyTimeout = TimeSpan.FromSeconds(2);
+    private static readonly string _containerCommand = BuildContainerCommand();
 
     private readonly DockerHostService _hostService = hostService;
     private readonly VolumeStateService _volumeService = volumeService;
@@ -79,7 +80,9 @@ internal sealed class OpencodeLauncherService(DockerHostService hostService, Vol
                 "-e", "FORCE_HYPERLINK=0",
                 "-e", $"XDG_CONFIG_HOME={OpencodeWrapConstants.CONTAINER_XDG_CONFIG_HOME}",
                 "-e", $"XDG_DATA_HOME={OpencodeWrapConstants.CONTAINER_XDG_DATA_HOME}",
-                "-e", $"XDG_STATE_HOME={OpencodeWrapConstants.CONTAINER_XDG_STATE_HOME}"
+                "-e", $"XDG_STATE_HOME={OpencodeWrapConstants.CONTAINER_XDG_STATE_HOME}",
+                "-e", $"OCW_PROFILE_ROOT={OpencodeWrapConstants.CONTAINER_PROFILE_ROOT}",
+                "-e", $"OCW_HOST_CONFIG_SOURCE={OpencodeWrapConstants.CONTAINER_HOST_CONFIG_SOURCE}"
             ]);
 
             if(!disableWorkspaceMount)
@@ -89,10 +92,7 @@ internal sealed class OpencodeLauncherService(DockerHostService hostService, Vol
 
             if(includeProfileConfig)
             {
-                if(profile.ConfigDirectoryPath is not null)
-                {
-                    runArgs.AddRange(["--mount", VolumeStateService.BuildBindMount(profile.ConfigDirectoryPath, OpencodeWrapConstants.CONTAINER_HOST_CONFIG_SOURCE) + ",readonly"]);
-                }
+                runArgs.AddRange(["--mount", VolumeStateService.BuildBindMount(profile.DirectoryPath, OpencodeWrapConstants.CONTAINER_PROFILE_ROOT) + ",readonly"]);
             }
 
             runArgs.AddRange(
@@ -102,7 +102,7 @@ internal sealed class OpencodeLauncherService(DockerHostService hostService, Vol
                 imageTag,
                 "bash",
                 "-lc",
-                OpencodeWrapConstants.CONTAINER_COMMAND,
+                _containerCommand,
                 "--"
             ]);
 
@@ -122,6 +122,19 @@ internal sealed class OpencodeLauncherService(DockerHostService hostService, Vol
                 AppIO.TryDeleteDirectory(profile.CleanupDirectoryPath);
             }
         }
+    }
+
+    private static string BuildContainerCommand()
+    {
+        string profileEntrypointPath = $"{OpencodeWrapConstants.CONTAINER_PROFILE_ROOT}/{OpencodeWrapConstants.PROFILE_ENTRYPOINT_FILE_NAME}";
+        return "set -e; "
+            + "mkdir -p \"$XDG_CONFIG_HOME\" \"$XDG_DATA_HOME/opencode\" \"$XDG_STATE_HOME/opencode\" \"$HOME/.local/bin\"; "
+            + "rm -rf \"$XDG_CONFIG_HOME/opencode\"; "
+            + "mkdir -p \"$XDG_CONFIG_HOME/opencode\"; "
+            + "if [ -d \"$OCW_HOST_CONFIG_SOURCE\" ]; then cp -a \"$OCW_HOST_CONFIG_SOURCE\"/. \"$XDG_CONFIG_HOME/opencode/\"; fi; "
+            + "export PATH=\"/opt/opencode/.opencode/bin:/opt/opencode/.local/share/opencode/bin:/opt/opencode/.local/bin:$HOME/.opencode/bin:$XDG_DATA_HOME/opencode/bin:$HOME/.local/bin:$PATH\"; "
+            + $"if [ -f \"{profileEntrypointPath}\" ]; then exec bash \"{profileEntrypointPath}\" \"$@\"; fi; "
+            + "exec opencode \"$@\"";
     }
 
     private static string ResolveContainerWorkspacePath(string hostWorkDir)

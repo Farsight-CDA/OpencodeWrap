@@ -7,7 +7,7 @@ internal sealed class AddProfileCliCommand : Command
     private readonly Argument<string> _nameArgument;
 
     public AddProfileCliCommand()
-        : base("add", "Add a new profile with a starter Dockerfile.")
+        : base("add", "Add a new profile with a starter Dockerfile and entrypoint script.")
     {
         _nameArgument = new Argument<string>("name")
         {
@@ -76,6 +76,8 @@ internal sealed class AddProfileCliCommand : Command
             {
                 await File.WriteAllTextAsync(dockerfilePath, BuiltInProfileTemplateService.StarterProfile.Dockerfile);
             }
+
+            await BuiltInProfileTemplateService.WriteDefaultEntrypointAsync(profileDirectoryPath);
         }
         catch(Exception ex)
         {
