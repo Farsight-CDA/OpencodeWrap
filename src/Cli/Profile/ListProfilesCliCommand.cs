@@ -1,5 +1,5 @@
-using System.CommandLine;
 using Spectre.Console;
+using System.CommandLine;
 
 internal sealed class ListProfilesCliCommand : Command
 {
