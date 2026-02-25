@@ -20,7 +20,15 @@ internal static class ContainerCleanupWatchdog
             && String.Equals(args[0], WATCHDOG_MODE, StringComparison.Ordinal)
             && String.Equals(Environment.GetEnvironmentVariable(WATCHDOG_ENVIRONMENT_VARIABLE), "1", StringComparison.Ordinal);
 
-    public static Task<int> RunWatchdogAsync(IReadOnlyList<string> args) => !TryParseWatchdogRunConfig(args, out var config) ? Task.FromResult(1) : WaitForParentAndCleanupAsync(config);
+    public static async Task<int> RunWatchdogAsync(IReadOnlyList<string> args)
+    {
+        if(!TryParseWatchdogRunConfig(args, out var config))
+        {
+            return 1;
+        }
+
+        return await WaitForParentAndCleanupAsync(config);
+    }
 
     public static async Task<bool> TryStartDetachedAndWaitReadyAsync(string containerName, TimeSpan timeout)
     {

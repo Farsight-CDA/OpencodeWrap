@@ -20,7 +20,7 @@ internal sealed class ResetVolumeCliCommand : Command
             return 0;
         }
 
-        var (success, removed) = await AppIO.WithStatusAsync("Resetting named volume...", _volumeService.ResetNamedVolumeAsync);
+        var (success, removed) = await AppIO.RunWithLoadingStateAsync("Resetting named volume...", _volumeService.ResetNamedVolumeAsync);
         if(!success)
         {
             return 1;

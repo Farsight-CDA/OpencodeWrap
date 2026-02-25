@@ -43,13 +43,13 @@ internal sealed class ProfileService
         return null;
     }
 
-    public static Task<bool> TryEnsureInitializedAsync() => Task.FromResult(DockerHostService.TryEnsureGlobalConfigDirectory(out _));
+    public static bool TryEnsureInitialized() => DockerHostService.TryEnsureGlobalConfigDirectory(out _);
 
     public static async Task<(bool Success, ResolvedProfile Profile)> TryResolveProfileAsync(string? requestedProfileName)
     {
         var emptyProfile = new ResolvedProfile(String.Empty, String.Empty, String.Empty, null, null);
 
-        var (success, catalog) = await TryLoadProfileCatalogAsync();
+        var (success, catalog) = TryLoadProfileCatalog();
         if(!success)
         {
             return (false, emptyProfile);
@@ -105,9 +105,9 @@ internal sealed class ProfileService
             ConfigDirectoryPath: Directory.Exists(configDirectoryPath) ? configDirectoryPath : null));
     }
 
-    public static async Task<(bool Success, ProfileCatalog Catalog)> TryLoadProfileCatalogAsync()
+    public static (bool Success, ProfileCatalog Catalog) TryLoadProfileCatalog()
     {
-        if(!await TryEnsureInitializedAsync())
+        if(!TryEnsureInitialized())
         {
             return (false, CreateEmptyCatalog());
         }

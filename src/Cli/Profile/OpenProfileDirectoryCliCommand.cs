@@ -5,7 +5,7 @@ internal sealed class OpenProfileDirectoryCliCommand : Command
 {
     private readonly DockerHostService _hostService;
 
-    public OpenProfileDirectoryCliCommand(ProfileService _, DockerHostService hostService)
+    public OpenProfileDirectoryCliCommand(DockerHostService hostService)
         : base("open", "Open $HOME/.opencode-wrap in the file explorer.")
     {
         _hostService = hostService;
@@ -15,7 +15,7 @@ internal sealed class OpenProfileDirectoryCliCommand : Command
 
     private async Task<int> ExecuteAsync()
     {
-        if(!await ProfileService.TryEnsureInitializedAsync())
+        if(!ProfileService.TryEnsureInitialized())
         {
             return 1;
         }

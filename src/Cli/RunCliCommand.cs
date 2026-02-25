@@ -2,14 +2,14 @@ using System.CommandLine;
 
 internal sealed class RunCliCommand : Command
 {
-    private readonly OpencodeWrapServices _services;
+    private readonly OpencodeLauncherService _launcherService;
     private readonly Argument<string> _profileArgument;
     private readonly Option<bool> _noMountOption;
 
-    public RunCliCommand(OpencodeWrapServices services)
+    public RunCliCommand(OpencodeLauncherService launcherService)
         : base("run", "Run opencode with a specific profile config.")
     {
-        _services = services;
+        _launcherService = launcherService;
         _profileArgument = new Argument<string>("profile")
         {
             Description = "Profile name from a directory under $HOME/.opencode-wrap."
@@ -26,7 +26,7 @@ internal sealed class RunCliCommand : Command
         {
             string profile = parseResult.GetRequiredValue(_profileArgument);
             bool noMount = parseResult.GetValue(_noMountOption);
-            return await OpencodeWrapRootCommand.ExecuteOpencodeAsync(_services, [], requestedProfileName: profile, includeProfileConfig: true, disableWorkspaceMount: noMount);
+            return await _launcherService.ExecuteAsync([], requestedProfileName: profile, includeProfileConfig: true, disableWorkspaceMount: noMount);
         });
     }
 }

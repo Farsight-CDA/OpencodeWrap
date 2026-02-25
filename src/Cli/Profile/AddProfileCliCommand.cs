@@ -4,7 +4,7 @@ internal sealed class AddProfileCliCommand : Command
 {
     private readonly Argument<string> _nameArgument;
 
-    public AddProfileCliCommand(ProfileService _)
+    public AddProfileCliCommand()
         : base("add", "Add a new profile with a starter Dockerfile.")
     {
         _nameArgument = new Argument<string>("name")
@@ -30,7 +30,7 @@ internal sealed class AddProfileCliCommand : Command
             return 1;
         }
 
-        var (success, catalog) = await ProfileService.TryLoadProfileCatalogAsync();
+        var (success, catalog) = ProfileService.TryLoadProfileCatalog();
         if(!success)
         {
             return 1;

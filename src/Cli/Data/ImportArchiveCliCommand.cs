@@ -32,7 +32,7 @@ internal sealed class ImportArchiveCliCommand : Command
 
     private async Task<int> ExecuteAsync(string archivePath, bool force)
     {
-        if(!await AppIO.WithStatusAsync("Checking Docker volume...", _volumeService.EnsureVolumeReadyAsync))
+        if(!await AppIO.RunWithLoadingStateAsync("Checking Docker volume...", _volumeService.EnsureVolumeReadyAsync))
         {
             return 1;
         }
@@ -53,12 +53,12 @@ internal sealed class ImportArchiveCliCommand : Command
 
         try
         {
-            if(!await AppIO.WithStatusAsync("Extracting archive...", () => ExtractArchiveAsync(sourceArchive, extractRoot)))
+            if(!AppIO.RunWithLoadingState("Extracting archive...", () => ExtractArchive(sourceArchive, extractRoot)))
             {
                 return 1;
             }
 
-            if(!await AppIO.WithStatusAsync("Importing state into volume...", () => _volumeService.ImportStateFromRootDirectoryAsync(extractRoot)))
+            if(!await AppIO.RunWithLoadingStateAsync("Importing state into volume...", () => _volumeService.ImportStateFromRootDirectoryAsync(extractRoot)))
             {
                 return 1;
             }
@@ -68,17 +68,17 @@ internal sealed class ImportArchiveCliCommand : Command
         }
         finally
         {
-            await AppIO.TryDeleteDirectoryAsync(extractRoot);
+            AppIO.TryDeleteDirectory(extractRoot);
         }
     }
 
-    private static async Task<bool> ExtractArchiveAsync(string sourceArchive, string extractRoot)
+    private static bool ExtractArchive(string sourceArchive, string extractRoot)
     {
         Directory.CreateDirectory(extractRoot);
 
         try
         {
-            await Task.Run(() => ZipFile.ExtractToDirectory(sourceArchive, extractRoot));
+            ZipFile.ExtractToDirectory(sourceArchive, extractRoot);
             return true;
         }
         catch(InvalidDataException ex)

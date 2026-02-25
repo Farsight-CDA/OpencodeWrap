@@ -3,7 +3,7 @@ using Spectre.Console;
 
 internal sealed class ListProfilesCliCommand : Command
 {
-    public ListProfilesCliCommand(ProfileService _)
+    public ListProfilesCliCommand()
         : base("list", "List all configured profiles.")
     {
         SetAction(async _ => await ExecuteAsync());
@@ -11,7 +11,7 @@ internal sealed class ListProfilesCliCommand : Command
 
     private static async Task<int> ExecuteAsync()
     {
-        var (success, catalog) = await ProfileService.TryLoadProfileCatalogAsync();
+        var (success, catalog) = ProfileService.TryLoadProfileCatalog();
         if(!success)
         {
             return 1;

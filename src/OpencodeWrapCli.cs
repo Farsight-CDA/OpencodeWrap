@@ -12,7 +12,7 @@ internal static class OpencodeWrapCli
         var services = new OpencodeWrapServices();
         var rootCommand = new OpencodeWrapRootCommand(services);
 
-        if(!await ProfileService.TryEnsureInitializedAsync())
+        if(!ProfileService.TryEnsureInitialized())
         {
             return 1;
         }
@@ -29,8 +29,8 @@ internal static class OpencodeWrapCli
         {
             return await InvokeAsync(rootCommand, args);
         }
-        //
-        return await OpencodeWrapRootCommand.ExecuteOpencodeAsync(services, args, requestedProfileName: null, includeProfileConfig: false);
+
+        return await rootCommand.ExecuteOpencodeAsync(args, requestedProfileName: null, includeProfileConfig: false);
     }
 
     private static Task<int> InvokeAsync(Command command, IReadOnlyList<string> args)

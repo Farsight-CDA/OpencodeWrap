@@ -4,7 +4,7 @@ internal sealed class BuildProfileCliCommand : Command
 {
     private readonly Argument<string> _nameArgument;
 
-    public BuildProfileCliCommand(ProfileService _, DockerImageService __)
+    public BuildProfileCliCommand()
         : base("build", "Rebuild a profile Docker image without using Docker cache.")
     {
         _nameArgument = new Argument<string>("name")
@@ -40,7 +40,7 @@ internal sealed class BuildProfileCliCommand : Command
             {
                 if(profile.CleanupDirectoryPath is not null)
                 {
-                    await AppIO.TryDeleteDirectoryAsync(profile.CleanupDirectoryPath);
+                    AppIO.TryDeleteDirectory(profile.CleanupDirectoryPath);
                 }
             }
         });

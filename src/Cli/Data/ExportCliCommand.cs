@@ -27,7 +27,7 @@ internal sealed class ExportCliCommand : Command
 
     private async Task<int> ExecuteAsync(string archivePath)
     {
-        if(!await AppIO.WithStatusAsync("Checking Docker volume...", _volumeService.EnsureVolumeReadyAsync))
+        if(!await AppIO.RunWithLoadingStateAsync("Checking Docker volume...", _volumeService.EnsureVolumeReadyAsync))
         {
             return 1;
         }
@@ -48,7 +48,7 @@ internal sealed class ExportCliCommand : Command
             Directory.CreateDirectory(destinationShare);
             Directory.CreateDirectory(destinationState);
 
-            if(!await AppIO.WithStatusAsync("Exporting state from volume...", () => ExportStateToDirectoryAsync(destinationShare, destinationState)))
+            if(!await AppIO.RunWithLoadingStateAsync("Exporting state from volume...", () => ExportStateToDirectoryAsync(destinationShare, destinationState)))
             {
                 return 1;
             }
@@ -58,7 +58,7 @@ internal sealed class ExportCliCommand : Command
                 File.Delete(destinationArchive);
             }
 
-            if(!await AppIO.WithStatusAsync("Writing archive...", () => CreateArchiveAsync(tempRoot, destinationArchive)))
+            if(!AppIO.RunWithLoadingState("Writing archive...", () => CreateArchive(tempRoot, destinationArchive)))
             {
                 return 1;
             }
@@ -68,7 +68,7 @@ internal sealed class ExportCliCommand : Command
         }
         finally
         {
-            await AppIO.TryDeleteDirectoryAsync(tempRoot);
+            AppIO.TryDeleteDirectory(tempRoot);
         }
     }
 
@@ -84,11 +84,11 @@ internal sealed class ExportCliCommand : Command
         => await _volumeService.ExportVolumeSubdirectoryToHostDirectoryAsync(OpencodeWrapConstants.VOLUME_SHARE_SUBDIRECTORY, destinationShare)
             && await _volumeService.ExportVolumeSubdirectoryToHostDirectoryAsync(OpencodeWrapConstants.VOLUME_STATE_SUBDIRECTORY, destinationState);
 
-    private static async Task<bool> CreateArchiveAsync(string sourceDirectory, string destinationArchive)
+    private static bool CreateArchive(string sourceDirectory, string destinationArchive)
     {
         try
         {
-            await Task.Run(() => ZipFile.CreateFromDirectory(sourceDirectory, destinationArchive, CompressionLevel.Optimal, includeBaseDirectory: false));
+            ZipFile.CreateFromDirectory(sourceDirectory, destinationArchive, CompressionLevel.Optimal, includeBaseDirectory: false);
             return true;
         }
         catch(Exception ex)

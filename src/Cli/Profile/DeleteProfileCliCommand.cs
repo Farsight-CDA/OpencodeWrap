@@ -4,7 +4,7 @@ internal sealed class DeleteProfileCliCommand : Command
 {
     private readonly Argument<string> _nameArgument;
 
-    public DeleteProfileCliCommand(ProfileService _)
+    public DeleteProfileCliCommand()
         : base("delete", "Delete a profile and its directory.")
     {
         _nameArgument = new Argument<string>("name")
@@ -30,7 +30,7 @@ internal sealed class DeleteProfileCliCommand : Command
             return 1;
         }
 
-        var (success, catalog) = await ProfileService.TryLoadProfileCatalogAsync();
+        var (success, catalog) = ProfileService.TryLoadProfileCatalog();
         if(!success)
         {
             return 1;
