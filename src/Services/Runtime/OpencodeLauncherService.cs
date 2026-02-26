@@ -75,15 +75,14 @@ internal sealed class OpencodeLauncherService(DockerHostService hostService, Vol
                 "-it",
                 "--name", _containerName,
                 "-e", $"HOME={OpencodeWrapConstants.CONTAINER_HOME}",
-                "-e", "TERM=xterm-256color",
-                "-e", "COLORTERM=truecolor",
-                "-e", "FORCE_HYPERLINK=0",
                 "-e", $"XDG_CONFIG_HOME={OpencodeWrapConstants.CONTAINER_XDG_CONFIG_HOME}",
                 "-e", $"XDG_DATA_HOME={OpencodeWrapConstants.CONTAINER_XDG_DATA_HOME}",
                 "-e", $"XDG_STATE_HOME={OpencodeWrapConstants.CONTAINER_XDG_STATE_HOME}",
                 "-e", $"OCW_PROFILE_ROOT={OpencodeWrapConstants.CONTAINER_PROFILE_ROOT}",
                 "-e", $"OCW_HOST_CONFIG_SOURCE={OpencodeWrapConstants.CONTAINER_HOST_CONFIG_SOURCE}"
             ]);
+
+            runArgs.AddRange(BuildTerminalEnvironmentArgs());
 
             if(!disableWorkspaceMount)
             {
@@ -150,6 +149,38 @@ internal sealed class OpencodeLauncherService(DockerHostService hostService, Vol
         return String.IsNullOrWhiteSpace(directoryName) || directoryName.Contains('/') || directoryName.Contains('\\')
             ? OpencodeWrapConstants.CONTAINER_WORKSPACE
             : $"{OpencodeWrapConstants.CONTAINER_WORKSPACE}/{directoryName}";
+    }
+
+    private static IEnumerable<string> BuildTerminalEnvironmentArgs()
+    {
+        yield return "-e";
+        yield return $"TERM={ResolveTerminalEnvironmentValue("TERM", "xterm-256color")}";
+
+        foreach(string envName in new[] { "COLORTERM", "TERM_PROGRAM", "TERM_PROGRAM_VERSION", "CLICOLOR", "CLICOLOR_FORCE", "NO_COLOR" })
+        {
+            string? envValue = Environment.GetEnvironmentVariable(envName);
+            if(String.IsNullOrWhiteSpace(envValue))
+            {
+                continue;
+            }
+
+            yield return "-e";
+            yield return $"{envName}={envValue}";
+        }
+
+        if(String.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("FORCE_HYPERLINK")))
+        {
+            yield return "-e";
+            yield return "FORCE_HYPERLINK=0";
+        }
+    }
+
+    private static string ResolveTerminalEnvironmentValue(string name, string fallback)
+    {
+        string? envValue = Environment.GetEnvironmentVariable(name);
+        return String.IsNullOrWhiteSpace(envValue)
+            ? fallback
+            : envValue;
     }
 
     private void RegisterCleanupHandlers()
