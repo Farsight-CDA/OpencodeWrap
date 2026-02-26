@@ -16,12 +16,12 @@ internal sealed class VolumeStateService(DockerHostService hostService)
             return false;
         }
 
-        if(!_hostService.IsLinux)
+        if(!_hostService.IsUnixLike)
         {
             return true;
         }
 
-        var (success, userSpec) = await DockerHostService.TryGetLinuxUserSpecAsync();
+        var (success, userSpec) = await DockerHostService.TryGetUnixUserSpecAsync();
         return success && await EnsureVolumeIsWritableAsync(OpencodeWrapConstants.XDG_VOLUME_NAME, userSpec);
     }
 
@@ -62,12 +62,12 @@ internal sealed class VolumeStateService(DockerHostService hostService)
             return false;
         }
 
-        if(!_hostService.IsLinux)
+        if(!_hostService.IsUnixLike)
         {
             return true;
         }
 
-        var (success, userSpec) = await DockerHostService.TryGetLinuxUserSpecAsync();
+        var (success, userSpec) = await DockerHostService.TryGetUnixUserSpecAsync();
         return success && await EnsureVolumeIsWritableAsync(OpencodeWrapConstants.XDG_VOLUME_NAME, userSpec);
     }
 

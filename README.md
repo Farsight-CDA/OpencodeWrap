@@ -13,7 +13,7 @@ Run [OpenCode](https://opencode.ai) in Docker with persistent state and lightwei
 
 Requirement: Docker (daemon running).
 
-1. Download a prebuilt binary from the latest **Build Artifacts** workflow run (`ocw-linux-x64`, `ocw-osx-x64`, `ocw-osx-arm64`, or `ocw-win-x64`).
+1. Download a prebuilt binary from the latest **Build Artifacts** workflow run (`ocw-linux-x64`, `ocw-osx-arm64` for Apple Silicon Macs, or `ocw-win-x64`).
 2. Extract the binary and install it somewhere in your `PATH`.
    - Linux example:
 

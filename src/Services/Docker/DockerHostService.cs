@@ -7,6 +7,7 @@ internal sealed class DockerHostService
     public bool IsWindows { get; } = RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
     public bool IsLinux { get; } = RuntimeInformation.IsOSPlatform(OSPlatform.Linux);
     public bool IsMacOS { get; } = RuntimeInformation.IsOSPlatform(OSPlatform.OSX);
+    public bool IsUnixLike => IsLinux || IsMacOS;
 
     public async Task<bool> EnsureHostAndDockerAsync()
     {
@@ -27,18 +28,18 @@ internal sealed class DockerHostService
         return false;
     }
 
-    public async Task<string?> GetContainerUserSpecAsync() => !IsLinux
+    public async Task<string?> GetContainerUserSpecAsync() => !IsUnixLike
             ? null
-            : await TryGetLinuxUserSpecAsync() is { Success: true, UserSpec: string userSpec }
+            : await TryGetUnixUserSpecAsync() is { Success: true, UserSpec: string userSpec }
             ? userSpec
             : null;
 
-    public static async Task<(bool Success, string UserSpec)> TryGetLinuxUserSpecAsync()
+    public static async Task<(bool Success, string UserSpec)> TryGetUnixUserSpecAsync()
     {
         var uidResult = await ProcessRunner.RunAsync("id", ["-u"]);
         if(!uidResult.Success)
         {
-            AppIO.WriteError("Failed to resolve current Linux user ID.");
+            AppIO.WriteError("Failed to resolve current Unix user ID.");
             if(!String.IsNullOrWhiteSpace(uidResult.StdErr))
             {
                 AppIO.WriteError(uidResult.StdErr.Trim());
@@ -50,7 +51,7 @@ internal sealed class DockerHostService
         var gidResult = await ProcessRunner.RunAsync("id", ["-g"]);
         if(!gidResult.Success)
         {
-            AppIO.WriteError("Failed to resolve current Linux group ID.");
+            AppIO.WriteError("Failed to resolve current Unix group ID.");
             if(!String.IsNullOrWhiteSpace(gidResult.StdErr))
             {
                 AppIO.WriteError(gidResult.StdErr.Trim());
@@ -63,7 +64,7 @@ internal sealed class DockerHostService
         string gid = gidResult.StdOut.Trim();
         if(uid.Length == 0 || gid.Length == 0)
         {
-            AppIO.WriteError("Linux user ID/group ID cannot be empty.");
+            AppIO.WriteError("Unix user ID/group ID cannot be empty.");
             return (false, String.Empty);
         }
 
@@ -106,10 +107,18 @@ internal sealed class DockerHostService
         string details = dockerError.Trim();
         AppIO.WriteError(details);
 
-        if(IsLinux && (details.Contains("permission denied", StringComparison.OrdinalIgnoreCase) || details.Contains("got permission denied", StringComparison.OrdinalIgnoreCase)))
+        if(IsUnixLike && (details.Contains("permission denied", StringComparison.OrdinalIgnoreCase) || details.Contains("got permission denied", StringComparison.OrdinalIgnoreCase)))
         {
-            AppIO.WriteWarning("your user may not have access to /var/run/docker.sock.");
-            AppIO.WriteWarning("add your user to the docker group or run with appropriate privileges.");
+            if(IsLinux)
+            {
+                AppIO.WriteWarning("your user may not have access to /var/run/docker.sock.");
+                AppIO.WriteWarning("add your user to the docker group or run with appropriate privileges.");
+            }
+            else if(IsMacOS)
+            {
+                AppIO.WriteWarning("ensure Docker Desktop is running and your shell has access to the Docker socket.");
+            }
+
             return;
         }
 

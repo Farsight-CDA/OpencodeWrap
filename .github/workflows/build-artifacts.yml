@@ -20,9 +20,6 @@ jobs:
           - os: windows-latest
             runtime: win-x64
             binary: ocw.exe
-          - os: macos-13
-            runtime: osx-x64
-            binary: ocw
           - os: macos-14
             runtime: osx-arm64
             binary: ocw
