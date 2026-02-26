@@ -8,6 +8,8 @@ internal sealed class RunCliCommand : Command
     private readonly OpencodeLauncherService _launcherService;
     private readonly Option<string?> _profileOption;
     private readonly Option<bool> _noMountOption;
+    private const string _noMountChoiceLabel = "Run with no workspace mount";
+    private const string _mountCurrentChoiceLabel = "Mount current workspace";
 
     public RunCliCommand(OpencodeLauncherService launcherService)
         : base("run", "Run opencode with a selected profile config.")
@@ -28,21 +30,24 @@ internal sealed class RunCliCommand : Command
         SetAction(async parseResult =>
         {
             string? profile = parseResult.GetValue(_profileOption);
+            bool noMount = parseResult.GetValue(_noMountOption);
             if(String.IsNullOrWhiteSpace(profile))
             {
-                profile = PromptForProfileName();
-                if(String.IsNullOrWhiteSpace(profile))
+                RunSelection? selection = PromptForRunSelection(defaultNoMount: noMount);
+                if(selection is null)
                 {
                     return 1;
                 }
+
+                profile = selection.ProfileName;
+                noMount = selection.NoMount;
             }
 
-            bool noMount = parseResult.GetValue(_noMountOption);
             return await _launcherService.ExecuteAsync([], requestedProfileName: profile, includeProfileConfig: true, disableWorkspaceMount: noMount);
         });
     }
 
-    private static string? PromptForProfileName()
+    private static RunSelection? PromptForRunSelection(bool defaultNoMount)
     {
         var (success, catalog) = ProfileService.TryLoadProfileCatalog();
         if(!success)
@@ -80,8 +85,32 @@ internal sealed class RunCliCommand : Command
                 .UseConverter(choice => choice.IsDefault ? $"{choice.Name} (default)" : choice.Name)
                 .AddChoices(profileChoices));
 
-        return selectedProfile.Name;
+        string currentWorkspacePath = Path.GetFullPath(Directory.GetCurrentDirectory());
+        string defaultModePreview = defaultNoMount
+            ? "No mount"
+            : $"Mount current ([deepskyblue1]{Markup.Escape(currentWorkspacePath)}[/])";
+        string toggleChoiceLabel = defaultNoMount ? _mountCurrentChoiceLabel : _noMountChoiceLabel;
+
+        var mountModePrompt = new MultiSelectionPrompt<string>();
+        mountModePrompt
+            .Title($"Workspace mount mode\n[grey]Current workspace path:[/] [deepskyblue1]{Markup.Escape(currentWorkspacePath)}[/]\n[grey]Default:[/] {defaultModePreview}")
+            .InstructionsText("[grey](Press [blue]<space>[/] to toggle mode, [green]<enter>[/] to continue)[/]")
+            .NotRequired()
+            .PageSize(4)
+            .UseConverter(choice =>
+                String.Equals(choice, toggleChoiceLabel, StringComparison.Ordinal)
+                    ? $"{choice} [grey](mount current: {Markup.Escape(currentWorkspacePath)})[/]"
+                    : Markup.Escape(choice));
+
+        mountModePrompt.AddChoice(toggleChoiceLabel);
+
+        List<string> selectedMountMode = AnsiConsole.Prompt(mountModePrompt);
+        bool toggled = selectedMountMode.Contains(toggleChoiceLabel, StringComparer.Ordinal);
+        bool noMount = defaultNoMount ? !toggled : toggled;
+
+        return new RunSelection(selectedProfile.Name, noMount);
     }
 
+    private sealed record RunSelection(string ProfileName, bool NoMount);
     private sealed record ProfileChoice(string Name, bool IsDefault);
 }
