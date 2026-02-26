@@ -4,7 +4,7 @@ Run [OpenCode](https://opencode.ai) in Docker with persistent state and lightwei
 
 ## Highlights
 
-- Runs OpenCode in an isolated Docker container on Linux/Windows hosts.
+- Runs OpenCode in an isolated Docker container on Linux/macOS/Windows hosts.
 - Persists OpenCode data across runs using a named Docker volume.
 - Uses profile-based Dockerfiles from `~/.opencode-wrap/<profile>/Dockerfile`, profile entrypoints from `~/.opencode-wrap/<profile>/entrypoint.sh`, and OpenCode config files from `~/.opencode-wrap/<profile>/opencode/`.
 - Includes built-in starter profiles: `default`, `dotnet`, and `data-science`.
@@ -13,9 +13,16 @@ Run [OpenCode](https://opencode.ai) in Docker with persistent state and lightwei
 
 Requirement: Docker (daemon running).
 
-1. Download a prebuilt binary from the latest **Build Artifacts** workflow run (`ocw-linux-x64` or `ocw-win-x64`).
+1. Download a prebuilt binary from the latest **Build Artifacts** workflow run (`ocw-linux-x64`, `ocw-osx-x64`, `ocw-osx-arm64`, or `ocw-win-x64`).
 2. Extract the binary and install it somewhere in your `PATH`.
    - Linux example:
+
+   ```bash
+   chmod +x ocw
+   sudo mv ocw /usr/local/bin/ocw
+   ```
+
+   - macOS example:
 
    ```bash
    chmod +x ocw

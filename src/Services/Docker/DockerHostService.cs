@@ -6,12 +6,13 @@ internal sealed class DockerHostService
 {
     public bool IsWindows { get; } = RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
     public bool IsLinux { get; } = RuntimeInformation.IsOSPlatform(OSPlatform.Linux);
+    public bool IsMacOS { get; } = RuntimeInformation.IsOSPlatform(OSPlatform.OSX);
 
     public async Task<bool> EnsureHostAndDockerAsync()
     {
-        if(!IsWindows && !IsLinux)
+        if(!IsWindows && !IsLinux && !IsMacOS)
         {
-            AppIO.WriteError("Unsupported host OS. Only Windows and Linux are supported.");
+            AppIO.WriteError("Unsupported host OS. Only Windows, Linux, and macOS are supported.");
             return false;
         }
 

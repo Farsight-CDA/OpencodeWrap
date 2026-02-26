@@ -60,7 +60,8 @@ internal sealed class OpenProfileDirectoryCliCommand : Command
             }
         }
 
-        var openResult = await ProcessRunner.RunAsync("xdg-open", [directoryPath]);
+        string openCommand = _hostService.IsMacOS ? "open" : "xdg-open";
+        var openResult = await ProcessRunner.RunAsync(openCommand, [directoryPath]);
         if(!openResult.Success)
         {
             AppIO.WriteError($"Failed to open profile directory '{directoryPath}'.");
