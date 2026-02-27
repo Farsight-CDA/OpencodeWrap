@@ -8,8 +8,6 @@ internal sealed class RunCliCommand : Command
     private readonly OpencodeLauncherService _launcherService;
     private readonly Option<string?> _profileOption;
     private readonly Option<bool> _noMountOption;
-    private const string _noMountChoiceLabel = "Run with no workspace mount";
-    private const string _mountCurrentChoiceLabel = "Mount current workspace";
 
     public RunCliCommand(OpencodeLauncherService launcherService)
         : base("run", "Run opencode with a selected profile config.")
@@ -78,37 +76,71 @@ internal sealed class RunCliCommand : Command
             .ThenBy(name => name, StringComparer.OrdinalIgnoreCase)
             .Select(name => new ProfileChoice(name, String.Equals(name, catalog.DefaultProfileName, StringComparison.OrdinalIgnoreCase)))];
 
-        var selectedProfile = AnsiConsole.Prompt(
-            new SelectionPrompt<ProfileChoice>()
-                .Title("Select a profile")
-                .PageSize(Math.Min(profileChoices.Count, 10))
-                .UseConverter(choice => choice.IsDefault ? $"{choice.Name} (default)" : choice.Name)
-                .AddChoices(profileChoices));
-
         string currentWorkspacePath = Path.GetFullPath(Directory.GetCurrentDirectory());
-        string defaultModePreview = defaultNoMount
-            ? "No mount"
-            : $"Mount current ([deepskyblue1]{Markup.Escape(currentWorkspacePath)}[/])";
-        string toggleChoiceLabel = defaultNoMount ? _mountCurrentChoiceLabel : _noMountChoiceLabel;
+        int selectedIndex = profileChoices.FindIndex(choice => choice.IsDefault);
+        if(selectedIndex < 0)
+        {
+            selectedIndex = 0;
+        }
 
-        var mountModePrompt = new MultiSelectionPrompt<string>();
-        mountModePrompt
-            .Title($"Workspace mount mode\n[grey]Current workspace path:[/] [deepskyblue1]{Markup.Escape(currentWorkspacePath)}[/]\n[grey]Default:[/] {defaultModePreview}")
-            .InstructionsText("[grey](Press [blue]<space>[/] to toggle mode, [green]<enter>[/] to continue)[/]")
-            .NotRequired()
-            .PageSize(4)
-            .UseConverter(choice =>
-                String.Equals(choice, toggleChoiceLabel, StringComparison.Ordinal)
-                    ? $"{choice} [grey](mount current: {Markup.Escape(currentWorkspacePath)})[/]"
-                    : Markup.Escape(choice));
+        bool noMount = defaultNoMount;
 
-        mountModePrompt.AddChoice(toggleChoiceLabel);
+        while(true)
+        {
+            RenderRunSelectionScreen(profileChoices, selectedIndex, noMount, currentWorkspacePath);
+            ConsoleKeyInfo? keyInfo = AnsiConsole.Console.Input.ReadKey(intercept : true);
+            if(keyInfo is null)
+            {
+                continue;
+            }
 
-        List<string> selectedMountMode = AnsiConsole.Prompt(mountModePrompt);
-        bool toggled = selectedMountMode.Contains(toggleChoiceLabel, StringComparer.Ordinal);
-        bool noMount = defaultNoMount ? !toggled : toggled;
+            switch(keyInfo.Value.Key)
+            {
+                case ConsoleKey.UpArrow:
+                    selectedIndex = selectedIndex <= 0 ? profileChoices.Count - 1 : selectedIndex - 1;
+                    break;
+                case ConsoleKey.DownArrow:
+                    selectedIndex = selectedIndex >= profileChoices.Count - 1 ? 0 : selectedIndex + 1;
+                    break;
+                case ConsoleKey.Spacebar:
+                    noMount = !noMount;
+                    break;
+                case ConsoleKey.Enter:
+                    AnsiConsole.Clear();
+                    return new RunSelection(profileChoices[selectedIndex].Name, noMount);
+                case ConsoleKey.Escape:
+                    AnsiConsole.Clear();
+                    return null;
+            }
+        }
+    }
 
-        return new RunSelection(selectedProfile.Name, noMount);
+    private static void RenderRunSelectionScreen(IReadOnlyList<ProfileChoice> profileChoices, int selectedIndex, bool noMount, string currentWorkspacePath)
+    {
+        AnsiConsole.Clear();
+
+        string mountMode = noMount
+            ? "[yellow]No Mount[/]"
+            : $"[deepskyblue1]{Markup.Escape($"Mount[{currentWorkspacePath}]")}[/]";
+
+        AnsiConsole.MarkupLine("Select a profile");
+        AnsiConsole.MarkupLine($"[grey]Mount mode:[/] {mountMode}");
+        AnsiConsole.MarkupLine("[grey](Use [blue]<up>/<down>[/] to select profile, [blue]<space>[/] to toggle mount mode, [green]<enter>[/] to continue, [red]<esc>[/] to cancel)[/]");
+        AnsiConsole.WriteLine();
+
+        for(int i = 0; i < profileChoices.Count; i++)
+        {
+            ProfileChoice choice = profileChoices[i];
+            string cursor = i == selectedIndex ? "[green]>[/]" : " ";
+            string escapedName = Markup.Escape(choice.Name);
+            string label = choice.IsDefault ? $"{escapedName} [grey](default)[/]" : escapedName;
+            if(i == selectedIndex)
+            {
+                label = $"[deepskyblue1]{label}[/]";
+            }
+
+            AnsiConsole.MarkupLine($"{cursor} {label}");
+        }
     }
 
     private sealed record RunSelection(string ProfileName, bool NoMount);
