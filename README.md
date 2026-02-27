@@ -7,7 +7,7 @@ Run [OpenCode](https://opencode.ai) in Docker with persistent state and lightwei
 - Runs OpenCode in an isolated Docker container on Linux/macOS/Windows hosts.
 - Persists OpenCode data across runs using a named Docker volume.
 - Uses profile-based Dockerfiles from `~/.opencode-wrap/<profile>/Dockerfile`, profile entrypoints from `~/.opencode-wrap/<profile>/entrypoint.sh`, and OpenCode config files from `~/.opencode-wrap/<profile>/opencode/`.
-- Includes built-in starter profiles: `default`, `dotnet`, and `data-science`.
+- Includes built-in starter profiles: `default`, `frontend`, `dotnet`, and `data-science`.
 
 ## Quick Start
 
@@ -59,6 +59,7 @@ ocw run
 
 # Or specify a profile explicitly
 ocw run --profile dotnet
+ocw run -p frontend
 ocw run -p data-science
 
 # Profile management

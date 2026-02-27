@@ -11,6 +11,10 @@ internal static class BuiltInProfileTemplateService
             LoadEmbeddedTextResource("ProfileTemplates.default.opencode.json"),
             IsDefault: true),
         new BuiltInProfileTemplate(
+            "frontend",
+            LoadEmbeddedTextResource("ProfileTemplates.frontend.Dockerfile"),
+            LoadEmbeddedTextResource("ProfileTemplates.frontend.opencode.json")),
+        new BuiltInProfileTemplate(
             "dotnet",
             LoadEmbeddedTextResource("ProfileTemplates.dotnet.Dockerfile"),
             LoadEmbeddedTextResource("ProfileTemplates.dotnet.opencode.json")),
