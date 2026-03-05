@@ -58,7 +58,7 @@ internal sealed class OpencodeLauncherService(DockerHostService hostService, Vol
                 containerWorkDir = ResolveContainerWorkspacePath(hostWorkDir);
             }
 
-            if(!TryResolveAdditionalReadonlyMounts(extraReadonlyMountDirs, out List<(string HostPath, string ContainerPath)> additionalReadonlyMounts))
+            if(!TryResolveAdditionalReadonlyMounts(extraReadonlyMountDirs, out var additionalReadonlyMounts))
             {
                 return 1;
             }

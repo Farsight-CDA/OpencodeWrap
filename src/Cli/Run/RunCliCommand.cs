@@ -36,7 +36,7 @@ internal sealed class RunCliCommand : Command
             string? profile = parseResult.GetValue(_profileOption);
             string mountModeInput = parseResult.GetValue(_mountModeOption) ?? "mount";
             string[] resourceDirs = parseResult.GetValue(_resourceDirOption) ?? [];
-            if(!TryParseMountMode(mountModeInput, out WorkspaceMountMode mountMode))
+            if(!TryParseMountMode(mountModeInput, out var mountMode))
             {
                 AppIO.WriteError($"Invalid --mount-mode value '{mountModeInput}'. Expected one of: mount, readonly-mount, no-mount.");
                 return 1;
@@ -44,7 +44,7 @@ internal sealed class RunCliCommand : Command
 
             if(String.IsNullOrWhiteSpace(profile))
             {
-                RunSelection? selection = PromptForRunSelection(defaultMountMode: mountMode);
+                var selection = PromptForRunSelection(defaultMountMode: mountMode, initialResourceDirectories: resourceDirs);
                 if(selection is null)
                 {
                     return 1;
@@ -52,13 +52,14 @@ internal sealed class RunCliCommand : Command
 
                 profile = selection.ProfileName;
                 mountMode = selection.MountMode;
+                resourceDirs = [.. selection.ResourceDirectories];
             }
 
             return await _launcherService.ExecuteAsync([], requestedProfileName: profile, includeProfileConfig: true, workspaceMountMode: mountMode, extraReadonlyMountDirs: resourceDirs);
         });
     }
 
-    private static RunSelection? PromptForRunSelection(WorkspaceMountMode defaultMountMode)
+    private static RunSelection? PromptForRunSelection(WorkspaceMountMode defaultMountMode, IReadOnlyList<string> initialResourceDirectories)
     {
         var (success, catalog) = ProfileService.TryLoadProfileCatalog();
         if(!success)
@@ -96,12 +97,21 @@ internal sealed class RunCliCommand : Command
             selectedIndex = 0;
         }
 
-        WorkspaceMountMode mountMode = defaultMountMode;
+        var mountMode = defaultMountMode;
+        var selectedResourceDirectories = new List<string>();
+        var seenResourceDirectories = new HashSet<string>(GetHostPathComparer());
+        if(!TryAddInitialResourceDirectories(initialResourceDirectories, selectedResourceDirectories, seenResourceDirectories))
+        {
+            return null;
+        }
+
+        string? statusMessage = null;
 
         while(true)
         {
-            RenderRunSelectionScreen(profileChoices, selectedIndex, mountMode, currentWorkspacePath);
-            ConsoleKeyInfo? keyInfo = AnsiConsole.Console.Input.ReadKey(intercept : true);
+            RenderRunSelectionScreen(profileChoices, selectedIndex, mountMode, currentWorkspacePath, selectedResourceDirectories, statusMessage);
+            statusMessage = null;
+            var keyInfo = AnsiConsole.Console.Input.ReadKey(intercept: true);
             if(keyInfo is null)
             {
                 continue;
@@ -118,9 +128,45 @@ internal sealed class RunCliCommand : Command
                 case ConsoleKey.Spacebar:
                     mountMode = CycleMountMode(mountMode);
                     break;
+                case ConsoleKey.R:
+                    string? inputPath = PromptForResourceDirectory();
+                    if(inputPath is null)
+                    {
+                        statusMessage = "Add resource directory canceled.";
+                        break;
+                    }
+
+                    if(!TryNormalizeResourceDirectory(inputPath, out string normalizedPath, out string errorMessage))
+                    {
+                        statusMessage = errorMessage;
+                        break;
+                    }
+
+                    if(!seenResourceDirectories.Add(normalizedPath))
+                    {
+                        statusMessage = "Resource directory is already selected.";
+                        break;
+                    }
+
+                    selectedResourceDirectories.Add(normalizedPath);
+                    statusMessage = $"Added: {normalizedPath}";
+                    break;
+                case ConsoleKey.Backspace:
+                case ConsoleKey.D:
+                    if(selectedResourceDirectories.Count == 0)
+                    {
+                        statusMessage = "No resource directories to remove.";
+                        break;
+                    }
+
+                    string removedDirectory = selectedResourceDirectories[^1];
+                    selectedResourceDirectories.RemoveAt(selectedResourceDirectories.Count - 1);
+                    seenResourceDirectories.Remove(removedDirectory);
+                    statusMessage = $"Removed: {removedDirectory}";
+                    break;
                 case ConsoleKey.Enter:
                     AnsiConsole.Clear();
-                    return new RunSelection(profileChoices[selectedIndex].Name, mountMode);
+                    return new RunSelection(profileChoices[selectedIndex].Name, mountMode, selectedResourceDirectories);
                 case ConsoleKey.Escape:
                     AnsiConsole.Clear();
                     return null;
@@ -154,7 +200,13 @@ internal sealed class RunCliCommand : Command
         }
     }
 
-    private static void RenderRunSelectionScreen(IReadOnlyList<ProfileChoice> profileChoices, int selectedIndex, WorkspaceMountMode mountMode, string currentWorkspacePath)
+    private static void RenderRunSelectionScreen(
+        IReadOnlyList<ProfileChoice> profileChoices,
+        int selectedIndex,
+        WorkspaceMountMode mountMode,
+        string currentWorkspacePath,
+        IReadOnlyList<string> selectedResourceDirectories,
+        string? statusMessage)
     {
         AnsiConsole.Clear();
 
@@ -167,12 +219,30 @@ internal sealed class RunCliCommand : Command
 
         AnsiConsole.MarkupLine("Select a profile");
         AnsiConsole.MarkupLine($"[grey]Mount mode:[/] {mountModeLabel}");
-        AnsiConsole.MarkupLine("[grey](Use [blue]<up>/<down>[/] to select profile, [blue]<space>[/] to toggle mount mode, [green]<enter>[/] to continue, [red]<esc>[/] to cancel)[/]");
+        AnsiConsole.MarkupLine("[grey]Resource dirs (read-only):[/]");
+        if(selectedResourceDirectories.Count == 0)
+        {
+            AnsiConsole.MarkupLine("  [grey](none)[/]");
+        }
+        else
+        {
+            foreach(string resourceDirectory in selectedResourceDirectories)
+            {
+                AnsiConsole.MarkupLine($"  [deepskyblue1]-[/] {Markup.Escape(resourceDirectory)}");
+            }
+        }
+
+        if(!String.IsNullOrWhiteSpace(statusMessage))
+        {
+            AnsiConsole.MarkupLine($"[yellow]{Markup.Escape(statusMessage)}[/]");
+        }
+
+        AnsiConsole.MarkupLine("[grey](Use [blue]<up>/<down>[/] to select profile, [blue]<space>[/] to toggle mount mode, [blue]r[/] to add resource dir, [blue]<backspace>[/] or [blue]d[/] to remove last, [green]<enter>[/] to continue, [red]<esc>[/] to cancel)[/]");
         AnsiConsole.WriteLine();
 
         for(int i = 0; i < profileChoices.Count; i++)
         {
-            ProfileChoice choice = profileChoices[i];
+            var choice = profileChoices[i];
             string cursor = i == selectedIndex ? "[green]>[/]" : " ";
             string escapedName = Markup.Escape(choice.Name);
             string label = choice.IsDefault ? $"{escapedName} [grey](default)[/]" : escapedName;
@@ -185,6 +255,63 @@ internal sealed class RunCliCommand : Command
         }
     }
 
-    private sealed record RunSelection(string ProfileName, WorkspaceMountMode MountMode);
+    private static bool TryAddInitialResourceDirectories(
+        IReadOnlyList<string> initialResourceDirectories,
+        List<string> selectedResourceDirectories,
+        HashSet<string> seenResourceDirectories)
+    {
+        foreach(string initialResourceDirectory in initialResourceDirectories)
+        {
+            if(!TryNormalizeResourceDirectory(initialResourceDirectory, out string normalizedPath, out string errorMessage))
+            {
+                AppIO.WriteError(errorMessage);
+                return false;
+            }
+
+            if(seenResourceDirectories.Add(normalizedPath))
+            {
+                selectedResourceDirectories.Add(normalizedPath);
+            }
+        }
+
+        return true;
+    }
+
+    private static string? PromptForResourceDirectory()
+    {
+        AnsiConsole.Clear();
+        AnsiConsole.MarkupLine("Add resource directory");
+        AnsiConsole.MarkupLine("[grey]Enter a host directory path to mount read-only. Leave empty to cancel.[/]");
+        string input = AnsiConsole.Prompt(new TextPrompt<string>("[deepskyblue1]Path[/]").AllowEmpty());
+        return String.IsNullOrWhiteSpace(input)
+            ? null
+            : input.Trim();
+    }
+
+    private static bool TryNormalizeResourceDirectory(string requestedDirectory, out string normalizedPath, out string errorMessage)
+    {
+        if(String.IsNullOrWhiteSpace(requestedDirectory))
+        {
+            normalizedPath = String.Empty;
+            errorMessage = "--resource-dir cannot be empty.";
+            return false;
+        }
+
+        normalizedPath = Path.TrimEndingDirectorySeparator(Path.GetFullPath(requestedDirectory));
+        if(!Directory.Exists(normalizedPath))
+        {
+            errorMessage = $"Resource directory not found: '{normalizedPath}'.";
+            return false;
+        }
+
+        errorMessage = String.Empty;
+        return true;
+    }
+
+    private static StringComparer GetHostPathComparer() => OperatingSystem.IsWindows()
+        ? StringComparer.OrdinalIgnoreCase
+        : StringComparer.Ordinal;
+
+    private sealed record RunSelection(string ProfileName, WorkspaceMountMode MountMode, IReadOnlyList<string> ResourceDirectories);
     private sealed record ProfileChoice(string Name, bool IsDefault);
 }

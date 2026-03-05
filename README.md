@@ -56,6 +56,12 @@ ocw <opencode-args>
 
 # Run with profile selection prompt
 ocw run
+# In interactive selection:
+# - Up/Down: choose profile
+# - Space: toggle mount mode
+# - R: add read-only resource directory
+# - Backspace (or D): remove last resource directory
+# - Enter: run, Esc: cancel
 
 # Or specify a profile explicitly
 ocw run --profile dotnet
