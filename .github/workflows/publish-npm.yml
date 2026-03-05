@@ -2,8 +2,6 @@ name: Publish npm Packages
 
 on:
   push:
-    tags:
-      - "v*"
   workflow_dispatch:
 
 jobs:
@@ -56,7 +54,6 @@ jobs:
     name: Publish npm
     runs-on: ubuntu-latest
     needs: build-binaries
-    if: startsWith(github.ref, 'refs/tags/v')
     permissions:
       contents: read
 
@@ -90,8 +87,16 @@ jobs:
 
       - name: Prepare npm package directories
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+            NPM_DIST_TAG="latest"
+          else
+            VERSION="0.0.0-dev.${GITHUB_RUN_NUMBER}.${GITHUB_SHA::7}.r${GITHUB_RUN_ATTEMPT}"
+            NPM_DIST_TAG="dev"
+          fi
+
           test -n "$VERSION"
+          test -n "$NPM_DIST_TAG"
 
           mkdir -p npm/ocw-linux-x64/bin npm/ocw-darwin-arm64/bin npm/ocw-win32-x64/bin
           cp build-artifacts/ocw-linux-x64/ocw npm/ocw-linux-x64/bin/ocw
@@ -105,14 +110,21 @@ jobs:
           npm version "$VERSION" --no-git-tag-version --prefix npm/ocw-win32-x64
           npm version "$VERSION" --no-git-tag-version --prefix npm/ocw
 
-          export VERSION
+          export VERSION NPM_DIST_TAG
           node -e 'const fs=require("node:fs"); const p="npm/ocw/package.json"; const version=process.env.VERSION; const pkg=JSON.parse(fs.readFileSync(p, "utf8")); pkg.optionalDependencies["@farsight-cda/ocw-linux-x64"]=version; pkg.optionalDependencies["@farsight-cda/ocw-darwin-arm64"]=version; pkg.optionalDependencies["@farsight-cda/ocw-win32-x64"]=version; fs.writeFileSync(p, JSON.stringify(pkg, null, 2)+"\n");'
 
       - name: Publish platform packages
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+            NPM_DIST_TAG="latest"
+          else
+            VERSION="0.0.0-dev.${GITHUB_RUN_NUMBER}.${GITHUB_SHA::7}.r${GITHUB_RUN_ATTEMPT}"
+            NPM_DIST_TAG="dev"
+          fi
+
           for PACKAGE_DIR in npm/ocw-linux-x64 npm/ocw-darwin-arm64 npm/ocw-win32-x64; do
             PACKAGE_NAME=$(node -p "require('./${PACKAGE_DIR}/package.json').name")
             if npm view "${PACKAGE_NAME}@${VERSION}" version >/dev/null 2>&1; then
@@ -120,18 +132,25 @@ jobs:
               continue
             fi
 
-            npm publish --prefix "${PACKAGE_DIR}" --access public
+            npm publish --prefix "${PACKAGE_DIR}" --access public --tag "${NPM_DIST_TAG}"
           done
 
       - name: Publish main package
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+            NPM_DIST_TAG="latest"
+          else
+            VERSION="0.0.0-dev.${GITHUB_RUN_NUMBER}.${GITHUB_SHA::7}.r${GITHUB_RUN_ATTEMPT}"
+            NPM_DIST_TAG="dev"
+          fi
+
           PACKAGE_NAME=$(node -p "require('./npm/ocw/package.json').name")
           if npm view "${PACKAGE_NAME}@${VERSION}" version >/dev/null 2>&1; then
             echo "Skipping ${PACKAGE_NAME}@${VERSION}, already published."
             exit 0
           fi
 
-          npm publish --prefix npm/ocw --access public
+          npm publish --prefix npm/ocw --access public --tag "${NPM_DIST_TAG}"

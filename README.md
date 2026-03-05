@@ -62,17 +62,6 @@ dotnet publish src/OpencodeWrap.csproj -c Release -r linux-x64 --self-contained 
 ./src/bin/Release/net10.0/linux-x64/publish/ocw --help
 ```
 
-## Publishing npm Packages (Maintainers)
-
-- Workflow: `.github/workflows/publish-npm.yml`
-- Trigger: push a tag like `v1.2.3`
-- Required secret: `NPM_TOKEN`
-- Published packages:
-  - `@farsight-cda/ocw` (main launcher package)
-  - `@farsight-cda/ocw-linux-x64`
-  - `@farsight-cda/ocw-darwin-arm64`
-  - `@farsight-cda/ocw-win32-x64`
-
 ## Usage
 
 ```bash
