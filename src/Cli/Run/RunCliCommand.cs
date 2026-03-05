@@ -129,7 +129,7 @@ internal sealed class RunCliCommand : Command
                     mountMode = CycleMountMode(mountMode);
                     break;
                 case ConsoleKey.R:
-                    string? inputPath = PromptForResourceDirectory();
+                    string? inputPath = PromptForResourceDirectory(currentWorkspacePath, selectedResourceDirectories);
                     if(inputPath is null)
                     {
                         statusMessage = "Add resource directory canceled.";
@@ -237,7 +237,7 @@ internal sealed class RunCliCommand : Command
             AnsiConsole.MarkupLine($"[yellow]{Markup.Escape(statusMessage)}[/]");
         }
 
-        AnsiConsole.MarkupLine("[grey](Use [blue]<up>/<down>[/] to select profile, [blue]<space>[/] to toggle mount mode, [blue]r[/] to add resource dir, [blue]<backspace>[/] or [blue]d[/] to remove last, [green]<enter>[/] to continue, [red]<esc>[/] to cancel)[/]");
+        AnsiConsole.MarkupLine("[grey](Use [blue]<up>/<down>[/] to select profile, [blue]<space>[/] to toggle mount mode, [blue]r[/] to browse/add resource dir, [blue]<backspace>[/] or [blue]d[/] to remove last, [green]<enter>[/] to continue, [red]<esc>[/] to cancel)[/]");
         AnsiConsole.WriteLine();
 
         for(int i = 0; i < profileChoices.Count; i++)
@@ -277,15 +277,298 @@ internal sealed class RunCliCommand : Command
         return true;
     }
 
-    private static string? PromptForResourceDirectory()
+    private static string? PromptForResourceDirectory(string workspacePath, IReadOnlyList<string> selectedResourceDirectories)
+    {
+        string startDirectory = workspacePath;
+        if(selectedResourceDirectories.Count > 0)
+        {
+            startDirectory = selectedResourceDirectories[^1];
+        }
+
+        if(!Directory.Exists(startDirectory))
+        {
+            startDirectory = Directory.GetCurrentDirectory();
+        }
+
+        return BrowseForResourceDirectory(startDirectory);
+    }
+
+    private static string? BrowseForResourceDirectory(string initialDirectory)
+    {
+        string currentDirectory;
+        try
+        {
+            currentDirectory = Path.GetFullPath(initialDirectory);
+        }
+        catch(Exception)
+        {
+            currentDirectory = Directory.GetCurrentDirectory();
+        }
+
+        string? statusMessage = null;
+        int selectedIndex = 0;
+        bool selectingDrive = false;
+
+        while(true)
+        {
+            List<ExplorerEntry> entries = [];
+            string? loadError;
+
+            if(selectingDrive)
+            {
+                List<string> drives = GetAvailableDriveRoots(out loadError);
+                foreach(string drive in drives)
+                {
+                    entries.Add(new ExplorerEntry(drive, ExplorerEntryType.Drive, drive));
+                }
+            }
+            else
+            {
+                List<string> childDirectories = GetChildDirectories(currentDirectory, out loadError);
+                if(Directory.GetParent(currentDirectory) is not null)
+                {
+                    entries.Add(new ExplorerEntry(".. (parent)", ExplorerEntryType.Parent));
+                }
+                else if(OperatingSystem.IsWindows())
+                {
+                    entries.Add(new ExplorerEntry(".. (drives)", ExplorerEntryType.Parent));
+                }
+
+                foreach(string childDirectory in childDirectories)
+                {
+                    entries.Add(new ExplorerEntry(Path.GetFileName(childDirectory), ExplorerEntryType.Child, childDirectory));
+                }
+            }
+
+            if(selectedIndex >= entries.Count)
+            {
+                selectedIndex = entries.Count - 1;
+            }
+
+            if(selectedIndex < 0)
+            {
+                selectedIndex = 0;
+            }
+
+            RenderResourceDirectoryExplorer(currentDirectory, selectingDrive, entries, selectedIndex, statusMessage ?? loadError);
+            statusMessage = null;
+
+            var keyInfo = AnsiConsole.Console.Input.ReadKey(intercept: true);
+            if(keyInfo is null)
+            {
+                continue;
+            }
+
+            switch(keyInfo.Value.Key)
+            {
+                case ConsoleKey.UpArrow:
+                    if(entries.Count > 0)
+                    {
+                        selectedIndex = selectedIndex <= 0 ? entries.Count - 1 : selectedIndex - 1;
+                    }
+
+                    break;
+                case ConsoleKey.DownArrow:
+                    if(entries.Count > 0)
+                    {
+                        selectedIndex = selectedIndex >= entries.Count - 1 ? 0 : selectedIndex + 1;
+                    }
+
+                    break;
+                case ConsoleKey.Backspace:
+                case ConsoleKey.LeftArrow:
+                    if(selectingDrive)
+                    {
+                        statusMessage = "Select a drive to continue browsing.";
+                        break;
+                    }
+
+                    if(TryMoveToParentDirectory(currentDirectory, out string? parentDirectory))
+                    {
+                        currentDirectory = parentDirectory;
+                        selectedIndex = 0;
+                    }
+                    else if(OperatingSystem.IsWindows())
+                    {
+                        selectingDrive = true;
+                        selectedIndex = 0;
+                    }
+                    else
+                    {
+                        statusMessage = "No parent directory available.";
+                    }
+
+                    break;
+                case ConsoleKey.Enter:
+                case ConsoleKey.RightArrow:
+                    if(selectingDrive)
+                    {
+                        if(entries.Count == 0)
+                        {
+                            statusMessage = "No drives are available.";
+                            break;
+                        }
+
+                        var selectedDriveEntry = entries[selectedIndex];
+                        if(selectedDriveEntry.Path is not null)
+                        {
+                            currentDirectory = selectedDriveEntry.Path;
+                            selectingDrive = false;
+                            selectedIndex = 0;
+                        }
+
+                        break;
+                    }
+
+                    if(entries.Count == 0)
+                    {
+                        return currentDirectory;
+                    }
+
+                    var selectedEntry = entries[selectedIndex];
+                    if(selectedEntry.EntryType is ExplorerEntryType.Parent)
+                    {
+                        if(TryMoveToParentDirectory(currentDirectory, out string? nextParentDirectory))
+                        {
+                            currentDirectory = nextParentDirectory;
+                            selectedIndex = 0;
+                        }
+                        else if(OperatingSystem.IsWindows())
+                        {
+                            selectingDrive = true;
+                            selectedIndex = 0;
+                        }
+                    }
+                    else if(selectedEntry.Path is not null)
+                    {
+                        currentDirectory = selectedEntry.Path;
+                        selectedIndex = 0;
+                    }
+
+                    break;
+                case ConsoleKey.A:
+                    if(selectingDrive)
+                    {
+                        statusMessage = "Select a drive first.";
+                        break;
+                    }
+
+                    return currentDirectory;
+                case ConsoleKey.Escape:
+                    AnsiConsole.Clear();
+                    return null;
+            }
+        }
+    }
+
+    private static void RenderResourceDirectoryExplorer(
+        string currentDirectory,
+        bool selectingDrive,
+        IReadOnlyList<ExplorerEntry> entries,
+        int selectedIndex,
+        string? statusMessage)
     {
         AnsiConsole.Clear();
-        AnsiConsole.MarkupLine("Add resource directory");
-        AnsiConsole.MarkupLine("[grey]Enter a host directory path to mount read-only. Leave empty to cancel.[/]");
-        string input = AnsiConsole.Prompt(new TextPrompt<string>("[deepskyblue1]Path[/]").AllowEmpty());
-        return String.IsNullOrWhiteSpace(input)
-            ? null
-            : input.Trim();
+        AnsiConsole.MarkupLine("Browse resource directory");
+        if(selectingDrive)
+        {
+            AnsiConsole.MarkupLine("[grey]Current:[/] [deepskyblue1](drive selection)[/]");
+        }
+        else
+        {
+            AnsiConsole.MarkupLine($"[grey]Current:[/] {Markup.Escape(currentDirectory)}");
+        }
+
+        if(!String.IsNullOrWhiteSpace(statusMessage))
+        {
+            AnsiConsole.MarkupLine($"[yellow]{Markup.Escape(statusMessage)}[/]");
+        }
+
+        AnsiConsole.MarkupLine("[grey](Use [blue]<up>/<down>[/] to navigate, [blue]<enter>[/] or [blue]<right>[/] to open, [blue]<left>[/] or [blue]<backspace>[/] for parent/drive selection, [green]a[/] to add current dir, [red]<esc>[/] to cancel)[/]");
+        AnsiConsole.WriteLine();
+
+        if(entries.Count == 0)
+        {
+            AnsiConsole.MarkupLine("  [grey](no subdirectories)[/]");
+            return;
+        }
+
+        for(int i = 0; i < entries.Count; i++)
+        {
+            var entry = entries[i];
+            bool isSelected = i == selectedIndex;
+            string cursor = isSelected ? "[green]>[/]" : " ";
+            string label = entry.EntryType switch
+            {
+                ExplorerEntryType.Parent => Markup.Escape(entry.Label),
+                ExplorerEntryType.Drive => Markup.Escape($"{entry.Label} (drive)"),
+                _ => Markup.Escape(entry.Label)
+            };
+
+            if(isSelected)
+            {
+                label = $"[deepskyblue1]{label}[/]";
+            }
+
+            AnsiConsole.MarkupLine($"{cursor} {label}");
+        }
+    }
+
+    private static List<string> GetChildDirectories(string directory, out string? errorMessage)
+    {
+        try
+        {
+            var children = Directory
+                .GetDirectories(directory)
+                .OrderBy(path => path, GetHostPathComparer())
+                .ToList();
+            errorMessage = null;
+            return children;
+        }
+        catch(Exception ex) when(ex is UnauthorizedAccessException or IOException)
+        {
+            errorMessage = $"Cannot list subdirectories: {ex.Message}";
+            return [];
+        }
+    }
+
+    private static List<string> GetAvailableDriveRoots(out string? errorMessage)
+    {
+        if(!OperatingSystem.IsWindows())
+        {
+            errorMessage = "Drive selection is only available on Windows.";
+            return [];
+        }
+
+        try
+        {
+            var drives = DriveInfo
+                .GetDrives()
+                .Where(drive => drive.IsReady)
+                .Select(drive => Path.GetFullPath(drive.RootDirectory.FullName))
+                .OrderBy(path => path, GetHostPathComparer())
+                .ToList();
+            errorMessage = drives.Count == 0 ? "No ready drives were found." : null;
+            return drives;
+        }
+        catch(Exception ex) when(ex is IOException or UnauthorizedAccessException)
+        {
+            errorMessage = $"Cannot list drives: {ex.Message}";
+            return [];
+        }
+    }
+
+    private static bool TryMoveToParentDirectory(string directory, out string parentDirectory)
+    {
+        var parent = Directory.GetParent(directory);
+        if(parent is null)
+        {
+            parentDirectory = directory;
+            return false;
+        }
+
+        parentDirectory = parent.FullName;
+        return true;
     }
 
     private static bool TryNormalizeResourceDirectory(string requestedDirectory, out string normalizedPath, out string errorMessage)
@@ -314,4 +597,12 @@ internal sealed class RunCliCommand : Command
 
     private sealed record RunSelection(string ProfileName, WorkspaceMountMode MountMode, IReadOnlyList<string> ResourceDirectories);
     private sealed record ProfileChoice(string Name, bool IsDefault);
+    private sealed record ExplorerEntry(string Label, ExplorerEntryType EntryType, string? Path = null);
+
+    private enum ExplorerEntryType
+    {
+        Parent,
+        Drive,
+        Child
+    }
 }
