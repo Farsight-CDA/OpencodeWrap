@@ -1,0 +1,18 @@
+{
+  "name": "@farsight-cda/ocw-linux-x64",
+  "version": "0.0.0-development",
+  "description": "Linux x64 binary for ocw.",
+  "license": "MIT",
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "files": [
+    "bin/"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
+}

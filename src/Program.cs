@@ -20,6 +20,7 @@ internal static class Program
 
             builder.Services.AddTransient<OpencodeWrapRootCommand>();
             builder.Services.AddTransient<RunCliCommand>();
+            builder.Services.AddTransient<UpdateCliCommand>();
             builder.Services.AddTransient<DataCliCommand>();
             builder.Services.AddTransient<ImportArchiveCliCommand>();
             builder.Services.AddTransient<ExportCliCommand>();

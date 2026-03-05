@@ -6,11 +6,12 @@ internal sealed class OpencodeWrapRootCommand : RootCommand
 {
     private readonly OpencodeLauncherService _launcherService;
 
-    public OpencodeWrapRootCommand(OpencodeLauncherService launcherService, RunCliCommand runCliCommand, DataCliCommand dataCliCommand, ProfileCliCommand profileCliCommand)
+    public OpencodeWrapRootCommand(OpencodeLauncherService launcherService, RunCliCommand runCliCommand, UpdateCliCommand updateCliCommand, DataCliCommand dataCliCommand, ProfileCliCommand profileCliCommand)
         : base("Run opencode in Docker and manage persisted Opencode state. Any command not matched to an ocw subcommand is forwarded to opencode in the container.")
     {
         _launcherService = launcherService;
         Add(runCliCommand);
+        Add(updateCliCommand);
         Add(dataCliCommand);
         Add(profileCliCommand);
     }

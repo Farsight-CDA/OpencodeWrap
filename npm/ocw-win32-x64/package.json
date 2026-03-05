@@ -1,0 +1,18 @@
+{
+  "name": "@farsight-cda/ocw-win32-x64",
+  "version": "0.0.0-development",
+  "description": "Windows x64 binary for ocw.",
+  "license": "MIT",
+  "os": [
+    "win32"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "files": [
+    "bin/"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
+}

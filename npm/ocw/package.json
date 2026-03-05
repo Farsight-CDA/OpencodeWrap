@@ -1,0 +1,23 @@
+{
+  "name": "@farsight-cda/ocw",
+  "version": "0.0.0-development",
+  "description": "Run OpenCode in Docker with persistent state and profile management.",
+  "license": "MIT",
+  "bin": {
+    "ocw": "bin/ocw.js"
+  },
+  "files": [
+    "bin/"
+  ],
+  "optionalDependencies": {
+    "@farsight-cda/ocw-linux-x64": "0.0.0-development",
+    "@farsight-cda/ocw-darwin-arm64": "0.0.0-development",
+    "@farsight-cda/ocw-win32-x64": "0.0.0-development"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

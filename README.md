@@ -13,8 +13,22 @@ Run [OpenCode](https://opencode.ai) in Docker with persistent state and lightwei
 
 Requirement: Docker (daemon running).
 
-1. Download a prebuilt binary from the latest **Build Artifacts** workflow run (`ocw-linux-x64`, `ocw-osx-arm64` for Apple Silicon Macs, or `ocw-win-x64`).
-2. Extract the binary and install it somewhere in your `PATH`.
+1. Install via npm (recommended):
+
+   ```bash
+   npm i -g @farsight-cda/ocw
+   ```
+
+   Upgrade later with:
+
+   ```bash
+   npm update -g @farsight-cda/ocw
+   # or inside the CLI:
+   ocw update
+   ```
+
+2. Alternative: download a prebuilt binary from the latest **Build Artifacts** workflow run (`ocw-linux-x64`, `ocw-osx-arm64` for Apple Silicon Macs, or `ocw-win-x64`).
+3. Extract the binary and install it somewhere in your `PATH`.
    - Linux example:
 
    ```bash
@@ -30,8 +44,8 @@ Requirement: Docker (daemon running).
    ```
 
    - Windows example (PowerShell): move `ocw.exe` to a directory already in `PATH`, or add its directory to your user `PATH`.
-3. Open a new shell and run `ocw --help` (or `ocw.exe --help` on Windows) to verify it resolves from `PATH`.
-4. Optional: import existing host OpenCode state into the Docker volume:
+4. Open a new shell and run `ocw --help` (or `ocw.exe --help` on Windows) to verify it resolves from `PATH`.
+5. Optional: import existing host OpenCode state into the Docker volume:
 
 ```bash
 ocw data import-host
@@ -47,6 +61,17 @@ Developer requirement:
 dotnet publish src/OpencodeWrap.csproj -c Release -r linux-x64 --self-contained true
 ./src/bin/Release/net10.0/linux-x64/publish/ocw --help
 ```
+
+## Publishing npm Packages (Maintainers)
+
+- Workflow: `.github/workflows/publish-npm.yml`
+- Trigger: push a tag like `v1.2.3`
+- Required secret: `NPM_TOKEN`
+- Published packages:
+  - `@farsight-cda/ocw` (main launcher package)
+  - `@farsight-cda/ocw-linux-x64`
+  - `@farsight-cda/ocw-darwin-arm64`
+  - `@farsight-cda/ocw-win32-x64`
 
 ## Usage
 
