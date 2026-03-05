@@ -31,12 +31,13 @@ internal sealed class ListProfilesCliCommand : Command
             return 0;
         }
 
-        AppIO.WriteInfo($"Profiles (default: '{catalog.DefaultProfileName}'):");
+        AppIO.WriteHeader("Profiles", $"Default profile: {catalog.DefaultProfileName}");
 
         var table = new Table()
             .Border(TableBorder.Rounded)
+            .BorderColor(Color.DeepSkyBlue1)
             .AddColumn("[deepskyblue1]Profile[/]")
-            .AddColumn("[deepskyblue1]Type[/]")
+            .AddColumn("[deepskyblue1]Kind[/]")
             .AddColumn("[deepskyblue1]Location[/]");
 
         int invalidPathCount = 0;
@@ -51,8 +52,8 @@ internal sealed class ListProfilesCliCommand : Command
             bool hasOverride = catalog.ProfileDirectories.ContainsKey(profileName);
 
             string typeLabel = isBuiltIn
-                ? hasOverride ? "built-in override" : "built-in"
-                : "custom";
+                ? hasOverride ? "🛠 built-in override" : "📦 built-in"
+                : "✨ custom";
 
             string displayPath;
             if(!hasOverride)
@@ -73,7 +74,7 @@ internal sealed class ListProfilesCliCommand : Command
                 }
             }
 
-            string profileCell = isDefault ? $"[bold]{Markup.Escape(profileName)}[/]" : Markup.Escape(profileName);
+            string profileCell = isDefault ? $"[bold green]★ {Markup.Escape(profileName)}[/]" : Markup.Escape(profileName);
             table.AddRow(profileCell, Markup.Escape(typeLabel), displayPath);
         }
 
@@ -84,7 +85,7 @@ internal sealed class ListProfilesCliCommand : Command
             AppIO.WriteWarning($"Found {invalidPathCount} profile path issue(s). Consider fixing or re-adding those profiles.");
         }
 
-        AppIO.WriteInfo("Use 'ocw profile add <name>' to create a custom profile or override a built-in one.");
+        AppIO.WriteInfo("Tip: run 'ocw profile add <name>' to create a custom profile or override a built-in one.");
 
         return 0;
     }

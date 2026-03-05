@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using System.Text;
 
 namespace OpencodeWrap;
 
@@ -9,6 +10,8 @@ internal static class Program
     {
         try
         {
+            EnsureUnicodeConsoleEncoding();
+
             var builder = Host.CreateApplicationBuilder(args);
 
             builder.Services.AddSingleton<DockerHostService>();
@@ -36,6 +39,20 @@ internal static class Program
         {
             AppIO.WriteError($"unexpected error: {ex.Message}");
             Environment.ExitCode = 1;
+        }
+    }
+
+    private static void EnsureUnicodeConsoleEncoding()
+    {
+        try
+        {
+            var utf8 = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
+            Console.InputEncoding = utf8;
+            Console.OutputEncoding = utf8;
+        }
+        catch
+        {
+            // Best effort only. Keep defaults if console encoding cannot be changed.
         }
     }
 }

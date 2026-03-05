@@ -86,9 +86,19 @@ internal sealed class DeleteProfileCliCommand : Command
 
         try
         {
-            if(Directory.Exists(profileDirectoryPath))
+            bool deleted = AppIO.RunWithLoadingState($"Deleting profile '{normalizedName}'...", () =>
             {
-                Directory.Delete(profileDirectoryPath, recursive: true);
+                if(Directory.Exists(profileDirectoryPath))
+                {
+                    Directory.Delete(profileDirectoryPath, recursive: true);
+                }
+
+                return true;
+            });
+
+            if(!deleted)
+            {
+                return 1;
             }
         }
         catch(Exception ex)
@@ -139,9 +149,9 @@ internal sealed class DeleteProfileCliCommand : Command
 
         var selectedProfile = AnsiConsole.Prompt(
             new SelectionPrompt<ProfileChoice>()
-                .Title("Select a profile to delete")
+                .Title("[bold red]🗑 Select a profile to delete[/]")
                 .PageSize(Math.Min(profileChoices.Count, 10))
-                .UseConverter(choice => choice.IsDefault ? $"{choice.Name} (default)" : choice.Name)
+                .UseConverter(choice => choice.IsDefault ? $"★ {choice.Name} (default)" : choice.Name)
                 .AddChoices(profileChoices));
 
         return selectedProfile.Name;

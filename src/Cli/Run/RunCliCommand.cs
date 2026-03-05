@@ -105,12 +105,9 @@ internal sealed class RunCliCommand : Command
             return null;
         }
 
-        string? statusMessage = null;
-
         while(true)
         {
-            RenderRunSelectionScreen(profileChoices, selectedIndex, mountMode, currentWorkspacePath, selectedResourceDirectories, statusMessage);
-            statusMessage = null;
+            RenderRunSelectionScreen(profileChoices, selectedIndex, mountMode, currentWorkspacePath, selectedResourceDirectories);
             var keyInfo = AnsiConsole.Console.Input.ReadKey(intercept: true);
             if(keyInfo is null)
             {
@@ -132,37 +129,31 @@ internal sealed class RunCliCommand : Command
                     string? inputPath = PromptForResourceDirectory(currentWorkspacePath, selectedResourceDirectories);
                     if(inputPath is null)
                     {
-                        statusMessage = "Add resource directory canceled.";
                         break;
                     }
 
-                    if(!TryNormalizeResourceDirectory(inputPath, out string normalizedPath, out string errorMessage))
+                    if(!TryNormalizeResourceDirectory(inputPath, out string normalizedPath, out _))
                     {
-                        statusMessage = errorMessage;
                         break;
                     }
 
                     if(!seenResourceDirectories.Add(normalizedPath))
                     {
-                        statusMessage = "Resource directory is already selected.";
                         break;
                     }
 
                     selectedResourceDirectories.Add(normalizedPath);
-                    statusMessage = $"Added: {normalizedPath}";
                     break;
                 case ConsoleKey.Backspace:
                 case ConsoleKey.D:
                     if(selectedResourceDirectories.Count == 0)
                     {
-                        statusMessage = "No resource directories to remove.";
                         break;
                     }
 
                     string removedDirectory = selectedResourceDirectories[^1];
                     selectedResourceDirectories.RemoveAt(selectedResourceDirectories.Count - 1);
                     seenResourceDirectories.Remove(removedDirectory);
-                    statusMessage = $"Removed: {removedDirectory}";
                     break;
                 case ConsoleKey.Enter:
                     AnsiConsole.Clear();
@@ -205,54 +196,92 @@ internal sealed class RunCliCommand : Command
         int selectedIndex,
         WorkspaceMountMode mountMode,
         string currentWorkspacePath,
-        IReadOnlyList<string> selectedResourceDirectories,
-        string? statusMessage)
+        IReadOnlyList<string> selectedResourceDirectories)
     {
         AnsiConsole.Clear();
+        AppIO.WriteHeader("Run Setup", "Choose profile, mount mode, and optional resource directories.");
 
         string mountModeLabel = mountMode switch
         {
-            WorkspaceMountMode.ReadOnly => $"[gold1]{Markup.Escape($"Readonly Mount[{currentWorkspacePath}]")}[/]",
-            WorkspaceMountMode.None => "[yellow]No Mount[/]",
-            _ => $"[deepskyblue1]{Markup.Escape($"Mount[{currentWorkspacePath}]")}[/]"
+            WorkspaceMountMode.ReadOnly => "[gold1]Read-only mount[/]",
+            WorkspaceMountMode.None => "[yellow]Mount disabled[/]",
+            _ => "[deepskyblue1]Read-write mount[/]"
         };
 
-        AnsiConsole.MarkupLine("Select a profile");
-        AnsiConsole.MarkupLine($"[grey]Mount mode:[/] {mountModeLabel}");
-        AnsiConsole.MarkupLine("[grey]Resource dirs (read-only):[/]");
+        var profileTable = new Table()
+            .Border(TableBorder.None)
+            .Expand();
+        profileTable.AddColumn(new TableColumn(String.Empty));
+        for(int i = 0; i < profileChoices.Count; i++)
+        {
+            var choice = profileChoices[i];
+            bool isSelected = i == selectedIndex;
+            string cursor = isSelected ? "[deepskyblue1]>[/]" : " ";
+            string escapedName = Markup.Escape(choice.Name);
+            string defaultTag = choice.IsDefault ? " [grey](default)[/]" : String.Empty;
+            string label = isSelected
+                ? $"[bold deepskyblue1]{escapedName}[/]{defaultTag}"
+                : $"{escapedName}{defaultTag}";
+
+            profileTable.AddRow($"{cursor} {label}");
+        }
+
+        var profilePanel = new Panel(profileTable)
+        {
+            Border = BoxBorder.Rounded,
+            Header = new PanelHeader("[bold]Profile[/]", Justify.Left),
+            Padding = new Padding(1, 0, 1, 0)
+        };
+
+        var runtimeGrid = new Grid();
+        runtimeGrid.AddColumn(new GridColumn().Width(12));
+        runtimeGrid.AddColumn();
+        runtimeGrid.AddRow("[grey]Mode[/]", mountModeLabel);
+        runtimeGrid.AddRow("[grey]Workspace[/]", $"[deepskyblue1]{Markup.Escape(currentWorkspacePath)}[/]");
+
+        var runtimePanel = new Panel(runtimeGrid)
+        {
+            Border = BoxBorder.Rounded,
+            Header = new PanelHeader("[bold]Runtime[/]", Justify.Left),
+            Padding = new Padding(1, 0, 1, 0)
+        };
+
+        var resourceTable = new Table()
+            .Border(TableBorder.None)
+            .Expand();
+        resourceTable.AddColumn(new TableColumn(String.Empty));
         if(selectedResourceDirectories.Count == 0)
         {
-            AnsiConsole.MarkupLine("  [grey](none)[/]");
+            resourceTable.AddRow("[grey](none selected)[/]");
         }
         else
         {
             foreach(string resourceDirectory in selectedResourceDirectories)
             {
-                AnsiConsole.MarkupLine($"  [deepskyblue1]-[/] {Markup.Escape(resourceDirectory)}");
+                resourceTable.AddRow($"[deepskyblue1]+[/] {Markup.Escape(resourceDirectory)}");
             }
         }
 
-        if(!String.IsNullOrWhiteSpace(statusMessage))
+        var resourcesPanel = new Panel(resourceTable)
         {
-            AnsiConsole.MarkupLine($"[yellow]{Markup.Escape(statusMessage)}[/]");
-        }
+            Border = BoxBorder.Rounded,
+            Header = new PanelHeader("[bold]Read-only Resource Dirs[/]", Justify.Left),
+            Padding = new Padding(1, 0, 1, 0)
+        };
 
-        AnsiConsole.MarkupLine("[grey](Use [blue]<up>/<down>[/] to select profile, [blue]<space>[/] to toggle mount mode, [blue]r[/] to browse/add resource dir, [blue]<backspace>[/] or [blue]d[/] to remove last, [green]<enter>[/] to continue, [red]<esc>[/] to cancel)[/]");
-        AnsiConsole.WriteLine();
-
-        for(int i = 0; i < profileChoices.Count; i++)
+        var rightColumn = new Rows(runtimePanel, resourcesPanel);
+        AnsiConsole.Write(new Columns(profilePanel, rightColumn)
         {
-            var choice = profileChoices[i];
-            string cursor = i == selectedIndex ? "[green]>[/]" : " ";
-            string escapedName = Markup.Escape(choice.Name);
-            string label = choice.IsDefault ? $"{escapedName} [grey](default)[/]" : escapedName;
-            if(i == selectedIndex)
-            {
-                label = $"[deepskyblue1]{label}[/]";
-            }
+            Expand = true
+        });
 
-            AnsiConsole.MarkupLine($"{cursor} {label}");
-        }
+        AnsiConsole.Write(CreateKeyHelpPanel(
+            ("Up/Down", "Select profile"),
+            ("Space", "Toggle mount mode"),
+            ("R", "Add resource directory"),
+            ("Backspace / D", "Remove last directory"),
+            ("Enter", "Continue"),
+            ("Esc", "Cancel")));
     }
 
     private static bool TryAddInitialResourceDirectories(
@@ -279,11 +308,9 @@ internal sealed class RunCliCommand : Command
 
     private static string? PromptForResourceDirectory(string workspacePath, IReadOnlyList<string> selectedResourceDirectories)
     {
-        string startDirectory = workspacePath;
-        if(selectedResourceDirectories.Count > 0)
-        {
-            startDirectory = selectedResourceDirectories[^1];
-        }
+        string startDirectory = selectedResourceDirectories.Count > 0
+            ? selectedResourceDirectories[^1]
+            : Directory.GetParent(workspacePath)?.FullName ?? workspacePath;
 
         if(!Directory.Exists(startDirectory))
         {
@@ -305,18 +332,15 @@ internal sealed class RunCliCommand : Command
             currentDirectory = Directory.GetCurrentDirectory();
         }
 
-        string? statusMessage = null;
         int selectedIndex = 0;
         bool selectingDrive = false;
 
         while(true)
         {
             List<ExplorerEntry> entries = [];
-            string? loadError;
-
             if(selectingDrive)
             {
-                List<string> drives = GetAvailableDriveRoots(out loadError);
+                List<string> drives = GetAvailableDriveRoots();
                 foreach(string drive in drives)
                 {
                     entries.Add(new ExplorerEntry(drive, ExplorerEntryType.Drive, drive));
@@ -324,7 +348,7 @@ internal sealed class RunCliCommand : Command
             }
             else
             {
-                List<string> childDirectories = GetChildDirectories(currentDirectory, out loadError);
+                List<string> childDirectories = GetChildDirectories(currentDirectory);
                 if(Directory.GetParent(currentDirectory) is not null)
                 {
                     entries.Add(new ExplorerEntry(".. (parent)", ExplorerEntryType.Parent));
@@ -350,8 +374,7 @@ internal sealed class RunCliCommand : Command
                 selectedIndex = 0;
             }
 
-            RenderResourceDirectoryExplorer(currentDirectory, selectingDrive, entries, selectedIndex, statusMessage ?? loadError);
-            statusMessage = null;
+            RenderResourceDirectoryExplorer(currentDirectory, selectingDrive, entries, selectedIndex);
 
             var keyInfo = AnsiConsole.Console.Input.ReadKey(intercept: true);
             if(keyInfo is null)
@@ -379,7 +402,6 @@ internal sealed class RunCliCommand : Command
                 case ConsoleKey.LeftArrow:
                     if(selectingDrive)
                     {
-                        statusMessage = "Select a drive to continue browsing.";
                         break;
                     }
 
@@ -393,10 +415,6 @@ internal sealed class RunCliCommand : Command
                         selectingDrive = true;
                         selectedIndex = 0;
                     }
-                    else
-                    {
-                        statusMessage = "No parent directory available.";
-                    }
 
                     break;
                 case ConsoleKey.Enter:
@@ -405,7 +423,6 @@ internal sealed class RunCliCommand : Command
                     {
                         if(entries.Count == 0)
                         {
-                            statusMessage = "No drives are available.";
                             break;
                         }
 
@@ -449,7 +466,6 @@ internal sealed class RunCliCommand : Command
                 case ConsoleKey.A:
                     if(selectingDrive)
                     {
-                        statusMessage = "Select a drive first.";
                         break;
                     }
 
@@ -465,56 +481,91 @@ internal sealed class RunCliCommand : Command
         string currentDirectory,
         bool selectingDrive,
         IReadOnlyList<ExplorerEntry> entries,
-        int selectedIndex,
-        string? statusMessage)
+        int selectedIndex)
     {
         AnsiConsole.Clear();
-        AnsiConsole.MarkupLine("Browse resource directory");
+        AppIO.WriteHeader("Resource Browser", "Pick additional read-only mounts.");
+
+        string locationLine = selectingDrive
+            ? "[deepskyblue1](drive selection)[/]"
+            : $"[deepskyblue1]{Markup.Escape(currentDirectory)}[/]";
+        AnsiConsole.Write(new Panel(locationLine)
+        {
+            Border = BoxBorder.Rounded,
+            Header = new PanelHeader("[bold]Location[/]", Justify.Left),
+            Padding = new Padding(1, 0, 1, 0)
+        });
+
         if(selectingDrive)
         {
-            AnsiConsole.MarkupLine("[grey]Current:[/] [deepskyblue1](drive selection)[/]");
+            AnsiConsole.MarkupLine("[grey]Choose a drive, then browse and press A to add the current folder.[/]");
+        }
+
+        var entryTable = new Table()
+            .Border(TableBorder.None)
+            .Expand();
+        entryTable.AddColumn(new TableColumn(String.Empty));
+        if(entries.Count == 0)
+        {
+            entryTable.AddRow("[grey](no subdirectories)[/]");
         }
         else
         {
-            AnsiConsole.MarkupLine($"[grey]Current:[/] {Markup.Escape(currentDirectory)}");
-        }
-
-        if(!String.IsNullOrWhiteSpace(statusMessage))
-        {
-            AnsiConsole.MarkupLine($"[yellow]{Markup.Escape(statusMessage)}[/]");
-        }
-
-        AnsiConsole.MarkupLine("[grey](Use [blue]<up>/<down>[/] to navigate, [blue]<enter>[/] or [blue]<right>[/] to open, [blue]<left>[/] or [blue]<backspace>[/] for parent/drive selection, [green]a[/] to add current dir, [red]<esc>[/] to cancel)[/]");
-        AnsiConsole.WriteLine();
-
-        if(entries.Count == 0)
-        {
-            AnsiConsole.MarkupLine("  [grey](no subdirectories)[/]");
-            return;
-        }
-
-        for(int i = 0; i < entries.Count; i++)
-        {
-            var entry = entries[i];
-            bool isSelected = i == selectedIndex;
-            string cursor = isSelected ? "[green]>[/]" : " ";
-            string label = entry.EntryType switch
+            for(int i = 0; i < entries.Count; i++)
             {
-                ExplorerEntryType.Parent => Markup.Escape(entry.Label),
-                ExplorerEntryType.Drive => Markup.Escape($"{entry.Label} (drive)"),
-                _ => Markup.Escape(entry.Label)
-            };
+                var entry = entries[i];
+                bool isSelected = i == selectedIndex;
+                string cursor = isSelected ? "[deepskyblue1]>[/]" : " ";
+                string label = entry.EntryType switch
+                {
+                    ExplorerEntryType.Parent => $"[grey]..[/] [silver]{Markup.Escape(entry.Label)}[/]",
+                    ExplorerEntryType.Drive => $"[deepskyblue1]{Markup.Escape(entry.Label)}[/] [grey](drive)[/]",
+                    _ => Markup.Escape(entry.Label)
+                };
+                if(isSelected)
+                {
+                    label = $"[bold deepskyblue1]{label}[/]";
+                }
 
-            if(isSelected)
-            {
-                label = $"[deepskyblue1]{label}[/]";
+                entryTable.AddRow($"{cursor} {label}");
             }
-
-            AnsiConsole.MarkupLine($"{cursor} {label}");
         }
+
+        AnsiConsole.Write(new Panel(entryTable)
+        {
+            Border = BoxBorder.Rounded,
+            Header = new PanelHeader("[bold]Directories[/]", Justify.Left),
+            Padding = new Padding(1, 0, 1, 0)
+        });
+
+        AnsiConsole.Write(CreateKeyHelpPanel(
+            ("Up/Down", "Navigate"),
+            ("Enter / Right", "Open selected"),
+            ("Left / Backspace", "Go up"),
+            ("A", "Add current directory"),
+            ("Esc", "Cancel")));
     }
 
-    private static List<string> GetChildDirectories(string directory, out string? errorMessage)
+    private static Panel CreateKeyHelpPanel(params (string Key, string Action)[] shortcuts)
+    {
+        var keyGrid = new Grid();
+        keyGrid.AddColumn(new GridColumn().NoWrap());
+        keyGrid.AddColumn();
+
+        foreach(var (key, action) in shortcuts)
+        {
+            keyGrid.AddRow($"[deepskyblue1]{Markup.Escape(key)}[/]", $"[grey]{Markup.Escape(action)}[/]");
+        }
+
+        return new Panel(keyGrid)
+        {
+            Border = BoxBorder.Rounded,
+            Header = new PanelHeader("[bold]Controls[/]", Justify.Left),
+            Padding = new Padding(1, 0, 1, 0)
+        };
+    }
+
+    private static List<string> GetChildDirectories(string directory)
     {
         try
         {
@@ -522,21 +573,22 @@ internal sealed class RunCliCommand : Command
                 .GetDirectories(directory)
                 .OrderBy(path => path, GetHostPathComparer())
                 .ToList();
-            errorMessage = null;
             return children;
         }
-        catch(Exception ex) when(ex is UnauthorizedAccessException or IOException)
+        catch(UnauthorizedAccessException)
         {
-            errorMessage = $"Cannot list subdirectories: {ex.Message}";
+            return [];
+        }
+        catch(IOException)
+        {
             return [];
         }
     }
 
-    private static List<string> GetAvailableDriveRoots(out string? errorMessage)
+    private static List<string> GetAvailableDriveRoots()
     {
         if(!OperatingSystem.IsWindows())
         {
-            errorMessage = "Drive selection is only available on Windows.";
             return [];
         }
 
@@ -548,12 +600,14 @@ internal sealed class RunCliCommand : Command
                 .Select(drive => Path.GetFullPath(drive.RootDirectory.FullName))
                 .OrderBy(path => path, GetHostPathComparer())
                 .ToList();
-            errorMessage = drives.Count == 0 ? "No ready drives were found." : null;
             return drives;
         }
-        catch(Exception ex) when(ex is IOException or UnauthorizedAccessException)
+        catch(IOException)
         {
-            errorMessage = $"Cannot list drives: {ex.Message}";
+            return [];
+        }
+        catch(UnauthorizedAccessException)
+        {
             return [];
         }
     }

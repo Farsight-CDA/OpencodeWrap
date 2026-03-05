@@ -4,32 +4,46 @@ namespace OpencodeWrap;
 
 internal static class AppIO
 {
+    private const string BRAND_LABEL = "[bold deepskyblue1]ocw[/]";
+
     public static void WriteError(string message)
-        => AnsiConsole.MarkupLine($"[red]ocw:[/] {Markup.Escape(message)}");
+        => WriteMessage("[red]✖[/]", message);
     public static void WriteInfo(string message)
-        => AnsiConsole.MarkupLine($"[deepskyblue1]ocw:[/] {Markup.Escape(message)}");
+        => WriteMessage("[deepskyblue1]ℹ[/]", message);
     public static void WriteSuccess(string message)
-        => AnsiConsole.MarkupLine($"[green]ocw:[/] {Markup.Escape(message)}");
+        => WriteMessage("[green]✔[/]", message);
     public static void WriteWarning(string message)
-        => AnsiConsole.MarkupLine($"[yellow]ocw:[/] {Markup.Escape(message)}");
+        => WriteMessage("[yellow]⚠[/]", message);
+
+    public static void WriteHeader(string title, string? subtitle = null)
+    {
+        AnsiConsole.MarkupLine($"{BRAND_LABEL} [grey]-[/] [bold]{Markup.Escape(title)}[/]");
+        if(!String.IsNullOrWhiteSpace(subtitle))
+        {
+            AnsiConsole.MarkupLine($"[grey]{Markup.Escape(subtitle)}[/]");
+        }
+
+        AnsiConsole.WriteLine();
+    }
+
     public static bool Confirm(string message)
-        => AnsiConsole.Confirm($"[yellow]{Markup.Escape(message)}[/]", defaultValue: false);
+        => AnsiConsole.Confirm($"[yellow]⚠[/] {BRAND_LABEL} {Markup.Escape(message)}", defaultValue: false);
 
     public static T RunWithLoadingState<T>(string statusMessage, Func<T> action)
         => !AnsiConsole.Profile.Capabilities.Interactive
-            ? action()
+            ? RunNonInteractiveStatus(statusMessage, action)
             : AnsiConsole.Status()
-            .Spinner(Spinner.Known.Dots)
+            .Spinner(Spinner.Known.Star)
             .SpinnerStyle(Style.Parse("deepskyblue1"))
-            .Start($"[deepskyblue1]{Markup.Escape(statusMessage)}[/]", _ => action());
+            .Start($"[deepskyblue1]>>[/] {Markup.Escape(statusMessage)}", _ => action());
 
     public static Task<T> RunWithLoadingStateAsync<T>(string statusMessage, Func<Task<T>> action)
         => !AnsiConsole.Profile.Capabilities.Interactive
-            ? action()
+            ? RunNonInteractiveStatusAsync(statusMessage, action)
             : AnsiConsole.Status()
-            .Spinner(Spinner.Known.Dots)
+            .Spinner(Spinner.Known.Star)
             .SpinnerStyle(Style.Parse("deepskyblue1"))
-            .StartAsync($"[deepskyblue1]{Markup.Escape(statusMessage)}[/]", _ => action());
+            .StartAsync($"[deepskyblue1]>>[/] {Markup.Escape(statusMessage)}", _ => action());
 
     public static void TryDeleteDirectory(string path)
     {
@@ -44,5 +58,20 @@ internal static class AppIO
         {
             // Best effort cleanup only.
         }
+    }
+
+    private static void WriteMessage(string iconMarkup, string message)
+        => AnsiConsole.MarkupLine($"{iconMarkup} {BRAND_LABEL} {Markup.Escape(message)}");
+
+    private static T RunNonInteractiveStatus<T>(string statusMessage, Func<T> action)
+    {
+        WriteInfo(statusMessage);
+        return action();
+    }
+
+    private static async Task<T> RunNonInteractiveStatusAsync<T>(string statusMessage, Func<Task<T>> action)
+    {
+        WriteInfo(statusMessage);
+        return await action();
     }
 }

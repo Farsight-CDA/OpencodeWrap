@@ -55,29 +55,38 @@ internal sealed class AddProfileCliCommand : Command
 
         try
         {
-            Directory.CreateDirectory(profileDirectoryPath);
-            if(File.Exists(dockerfilePath))
+            bool created = await AppIO.RunWithLoadingStateAsync($"Creating profile '{normalizedName}'...", async () =>
             {
-                AppIO.WriteError($"Cannot add profile '{normalizedName}' because '{dockerfilePath}' already exists.");
+                Directory.CreateDirectory(profileDirectoryPath);
+                if(File.Exists(dockerfilePath))
+                {
+                    AppIO.WriteError($"Cannot add profile '{normalizedName}' because '{dockerfilePath}' already exists.");
+                    return false;
+                }
+
+                Directory.CreateDirectory(opencodeDirectoryPath);
+
+                var builtInProfile = BuiltInProfileTemplateService.BuiltInProfiles.FirstOrDefault(profile =>
+                    profile.Name.Equals(normalizedName, StringComparison.OrdinalIgnoreCase));
+
+                if(builtInProfile is not null)
+                {
+                    await File.WriteAllTextAsync(dockerfilePath, builtInProfile.Dockerfile);
+                    await File.WriteAllTextAsync(opencodeConfigPath, builtInProfile.OpencodeConfig);
+                }
+                else
+                {
+                    await File.WriteAllTextAsync(dockerfilePath, BuiltInProfileTemplateService.StarterProfile.Dockerfile);
+                }
+
+                await BuiltInProfileTemplateService.WriteDefaultEntrypointAsync(profileDirectoryPath);
+                return true;
+            });
+
+            if(!created)
+            {
                 return 1;
             }
-
-            Directory.CreateDirectory(opencodeDirectoryPath);
-
-            var builtInProfile = BuiltInProfileTemplateService.BuiltInProfiles.FirstOrDefault(profile =>
-                profile.Name.Equals(normalizedName, StringComparison.OrdinalIgnoreCase));
-
-            if(builtInProfile is not null)
-            {
-                await File.WriteAllTextAsync(dockerfilePath, builtInProfile.Dockerfile);
-                await File.WriteAllTextAsync(opencodeConfigPath, builtInProfile.OpencodeConfig);
-            }
-            else
-            {
-                await File.WriteAllTextAsync(dockerfilePath, BuiltInProfileTemplateService.StarterProfile.Dockerfile);
-            }
-
-            await BuiltInProfileTemplateService.WriteDefaultEntrypointAsync(profileDirectoryPath);
         }
         catch(Exception ex)
         {
