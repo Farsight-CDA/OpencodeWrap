@@ -40,7 +40,7 @@ internal sealed class UpdateCliCommand : Command
     private static async Task<int> ExecuteAsync(bool checkOnly, bool useDevTag)
     {
         string packageName = GetPackageName();
-        var npmCheck = await ProcessRunner.RunAsync("npm", ["--version"]);
+        var npmCheck = await RunNpmAsync(["--version"]);
         string distTag = useDevTag ? DevDistTag : LatestDistTag;
 
         if(!npmCheck.Success)
@@ -69,7 +69,14 @@ internal sealed class UpdateCliCommand : Command
         AppIO.WriteInfo($"Current version: {currentVersion}");
         AppIO.WriteInfo($"Target ({distTag}) version: {latestVersion}");
 
-        if(!IsNewerVersion(latestVersion, currentVersion))
+        bool isAlreadyOnTargetVersion = String.Equals(latestVersion, currentVersion, StringComparison.OrdinalIgnoreCase);
+        if(isAlreadyOnTargetVersion)
+        {
+            AppIO.WriteSuccess($"You are already on the newest version for the '{distTag}' dist-tag.");
+            return 0;
+        }
+
+        if(!useDevTag && !IsNewerVersion(latestVersion, currentVersion))
         {
             AppIO.WriteSuccess($"You are already on the newest version for the '{distTag}' dist-tag.");
             return 0;
@@ -83,7 +90,7 @@ internal sealed class UpdateCliCommand : Command
         }
 
         AppIO.WriteInfo($"Installing '{distTag}' version via npm...");
-        var updateResult = await ProcessRunner.RunAsync("npm", ["install", "-g", $"{packageName}@{distTag}"]);
+        var updateResult = await RunNpmAsync(["install", "-g", $"{packageName}@{distTag}"]);
         if(!updateResult.Success)
         {
             string error = String.IsNullOrWhiteSpace(updateResult.StdErr)
@@ -101,6 +108,25 @@ internal sealed class UpdateCliCommand : Command
         string? finalVersion = await TryGetInstalledGlobalVersionAsync(packageName) ?? latestVersion;
         AppIO.WriteSuccess($"Updated to version {finalVersion}.");
         return 0;
+    }
+
+    private static Task<ProcessRunner.ProcessRunResult> RunNpmAsync(IReadOnlyList<string> npmArgs)
+    {
+        if(!OperatingSystem.IsWindows())
+        {
+            return ProcessRunner.RunAsync("npm", npmArgs);
+        }
+
+        var cmdArgs = new List<string>(4 + npmArgs.Count)
+        {
+            "/d",
+            "/s",
+            "/c",
+            "npm"
+        };
+
+        cmdArgs.AddRange(npmArgs);
+        return ProcessRunner.RunAsync("cmd.exe", cmdArgs);
     }
 
     private static string GetPackageName()
@@ -138,7 +164,7 @@ internal sealed class UpdateCliCommand : Command
 
     private static async Task<string?> TryGetInstalledGlobalVersionAsync(string packageName)
     {
-        var result = await ProcessRunner.RunAsync("npm", ["ls", "-g", "--depth=0", packageName, "--json"]);
+        var result = await RunNpmAsync(["ls", "-g", "--depth=0", packageName, "--json"]);
         if(!result.Started || String.IsNullOrWhiteSpace(result.StdOut))
         {
             return null;
