@@ -39,7 +39,7 @@ jobs:
         run: dotnet restore src/OpencodeWrap.csproj -r ${{ matrix.runtime }}
 
       - name: Publish
-        run: dotnet publish src/OpencodeWrap.csproj -c Release -r ${{ matrix.runtime }} --self-contained true
+        run: dotnet publish src/OpencodeWrap.csproj -c Release -r ${{ matrix.runtime }} --self-contained true -p:PublishAot=true -p:PublishSingleFile=true -p:PublishTrimmed=true -p:UseAppHost=true
 
       - name: Upload binary artifact
         uses: actions/upload-artifact@v7
