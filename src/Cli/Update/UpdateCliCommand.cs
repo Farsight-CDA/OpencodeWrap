@@ -1,5 +1,4 @@
 using System.CommandLine;
-using System.Reflection;
 using System.Text.Json;
 
 namespace OpencodeWrap.Cli.Update;
@@ -41,8 +40,24 @@ internal sealed class UpdateCliCommand : Command
     private static async Task<int> ExecuteAsync(bool checkOnly, bool useDevTag)
     {
         string packageName = GetPackageName();
-        string currentVersion = GetCurrentVersion();
+        var npmCheck = await ProcessRunner.RunAsync("npm", ["--version"]);
         string distTag = useDevTag ? DevDistTag : LatestDistTag;
+
+        if(!npmCheck.Success)
+        {
+            AppIO.WriteError("npm is not available in PATH. Self-update requires npm global install support.");
+            return 1;
+        }
+
+        string? installedGlobalVersion = await TryGetInstalledGlobalVersionAsync(packageName);
+        if(String.IsNullOrWhiteSpace(installedGlobalVersion))
+        {
+            AppIO.WriteError($"Package '{packageName}' is not installed globally via npm on this machine.");
+            AppIO.WriteInfo($"Install with: npm i -g {packageName}@{distTag}");
+            return 1;
+        }
+
+        string currentVersion = installedGlobalVersion;
 
         string? latestVersion = await TryGetVersionForDistTagAsync(packageName, distTag);
         if(String.IsNullOrWhiteSpace(latestVersion))
@@ -65,21 +80,6 @@ internal sealed class UpdateCliCommand : Command
             string command = useDevTag ? "ocw update --dev" : "ocw update";
             AppIO.WriteWarning($"Update available. Run '{command}' to install from the '{distTag}' dist-tag.");
             return 0;
-        }
-
-        var npmCheck = await ProcessRunner.RunAsync("npm", ["--version"]);
-        if(!npmCheck.Success)
-        {
-            AppIO.WriteError("npm is not available in PATH. Self-update requires npm global install support.");
-            return 1;
-        }
-
-        string? installedGlobalVersion = await TryGetInstalledGlobalVersionAsync(packageName);
-        if(String.IsNullOrWhiteSpace(installedGlobalVersion))
-        {
-            AppIO.WriteError($"Package '{packageName}' is not installed globally via npm on this machine.");
-            AppIO.WriteInfo($"Install with: npm i -g {packageName}@{distTag}");
-            return 1;
         }
 
         AppIO.WriteInfo($"Installing '{distTag}' version via npm...");
@@ -107,24 +107,6 @@ internal sealed class UpdateCliCommand : Command
         => Environment.GetEnvironmentVariable("OCW_NPM_PACKAGE")?.Trim() is { Length: > 0 } packageFromEnv
             ? packageFromEnv
             : DefaultNpmPackageName;
-
-    private static string GetCurrentVersion()
-    {
-        var assembly = Assembly.GetExecutingAssembly();
-        string? informationalVersion = assembly
-            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?
-            .InformationalVersion;
-
-        if(!String.IsNullOrWhiteSpace(informationalVersion))
-        {
-            int metadataSeparator = informationalVersion.IndexOf('+');
-            return metadataSeparator > 0
-                ? informationalVersion[..metadataSeparator]
-                : informationalVersion;
-        }
-
-        return assembly.GetName().Version?.ToString() ?? "0.0.0";
-    }
 
     private static async Task<string?> TryGetVersionForDistTagAsync(string packageName, string distTag)
     {
