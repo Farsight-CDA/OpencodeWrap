@@ -15,6 +15,11 @@ internal sealed class OpencodeWrapRootCommand : RootCommand
         Add(profileCliCommand);
     }
 
-    public Task<int> ExecuteOpencodeAsync(IReadOnlyList<string> opencodeArgs, string? requestedProfileName, bool includeProfileConfig, bool disableWorkspaceMount = false)
-        => _launcherService.ExecuteAsync(opencodeArgs, requestedProfileName, includeProfileConfig, disableWorkspaceMount);
+    public Task<int> ExecuteOpencodeAsync(
+        IReadOnlyList<string> opencodeArgs,
+        string? requestedProfileName,
+        bool includeProfileConfig,
+        WorkspaceMountMode workspaceMountMode = WorkspaceMountMode.ReadWrite,
+        IReadOnlyList<string>? extraReadonlyMountDirs = null)
+        => _launcherService.ExecuteAsync(opencodeArgs, requestedProfileName, includeProfileConfig, workspaceMountMode, extraReadonlyMountDirs);
 }

@@ -18,7 +18,8 @@ internal sealed class OpencodeLauncherService(DockerHostService hostService, Vol
         IReadOnlyList<string> opencodeArgs,
         string? requestedProfileName,
         bool includeProfileConfig,
-        bool disableWorkspaceMount = false)
+        WorkspaceMountMode workspaceMountMode = WorkspaceMountMode.ReadWrite,
+        IReadOnlyList<string>? extraReadonlyMountDirs = null)
     {
         var (success, profile) = await ProfileService.TryResolveProfileAsync(includeProfileConfig ? requestedProfileName : null);
         if(!success)
@@ -41,7 +42,7 @@ internal sealed class OpencodeLauncherService(DockerHostService hostService, Vol
 
             string? hostWorkDir = null;
             string containerWorkDir;
-            if(disableWorkspaceMount)
+            if(workspaceMountMode == WorkspaceMountMode.None)
             {
                 containerWorkDir = OpencodeWrapConstants.CONTAINER_HOME;
             }
@@ -55,6 +56,11 @@ internal sealed class OpencodeLauncherService(DockerHostService hostService, Vol
                 }
 
                 containerWorkDir = ResolveContainerWorkspacePath(hostWorkDir);
+            }
+
+            if(!TryResolveAdditionalReadonlyMounts(extraReadonlyMountDirs, out List<(string HostPath, string ContainerPath)> additionalReadonlyMounts))
+            {
+                return 1;
             }
 
             _containerName = $"opencode-wrap-{Guid.NewGuid():N}"[..27];
@@ -84,9 +90,20 @@ internal sealed class OpencodeLauncherService(DockerHostService hostService, Vol
 
             runArgs.AddRange(BuildTerminalEnvironmentArgs());
 
-            if(!disableWorkspaceMount)
+            if(workspaceMountMode != WorkspaceMountMode.None)
             {
-                runArgs.AddRange(["--mount", VolumeStateService.BuildBindMount(hostWorkDir!, containerWorkDir)]);
+                string workspaceMount = VolumeStateService.BuildBindMount(hostWorkDir!, containerWorkDir);
+                if(workspaceMountMode == WorkspaceMountMode.ReadOnly)
+                {
+                    workspaceMount += ",readonly";
+                }
+
+                runArgs.AddRange(["--mount", workspaceMount]);
+            }
+
+            foreach(var mount in additionalReadonlyMounts)
+            {
+                runArgs.AddRange(["--mount", VolumeStateService.BuildBindMount(mount.HostPath, mount.ContainerPath) + ",readonly"]);
             }
 
             if(includeProfileConfig)
@@ -150,6 +167,78 @@ internal sealed class OpencodeLauncherService(DockerHostService hostService, Vol
             ? OpencodeWrapConstants.CONTAINER_WORKSPACE
             : $"{OpencodeWrapConstants.CONTAINER_WORKSPACE}/{directoryName}";
     }
+
+    private static bool TryResolveAdditionalReadonlyMounts(
+        IReadOnlyList<string>? requestedDirectories,
+        out List<(string HostPath, string ContainerPath)> mounts)
+    {
+        mounts = [];
+        if(requestedDirectories is null || requestedDirectories.Count == 0)
+        {
+            return true;
+        }
+
+        var seenHostPaths = new HashSet<string>(GetHostPathComparer());
+        var seenContainerNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach(string requestedDirectory in requestedDirectories)
+        {
+            if(String.IsNullOrWhiteSpace(requestedDirectory))
+            {
+                AppIO.WriteError("--resource-dir cannot be empty.");
+                return false;
+            }
+
+            string fullPath = Path.TrimEndingDirectorySeparator(Path.GetFullPath(requestedDirectory));
+            if(!Directory.Exists(fullPath))
+            {
+                AppIO.WriteError($"Resource directory not found: '{fullPath}'.");
+                return false;
+            }
+
+            if(!seenHostPaths.Add(fullPath))
+            {
+                continue;
+            }
+
+            string containerName = BuildUniqueContainerResourceDirectoryName(fullPath, seenContainerNames);
+            mounts.Add((fullPath, $"{OpencodeWrapConstants.CONTAINER_RESOURCE_ROOT}/{containerName}"));
+        }
+
+        return true;
+    }
+
+    private static string BuildUniqueContainerResourceDirectoryName(string hostPath, HashSet<string> seenContainerNames)
+    {
+        string baseName = Path.GetFileName(hostPath);
+        if(String.IsNullOrWhiteSpace(baseName))
+        {
+            baseName = "resource";
+        }
+
+        char[] sanitizedChars = baseName
+            .Select(ch => Char.IsLetterOrDigit(ch) || ch is '-' or '_' or '.' ? ch : '-')
+            .ToArray();
+        string sanitizedName = new string(sanitizedChars).Trim('-', '.', '_');
+        if(String.IsNullOrWhiteSpace(sanitizedName))
+        {
+            sanitizedName = "resource";
+        }
+
+        string candidateName = sanitizedName;
+        int suffix = 2;
+        while(!seenContainerNames.Add(candidateName))
+        {
+            candidateName = $"{sanitizedName}-{suffix}";
+            suffix++;
+        }
+
+        return candidateName;
+    }
+
+    private static StringComparer GetHostPathComparer() => OperatingSystem.IsWindows()
+        ? StringComparer.OrdinalIgnoreCase
+        : StringComparer.Ordinal;
 
     private static IEnumerable<string> BuildTerminalEnvironmentArgs()
     {

@@ -62,6 +62,16 @@ ocw run --profile dotnet
 ocw run -p frontend
 ocw run -p data-science
 
+# Workspace mount mode
+ocw run --mount-mode mount           # default: read-write workspace mount
+ocw run --mount-mode readonly-mount  # mount workspace as read-only
+ocw run --mount-mode no-mount        # do not mount workspace
+
+# Additional read-only resource mounts (repeat option)
+ocw run -p default --resource-dir "C:\\Something"
+ocw run -p default --resource-dir ../shared-assets --resource-dir ../docs
+# Mounted in container under /workspace/.ocw-resources/<directory-name>
+
 # Profile management
 ocw profile list
 ocw profile add myprofile

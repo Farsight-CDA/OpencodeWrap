@@ -7,7 +7,8 @@ internal sealed class RunCliCommand : Command
 {
     private readonly OpencodeLauncherService _launcherService;
     private readonly Option<string?> _profileOption;
-    private readonly Option<bool> _noMountOption;
+    private readonly Option<string?> _mountModeOption;
+    private readonly Option<string[]> _resourceDirOption;
 
     public RunCliCommand(OpencodeLauncherService launcherService)
         : base("run", "Run opencode with a selected profile config.")
@@ -17,35 +18,47 @@ internal sealed class RunCliCommand : Command
         {
             Description = "Profile name from a directory under $HOME/.opencode-wrap."
         };
-        _noMountOption = new Option<bool>("--no-mount")
+        _mountModeOption = new Option<string?>("--mount-mode")
         {
-            Description = "Do not mount the current workspace; run from the container home directory."
+            Description = "Workspace mount mode: mount (default), readonly-mount, or no-mount."
+        };
+        _resourceDirOption = new Option<string[]>("--resource-dir", "-r")
+        {
+            Description = "Additional host directory to mount read-only. Repeat the option to mount multiple directories."
         };
 
         Add(_profileOption);
-        Add(_noMountOption);
+        Add(_mountModeOption);
+        Add(_resourceDirOption);
 
         SetAction(async parseResult =>
         {
             string? profile = parseResult.GetValue(_profileOption);
-            bool noMount = parseResult.GetValue(_noMountOption);
+            string mountModeInput = parseResult.GetValue(_mountModeOption) ?? "mount";
+            string[] resourceDirs = parseResult.GetValue(_resourceDirOption) ?? [];
+            if(!TryParseMountMode(mountModeInput, out WorkspaceMountMode mountMode))
+            {
+                AppIO.WriteError($"Invalid --mount-mode value '{mountModeInput}'. Expected one of: mount, readonly-mount, no-mount.");
+                return 1;
+            }
+
             if(String.IsNullOrWhiteSpace(profile))
             {
-                RunSelection? selection = PromptForRunSelection(defaultNoMount: noMount);
+                RunSelection? selection = PromptForRunSelection(defaultMountMode: mountMode);
                 if(selection is null)
                 {
                     return 1;
                 }
 
                 profile = selection.ProfileName;
-                noMount = selection.NoMount;
+                mountMode = selection.MountMode;
             }
 
-            return await _launcherService.ExecuteAsync([], requestedProfileName: profile, includeProfileConfig: true, disableWorkspaceMount: noMount);
+            return await _launcherService.ExecuteAsync([], requestedProfileName: profile, includeProfileConfig: true, workspaceMountMode: mountMode, extraReadonlyMountDirs: resourceDirs);
         });
     }
 
-    private static RunSelection? PromptForRunSelection(bool defaultNoMount)
+    private static RunSelection? PromptForRunSelection(WorkspaceMountMode defaultMountMode)
     {
         var (success, catalog) = ProfileService.TryLoadProfileCatalog();
         if(!success)
@@ -83,11 +96,11 @@ internal sealed class RunCliCommand : Command
             selectedIndex = 0;
         }
 
-        bool noMount = defaultNoMount;
+        WorkspaceMountMode mountMode = defaultMountMode;
 
         while(true)
         {
-            RenderRunSelectionScreen(profileChoices, selectedIndex, noMount, currentWorkspacePath);
+            RenderRunSelectionScreen(profileChoices, selectedIndex, mountMode, currentWorkspacePath);
             ConsoleKeyInfo? keyInfo = AnsiConsole.Console.Input.ReadKey(intercept : true);
             if(keyInfo is null)
             {
@@ -103,11 +116,11 @@ internal sealed class RunCliCommand : Command
                     selectedIndex = selectedIndex >= profileChoices.Count - 1 ? 0 : selectedIndex + 1;
                     break;
                 case ConsoleKey.Spacebar:
-                    noMount = !noMount;
+                    mountMode = CycleMountMode(mountMode);
                     break;
                 case ConsoleKey.Enter:
                     AnsiConsole.Clear();
-                    return new RunSelection(profileChoices[selectedIndex].Name, noMount);
+                    return new RunSelection(profileChoices[selectedIndex].Name, mountMode);
                 case ConsoleKey.Escape:
                     AnsiConsole.Clear();
                     return null;
@@ -115,16 +128,45 @@ internal sealed class RunCliCommand : Command
         }
     }
 
-    private static void RenderRunSelectionScreen(IReadOnlyList<ProfileChoice> profileChoices, int selectedIndex, bool noMount, string currentWorkspacePath)
+    private static WorkspaceMountMode CycleMountMode(WorkspaceMountMode mountMode) => mountMode switch
+    {
+        WorkspaceMountMode.ReadWrite => WorkspaceMountMode.ReadOnly,
+        WorkspaceMountMode.ReadOnly => WorkspaceMountMode.None,
+        _ => WorkspaceMountMode.ReadWrite
+    };
+
+    private static bool TryParseMountMode(string value, out WorkspaceMountMode mountMode)
+    {
+        switch(value.Trim().ToLowerInvariant())
+        {
+            case "mount":
+                mountMode = WorkspaceMountMode.ReadWrite;
+                return true;
+            case "readonly-mount":
+                mountMode = WorkspaceMountMode.ReadOnly;
+                return true;
+            case "no-mount":
+                mountMode = WorkspaceMountMode.None;
+                return true;
+            default:
+                mountMode = WorkspaceMountMode.ReadWrite;
+                return false;
+        }
+    }
+
+    private static void RenderRunSelectionScreen(IReadOnlyList<ProfileChoice> profileChoices, int selectedIndex, WorkspaceMountMode mountMode, string currentWorkspacePath)
     {
         AnsiConsole.Clear();
 
-        string mountMode = noMount
-            ? "[yellow]No Mount[/]"
-            : $"[deepskyblue1]{Markup.Escape($"Mount[{currentWorkspacePath}]")}[/]";
+        string mountModeLabel = mountMode switch
+        {
+            WorkspaceMountMode.ReadOnly => $"[gold1]{Markup.Escape($"Readonly Mount[{currentWorkspacePath}]")}[/]",
+            WorkspaceMountMode.None => "[yellow]No Mount[/]",
+            _ => $"[deepskyblue1]{Markup.Escape($"Mount[{currentWorkspacePath}]")}[/]"
+        };
 
         AnsiConsole.MarkupLine("Select a profile");
-        AnsiConsole.MarkupLine($"[grey]Mount mode:[/] {mountMode}");
+        AnsiConsole.MarkupLine($"[grey]Mount mode:[/] {mountModeLabel}");
         AnsiConsole.MarkupLine("[grey](Use [blue]<up>/<down>[/] to select profile, [blue]<space>[/] to toggle mount mode, [green]<enter>[/] to continue, [red]<esc>[/] to cancel)[/]");
         AnsiConsole.WriteLine();
 
@@ -143,6 +185,6 @@ internal sealed class RunCliCommand : Command
         }
     }
 
-    private sealed record RunSelection(string ProfileName, bool NoMount);
+    private sealed record RunSelection(string ProfileName, WorkspaceMountMode MountMode);
     private sealed record ProfileChoice(string Name, bool IsDefault);
 }

@@ -3,6 +3,7 @@ namespace OpencodeWrap;
 internal static class OpencodeWrapConstants
 {
     public const string CONTAINER_WORKSPACE = "/workspace";
+    public const string CONTAINER_RESOURCE_ROOT = CONTAINER_WORKSPACE + "/.ocw-resources";
     public const string CONTAINER_HOME = "/home/opencode";
     public const string HOST_GLOBAL_CONFIG_DIRECTORY_NAME = ".opencode-wrap";
     public const string PROFILE_DOCKERFILE_NAME = "Dockerfile";
