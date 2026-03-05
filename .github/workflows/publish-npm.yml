@@ -131,7 +131,7 @@ jobs:
               continue
             fi
 
-            npm publish --prefix "${PACKAGE_DIR}" --access public --tag "${NPM_DIST_TAG}"
+            (cd "${PACKAGE_DIR}" && npm publish --access public --tag "${NPM_DIST_TAG}")
           done
 
       - name: Publish main package
@@ -152,4 +152,4 @@ jobs:
             exit 0
           fi
 
-          npm publish --prefix npm/ocw --access public --tag "${NPM_DIST_TAG}"
+          (cd npm/ocw && npm publish --access public --tag "${NPM_DIST_TAG}")
