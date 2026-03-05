@@ -25,6 +25,8 @@ Requirement: Docker (daemon running).
    npm update -g @farsight-cda/ocw
    # or inside the CLI:
    ocw update
+   # opt into the npm dev dist-tag:
+   ocw update --dev
    ```
 
 2. Open a new shell and run `ocw --help` to verify it resolves from `PATH`.

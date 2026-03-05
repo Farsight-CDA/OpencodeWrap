@@ -8,8 +8,11 @@ internal sealed class UpdateCliCommand : Command
 {
     private const string DefaultNpmPackageName = "@farsight-cda/ocw";
     private static readonly HttpClient HttpClient = new();
+    private const string LatestDistTag = "latest";
+    private const string DevDistTag = "dev";
 
     private readonly Option<bool> _checkOnlyOption;
+    private readonly Option<bool> _devOption;
 
     public UpdateCliCommand()
         : base("update", "Check for updates or self-update when installed via npm.")
@@ -19,39 +22,48 @@ internal sealed class UpdateCliCommand : Command
             Description = "Check for the latest npm version without installing it."
         };
 
+        _devOption = new Option<bool>("--dev")
+        {
+            Description = "Check and install from the npm 'dev' dist-tag instead of 'latest'."
+        };
+
         Add(_checkOnlyOption);
+        Add(_devOption);
 
         SetAction(async parseResult =>
         {
             bool checkOnly = parseResult.GetValue(_checkOnlyOption);
-            return await ExecuteAsync(checkOnly);
+            bool useDevTag = parseResult.GetValue(_devOption);
+            return await ExecuteAsync(checkOnly, useDevTag);
         });
     }
 
-    private static async Task<int> ExecuteAsync(bool checkOnly)
+    private static async Task<int> ExecuteAsync(bool checkOnly, bool useDevTag)
     {
         string packageName = GetPackageName();
         string currentVersion = GetCurrentVersion();
+        string distTag = useDevTag ? DevDistTag : LatestDistTag;
 
-        string? latestVersion = await TryGetLatestVersionAsync(packageName);
+        string? latestVersion = await TryGetVersionForDistTagAsync(packageName, distTag);
         if(String.IsNullOrWhiteSpace(latestVersion))
         {
-            AppIO.WriteError($"Unable to fetch latest version for npm package '{packageName}'.");
+            AppIO.WriteError($"Unable to fetch npm dist-tag '{distTag}' for package '{packageName}'.");
             return 1;
         }
 
         AppIO.WriteInfo($"Current version: {currentVersion}");
-        AppIO.WriteInfo($"Latest version: {latestVersion}");
+        AppIO.WriteInfo($"Target ({distTag}) version: {latestVersion}");
 
         if(!IsNewerVersion(latestVersion, currentVersion))
         {
-            AppIO.WriteSuccess("You are already on the latest version.");
+            AppIO.WriteSuccess($"You are already on the newest version for the '{distTag}' dist-tag.");
             return 0;
         }
 
         if(checkOnly)
         {
-            AppIO.WriteWarning("Update available. Run 'ocw update' to install the latest version.");
+            string command = useDevTag ? "ocw update --dev" : "ocw update";
+            AppIO.WriteWarning($"Update available. Run '{command}' to install from the '{distTag}' dist-tag.");
             return 0;
         }
 
@@ -66,12 +78,12 @@ internal sealed class UpdateCliCommand : Command
         if(String.IsNullOrWhiteSpace(installedGlobalVersion))
         {
             AppIO.WriteError($"Package '{packageName}' is not installed globally via npm on this machine.");
-            AppIO.WriteInfo("Install with: npm i -g @farsight-cda/ocw");
+            AppIO.WriteInfo($"Install with: npm i -g {packageName}@{distTag}");
             return 1;
         }
 
-        AppIO.WriteInfo("Installing latest version via npm...");
-        var updateResult = await ProcessRunner.RunAsync("npm", ["install", "-g", $"{packageName}@latest"]);
+        AppIO.WriteInfo($"Installing '{distTag}' version via npm...");
+        var updateResult = await ProcessRunner.RunAsync("npm", ["install", "-g", $"{packageName}@{distTag}"]);
         if(!updateResult.Success)
         {
             string error = String.IsNullOrWhiteSpace(updateResult.StdErr)
@@ -114,22 +126,22 @@ internal sealed class UpdateCliCommand : Command
         return assembly.GetName().Version?.ToString() ?? "0.0.0";
     }
 
-    private static async Task<string?> TryGetLatestVersionAsync(string packageName)
+    private static async Task<string?> TryGetVersionForDistTagAsync(string packageName, string distTag)
     {
         try
         {
             string encodedPackageName = Uri.EscapeDataString(packageName);
-            string endpoint = $"https://registry.npmjs.org/{encodedPackageName}/latest";
+            string endpoint = $"https://registry.npmjs.org/-/package/{encodedPackageName}/dist-tags";
 
             using var response = await HttpClient.GetAsync(endpoint);
             if(!response.IsSuccessStatusCode)
             {
                 return null;
             }
-
+            
             await using var stream = await response.Content.ReadAsStreamAsync();
             using var doc = await JsonDocument.ParseAsync(stream);
-            if(doc.RootElement.TryGetProperty("version", out JsonElement versionElement))
+            if(doc.RootElement.TryGetProperty(distTag, out JsonElement versionElement))
             {
                 return versionElement.GetString();
             }
@@ -183,18 +195,129 @@ internal sealed class UpdateCliCommand : Command
             return false;
         }
 
-        if(TryParseLooseVersion(candidateVersion, out Version? candidate)
-            && TryParseLooseVersion(currentVersion, out Version? current))
+        if(TryCompareSemVer(candidateVersion, currentVersion, out int comparison))
         {
-            return candidate > current;
+            return comparison > 0;
         }
 
         return true;
     }
 
-    private static bool TryParseLooseVersion(string value, out Version? version)
+    private static bool TryCompareSemVer(string left, string right, out int comparison)
     {
-        version = null;
+        comparison = 0;
+        if(!TryParseSemVer(left, out SemVerParts? leftParts)
+            || !TryParseSemVer(right, out SemVerParts? rightParts))
+        {
+            return false;
+        }
+
+        SemVerParts leftSemVer = leftParts!;
+        SemVerParts rightSemVer = rightParts!;
+
+        comparison = CompareCore(leftSemVer.Core, rightSemVer.Core);
+        if(comparison != 0)
+        {
+            return true;
+        }
+
+        if(String.IsNullOrEmpty(leftSemVer.Prerelease) && String.IsNullOrEmpty(rightSemVer.Prerelease))
+        {
+            comparison = 0;
+            return true;
+        }
+
+        if(String.IsNullOrEmpty(leftSemVer.Prerelease))
+        {
+            comparison = 1;
+            return true;
+        }
+
+        if(String.IsNullOrEmpty(rightSemVer.Prerelease))
+        {
+            comparison = -1;
+            return true;
+        }
+
+        comparison = ComparePrerelease(leftSemVer.Prerelease, rightSemVer.Prerelease);
+        return true;
+    }
+
+    private static int CompareCore(IReadOnlyList<int> left, IReadOnlyList<int> right)
+    {
+        int maxLength = Math.Max(left.Count, right.Count);
+        for(int i = 0; i < maxLength; i++)
+        {
+            int leftValue = i < left.Count ? left[i] : 0;
+            int rightValue = i < right.Count ? right[i] : 0;
+            int comparison = leftValue.CompareTo(rightValue);
+            if(comparison != 0)
+            {
+                return comparison;
+            }
+        }
+
+        return 0;
+    }
+
+    private static int ComparePrerelease(string left, string right)
+    {
+        string[] leftParts = left.Split('.', StringSplitOptions.RemoveEmptyEntries);
+        string[] rightParts = right.Split('.', StringSplitOptions.RemoveEmptyEntries);
+        int maxLength = Math.Max(leftParts.Length, rightParts.Length);
+
+        for(int i = 0; i < maxLength; i++)
+        {
+            if(i >= leftParts.Length)
+            {
+                return -1;
+            }
+
+            if(i >= rightParts.Length)
+            {
+                return 1;
+            }
+
+            string leftPart = leftParts[i];
+            string rightPart = rightParts[i];
+
+            bool leftIsNumeric = Int32.TryParse(leftPart, out int leftNumber);
+            bool rightIsNumeric = Int32.TryParse(rightPart, out int rightNumber);
+
+            if(leftIsNumeric && rightIsNumeric)
+            {
+                int numericComparison = leftNumber.CompareTo(rightNumber);
+                if(numericComparison != 0)
+                {
+                    return numericComparison;
+                }
+
+                continue;
+            }
+
+            if(leftIsNumeric)
+            {
+                return -1;
+            }
+
+            if(rightIsNumeric)
+            {
+                return 1;
+            }
+
+            int stringComparison = String.Compare(leftPart, rightPart, StringComparison.Ordinal);
+            if(stringComparison != 0)
+            {
+                return stringComparison;
+            }
+        }
+
+        return 0;
+    }
+
+    private static bool TryParseSemVer(string value, out SemVerParts? semVer)
+    {
+        semVer = null;
         if(String.IsNullOrWhiteSpace(value))
         {
             return false;
@@ -206,12 +329,41 @@ internal sealed class UpdateCliCommand : Command
             trimmed = trimmed[1..];
         }
 
-        int prereleaseIndex = trimmed.IndexOf('-');
-        if(prereleaseIndex >= 0)
+        int metadataSeparator = trimmed.IndexOf('+');
+        if(metadataSeparator >= 0)
         {
-            trimmed = trimmed[..prereleaseIndex];
+            trimmed = trimmed[..metadataSeparator];
         }
 
-        return Version.TryParse(trimmed, out version);
+        string corePart = trimmed;
+        string? prerelease = null;
+        int prereleaseSeparator = trimmed.IndexOf('-');
+        if(prereleaseSeparator >= 0)
+        {
+            corePart = trimmed[..prereleaseSeparator];
+            prerelease = trimmed[(prereleaseSeparator + 1)..];
+        }
+
+        string[] coreSegments = corePart.Split('.', StringSplitOptions.RemoveEmptyEntries);
+        if(coreSegments.Length == 0)
+        {
+            return false;
+        }
+
+        var coreNumbers = new List<int>(coreSegments.Length);
+        foreach(string segment in coreSegments)
+        {
+            if(!Int32.TryParse(segment, out int number))
+            {
+                return false;
+            }
+
+            coreNumbers.Add(number);
+        }
+
+        semVer = new SemVerParts(coreNumbers, prerelease);
+        return true;
     }
+
+    private sealed record SemVerParts(IReadOnlyList<int> Core, string? Prerelease);
 }
