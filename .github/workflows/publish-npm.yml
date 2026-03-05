@@ -24,13 +24,12 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup .NET SDK
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v5
         with:
           dotnet-version: 10.0.x
-          include-prerelease: true
 
       - name: Install Native AOT prerequisites
         if: runner.os == 'Linux'
@@ -43,7 +42,7 @@ jobs:
         run: dotnet publish src/OpencodeWrap.csproj -c Release -r ${{ matrix.runtime }} --self-contained true
 
       - name: Upload binary artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ocw-${{ matrix.runtime }}
           path: src/bin/Release/net10.0/${{ matrix.runtime }}/publish/${{ matrix.binary }}
@@ -59,28 +58,28 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 20
           registry-url: https://registry.npmjs.org
 
       - name: Download linux binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: ocw-linux-x64
           path: build-artifacts/ocw-linux-x64
 
       - name: Download macOS binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: ocw-osx-arm64
           path: build-artifacts/ocw-osx-arm64
 
       - name: Download windows binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: ocw-win-x64
           path: build-artifacts/ocw-win-x64
