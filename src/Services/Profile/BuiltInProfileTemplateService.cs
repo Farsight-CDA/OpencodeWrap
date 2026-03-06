@@ -21,7 +21,11 @@ internal static class BuiltInProfileTemplateService
         new BuiltInProfileTemplate(
             "data-science",
             LoadEmbeddedTextResource("ProfileTemplates.data-science.Dockerfile"),
-            LoadEmbeddedTextResource("ProfileTemplates.data-science.opencode.json"))
+            LoadEmbeddedTextResource("ProfileTemplates.data-science.opencode.json")),
+        new BuiltInProfileTemplate(
+            "solidity",
+            LoadEmbeddedTextResource("ProfileTemplates.solidity.Dockerfile"),
+            LoadEmbeddedTextResource("ProfileTemplates.solidity.opencode.json"))
     ];
 
     public static IReadOnlyList<BuiltInProfileTemplate> BuiltInProfiles { get; } = _builtInProfiles;
