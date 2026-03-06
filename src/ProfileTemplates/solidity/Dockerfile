@@ -29,26 +29,20 @@ RUN mkdir -p /etc/apt/keyrings \
     && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
 
-RUN curl -L https://foundry.paradigm.xyz | bash \
-    && /root/.foundry/bin/foundryup
-
-ARG SOLC_VERSION=v0.8.30
-
-RUN set -eux; \
-    arch="$(uname -m)"; \
-    case "$arch" in \
-      x86_64) solc_arch="linux-amd64" ;; \
-      aarch64) solc_arch="linux-aarch64" ;; \
-      *) echo "Unsupported architecture for solc: $arch"; exit 1 ;; \
-    esac; \
-    curl -fsSL -o /usr/local/bin/solc "https://github.com/ethereum/solidity/releases/download/${SOLC_VERSION}/solc-static-${solc_arch}"; \
-    chmod +x /usr/local/bin/solc
+ARG SOLC_VERSION=0.8.30
 
 RUN npm install -g --no-fund --no-audit \
         hardhat \
         prettier \
         prettier-plugin-solidity \
+        solc@${SOLC_VERSION} \
         solhint
+
+RUN printf '%s\n' \
+        '#!/usr/bin/env bash' \
+        'exec solcjs "$@"' \
+        > /usr/local/bin/solc \
+    && chmod +x /usr/local/bin/solc
 
 RUN mkdir -p /opt/opencode /home/opencode \
     && chmod 755 /opt/opencode \
@@ -58,4 +52,4 @@ RUN HOME=/opt/opencode bash -lc "curl -fsSL https://opencode.ai/install | bash -
 
 WORKDIR /workspace
 
-ENV PATH="/root/.foundry/bin:/opt/opencode/.opencode/bin:/opt/opencode/.local/share/opencode/bin:/opt/opencode/.local/bin:${PATH}"
+ENV PATH="/opt/opencode/.opencode/bin:/opt/opencode/.local/share/opencode/bin:/opt/opencode/.local/bin:${PATH}"
