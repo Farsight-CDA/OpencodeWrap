@@ -89,8 +89,9 @@ internal sealed class UpdateCliCommand : Command
             return 0;
         }
 
-        AppIO.WriteInfo($"Installing '{distTag}' version via npm...");
-        var updateResult = await RunNpmAsync(["install", "-g", $"{packageName}@{distTag}"]);
+        string packageSpecifier = BuildPackageSpecifier(packageName, latestVersion);
+        AppIO.WriteInfo($"Installing version {latestVersion} via npm...");
+        var updateResult = await RunNpmAsync(["install", "-g", "--prefer-online", packageSpecifier]);
         if(!updateResult.Success)
         {
             string error = String.IsNullOrWhiteSpace(updateResult.StdErr)
@@ -133,6 +134,11 @@ internal sealed class UpdateCliCommand : Command
         => Environment.GetEnvironmentVariable("OCW_NPM_PACKAGE")?.Trim() is { Length: > 0 } packageFromEnv
             ? packageFromEnv
             : DefaultNpmPackageName;
+
+    private static string BuildPackageSpecifier(string packageName, string version)
+        => String.IsNullOrWhiteSpace(version)
+            ? packageName
+            : $"{packageName}@{version}";
 
     private static async Task<string?> TryGetVersionForDistTagAsync(string packageName, string distTag)
     {
