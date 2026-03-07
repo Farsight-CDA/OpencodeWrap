@@ -31,6 +31,9 @@ RUN mkdir -p /etc/apt/keyrings \
 
 ARG SOLC_VERSION=0.8.30
 
+RUN curl -L https://foundry.paradigm.xyz | bash \
+    && /root/.foundry/bin/foundryup
+
 RUN npm install -g --no-fund --no-audit \
         hardhat \
         prettier \
@@ -52,4 +55,4 @@ RUN HOME=/opt/opencode bash -lc "curl -fsSL https://opencode.ai/install | bash -
 
 WORKDIR /workspace
 
-ENV PATH="/opt/opencode/.opencode/bin:/opt/opencode/.local/share/opencode/bin:/opt/opencode/.local/bin:${PATH}"
+ENV PATH="/root/.foundry/bin:/opt/opencode/.opencode/bin:/opt/opencode/.local/share/opencode/bin:/opt/opencode/.local/bin:${PATH}"
