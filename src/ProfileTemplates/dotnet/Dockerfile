@@ -9,6 +9,7 @@ RUN apt-get update \
         coreutils \
         curl \
         file \
+        gh \
         git \
         gpg \
         iproute2 \
