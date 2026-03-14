@@ -16,7 +16,7 @@ internal static class ContainerCleanupWatchdog
     private static readonly TimeSpan _removalRetryInterval = TimeSpan.FromMilliseconds(250);
     private static readonly Lock _signalRegistrationLock = new();
     private static List<PosixSignalRegistration>? _ignoreSignalRegistrations;
-    private readonly record struct WatchdogRunConfig(int ParentPid, long ParentStartTicks, string ContainerName, string ReadyFilePath);
+    private readonly record struct WatchdogRunConfig(int ParentPid, long ParentStartTicks, string ContainerName, string SessionDirectoryPath, string ReadyFilePath);
 
     public static bool IsWatchdogInvocation(IReadOnlyList<string> args) => args.Count > 0
             && String.Equals(args[0], WATCHDOG_MODE, StringComparison.Ordinal)
@@ -25,7 +25,7 @@ internal static class ContainerCleanupWatchdog
     public static async Task<int> RunWatchdogAsync(IReadOnlyList<string> args)
         => !TryParseWatchdogRunConfig(args, out var config) ? 1 : await WaitForParentAndCleanupAsync(config);
 
-    public static async Task<bool> TryStartDetachedAndWaitReadyAsync(string containerName, TimeSpan timeout)
+    public static async Task<bool> TryStartDetachedAndWaitReadyAsync(string containerName, string sessionDirectoryPath, TimeSpan timeout)
     {
         if(String.IsNullOrWhiteSpace(containerName) || timeout <= TimeSpan.Zero)
         {
@@ -37,7 +37,7 @@ internal static class ContainerCleanupWatchdog
             return false;
         }
 
-        string[] watchdogArgs = BuildWatchdogArgs(parentPid, parentStartTicks, containerName, out string readyFilePath);
+        string[] watchdogArgs = BuildWatchdogArgs(parentPid, parentStartTicks, containerName, sessionDirectoryPath, out string readyFilePath);
 
         if(OperatingSystem.IsLinux() || OperatingSystem.IsMacOS())
         {
@@ -96,6 +96,11 @@ internal static class ContainerCleanupWatchdog
         }
 
         await RetryCleanupContainerAsync(config.ContainerName);
+        if(!String.IsNullOrWhiteSpace(config.SessionDirectoryPath))
+        {
+            AppIO.TryDeleteDirectory(config.SessionDirectoryPath);
+        }
+
         return 0;
     }
 
@@ -214,7 +219,7 @@ internal static class ContainerCleanupWatchdog
         }
     }
 
-    private static string[] BuildWatchdogArgs(int parentPid, long parentStartTicks, string containerName, out string readyFilePath)
+    private static string[] BuildWatchdogArgs(int parentPid, long parentStartTicks, string containerName, string sessionDirectoryPath, out string readyFilePath)
     {
         readyFilePath = Path.Combine(Path.GetTempPath(), WATCHDOG_READY_FILE_PREFIX + Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture) + WATCHDOG_READY_FILE_SUFFIX);
         return
@@ -223,6 +228,7 @@ internal static class ContainerCleanupWatchdog
             parentPid.ToString(CultureInfo.InvariantCulture),
             parentStartTicks.ToString(CultureInfo.InvariantCulture),
             containerName,
+            sessionDirectoryPath,
             readyFilePath
         ];
     }
@@ -231,7 +237,7 @@ internal static class ContainerCleanupWatchdog
     {
         config = default;
 
-        if(args.Count != 5)
+        if(args.Count != 6)
         {
             return false;
         }
@@ -252,13 +258,14 @@ internal static class ContainerCleanupWatchdog
             return false;
         }
 
-        string readyFilePath = args[4];
+        string sessionDirectoryPath = args[4];
+        string readyFilePath = args[5];
         if(String.IsNullOrWhiteSpace(readyFilePath))
         {
             return false;
         }
 
-        config = new WatchdogRunConfig(parentPid, parentStartTicks, containerName, readyFilePath);
+        config = new WatchdogRunConfig(parentPid, parentStartTicks, containerName, sessionDirectoryPath, readyFilePath);
         return true;
     }
 

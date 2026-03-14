@@ -2,16 +2,23 @@ using System.Runtime.InteropServices;
 
 namespace OpencodeWrap.Services.Runtime;
 
-internal sealed class OpencodeLauncherService(DockerHostService hostService, VolumeStateService volumeService)
+internal sealed class OpencodeLauncherService(
+    DockerHostService hostService,
+    VolumeStateService volumeService,
+    SessionStagingService sessionStagingService,
+    InteractiveDockerRunnerService interactiveDockerRunnerService)
 {
     private static readonly TimeSpan _watchdogReadyTimeout = TimeSpan.FromSeconds(2);
     private static readonly string _containerCommand = BuildContainerCommand();
 
     private readonly DockerHostService _hostService = hostService;
     private readonly VolumeStateService _volumeService = volumeService;
+    private readonly SessionStagingService _sessionStagingService = sessionStagingService;
+    private readonly InteractiveDockerRunnerService _interactiveDockerRunnerService = interactiveDockerRunnerService;
 
     private int _cleanupStarted;
     private string? _containerName;
+    private string? _hostSessionDirectory;
     private readonly List<PosixSignalRegistration> _signalRegistrations = [];
 
     public async Task<int> ExecuteAsync(
@@ -64,8 +71,14 @@ internal sealed class OpencodeLauncherService(DockerHostService hostService, Vol
             }
 
             _containerName = $"opencode-wrap-{Guid.NewGuid():N}"[..27];
+            if(!_sessionStagingService.TryCreateSession(_containerName, out var session))
+            {
+                return 1;
+            }
+
+            _hostSessionDirectory = session.HostSessionDirectory;
             RegisterCleanupHandlers();
-            await EnsureCleanupWatchdogAsync(_containerName);
+            await EnsureCleanupWatchdogAsync(_containerName, session.HostSessionDirectory);
 
             string? userSpec = await _hostService.GetContainerUserSpecAsync();
             var runArgs = new List<string> { "run" };
@@ -101,6 +114,8 @@ internal sealed class OpencodeLauncherService(DockerHostService hostService, Vol
                 runArgs.AddRange(["--mount", workspaceMount]);
             }
 
+            runArgs.AddRange(["--mount", VolumeStateService.BuildBindMount(session.HostPasteDirectory, session.ContainerPasteDirectory) + ",readonly"]);
+
             foreach(var mount in additionalReadonlyMounts)
             {
                 runArgs.AddRange(["--mount", VolumeStateService.BuildBindMount(mount.HostPath, mount.ContainerPath) + ",readonly"]);
@@ -127,12 +142,17 @@ internal sealed class OpencodeLauncherService(DockerHostService hostService, Vol
                 runArgs.Add(arg);
             }
 
-            int exitCode = (await ProcessRunner.RunAsync("docker", runArgs, captureOutput: false)).ExitCode;
+            int exitCode = await _interactiveDockerRunnerService.RunDockerAsync(runArgs, session, hostWorkDir);
             CleanupContainer(force: false);
             return exitCode;
         }
         finally
         {
+            if(_hostSessionDirectory is not null)
+            {
+                AppIO.TryDeleteDirectory(_hostSessionDirectory);
+            }
+
             if(profile.CleanupDirectoryPath is not null)
             {
                 AppIO.TryDeleteDirectory(profile.CleanupDirectoryPath);
@@ -298,16 +318,21 @@ internal sealed class OpencodeLauncherService(DockerHostService hostService, Vol
             return;
         }
 
-        if(String.IsNullOrWhiteSpace(_containerName))
+        if(!String.IsNullOrWhiteSpace(_containerName))
         {
-            return;
+            string[] args = force
+                ? ["rm", "-f", _containerName]
+                : ["rm", _containerName];
+
+            _ = ProcessRunner.CommandSucceedsBlocking("docker", args);
         }
 
-        string[] args = force
-            ? ["rm", "-f", _containerName]
-            : ["rm", _containerName];
+        InteractiveDockerRunnerService.RestoreTerminalStateIfNeeded();
 
-        _ = ProcessRunner.CommandSucceedsBlocking("docker", args);
+        if(_hostSessionDirectory is not null)
+        {
+            AppIO.TryDeleteDirectory(_hostSessionDirectory);
+        }
 
         foreach(var registration in _signalRegistrations)
         {
@@ -317,9 +342,9 @@ internal sealed class OpencodeLauncherService(DockerHostService hostService, Vol
         _signalRegistrations.Clear();
     }
 
-    private static async Task EnsureCleanupWatchdogAsync(string containerName)
+    private static async Task EnsureCleanupWatchdogAsync(string containerName, string sessionDirectoryPath)
     {
-        bool watchdogReady = await ContainerCleanupWatchdog.TryStartDetachedAndWaitReadyAsync(containerName, _watchdogReadyTimeout);
+        bool watchdogReady = await ContainerCleanupWatchdog.TryStartDetachedAndWaitReadyAsync(containerName, sessionDirectoryPath, _watchdogReadyTimeout);
         if(!watchdogReady)
         {
             AppIO.WriteWarning("cleanup watchdog failed to initialize; terminal-close cleanup may be less reliable.");

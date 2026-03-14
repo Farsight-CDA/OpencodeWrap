@@ -16,6 +16,9 @@ internal static class Program
 
             builder.Services.AddSingleton<DockerHostService>();
             builder.Services.AddSingleton<VolumeStateService>();
+            builder.Services.AddSingleton<SessionStagingService>();
+            builder.Services.AddSingleton<PastedImagePathService>();
+            builder.Services.AddSingleton<InteractiveDockerRunnerService>();
             builder.Services.AddSingleton<OpencodeLauncherService>();
 
             builder.Services.AddTransient<OpencodeWrapRootCommand>();
