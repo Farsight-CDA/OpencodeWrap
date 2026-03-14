@@ -1,4 +1,5 @@
 using Spectre.Console;
+using Microsoft.Extensions.Logging;
 
 namespace OpencodeWrap;
 
@@ -14,6 +15,31 @@ internal static class AppIO
         => WriteMessage("[green]✔[/]", message);
     public static void WriteWarning(string message)
         => WriteMessage("[yellow]⚠[/]", message);
+    public static void WriteLog(LogLevel level, string message)
+    {
+        switch(level)
+        {
+            case LogLevel.Trace:
+            case LogLevel.Debug:
+                WriteMessage("[grey]·[/]", message);
+                break;
+            case LogLevel.Information:
+                WriteInfo(message);
+                break;
+            case LogLevel.Warning:
+                WriteWarning(message);
+                break;
+            case LogLevel.Error:
+                WriteError(message);
+                break;
+            case LogLevel.Critical:
+                WriteMessage("[bold red]‼[/]", message);
+                break;
+            default:
+                WriteInfo(message);
+                break;
+        }
+    }
 
     public static void WriteHeader(string title, string? subtitle = null)
     {

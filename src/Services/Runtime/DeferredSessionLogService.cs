@@ -1,3 +1,6 @@
+using Microsoft.Extensions.Logging;
+using Spectre.Console;
+
 namespace OpencodeWrap.Services.Runtime;
 
 internal sealed partial class DeferredSessionLogService : Singleton
@@ -5,24 +8,18 @@ internal sealed partial class DeferredSessionLogService : Singleton
     private readonly Lock _sync = new();
     private SessionBuffer? _currentSession;
 
-    public enum Importance
-    {
-        Verbose,
-        Significant
-    }
-
-    public SessionScope BeginSession()
+    public SessionScope BeginSession(LogLevel minimumLevel = LogLevel.Information)
     {
         lock(_sync)
         {
             SessionBuffer? previousSession = _currentSession;
-            var session = new SessionBuffer();
+            var session = new SessionBuffer(minimumLevel);
             _currentSession = session;
             return new SessionScope(this, previousSession, session);
         }
     }
 
-    public void Write(string category, string message, Importance importance = Importance.Verbose)
+    public void Write(string category, string message, LogLevel level = LogLevel.Information)
     {
         SessionBuffer? session;
 
@@ -31,19 +28,14 @@ internal sealed partial class DeferredSessionLogService : Singleton
             session = _currentSession;
         }
 
-        if(session is null)
-        {
-            return;
-        }
-
-        session.Write(category, message, importance);
+        session?.Write(category, message, level);
     }
 
     internal sealed class SessionScope : IDisposable
     {
+        private readonly DeferredSessionLogService _owner;
         private readonly SessionBuffer? _previousSession;
         private readonly SessionBuffer _session;
-        private readonly DeferredSessionLogService _owner;
         private bool _disposed;
 
         internal SessionScope(DeferredSessionLogService owner, SessionBuffer? previousSession, SessionBuffer session)
@@ -72,25 +64,29 @@ internal sealed partial class DeferredSessionLogService : Singleton
         }
     }
 
-    internal sealed class SessionBuffer
+    internal sealed class SessionBuffer(LogLevel minimumLevel)
     {
         private readonly Lock _sync = new();
         private readonly List<SessionLogEntry> _entries = [];
-        private bool _hasSignificantEntries;
+        private readonly LogLevel _minimumLevel = minimumLevel;
 
-        public void Write(string category, string message, Importance importance)
+        public void Write(string category, string message, LogLevel level)
         {
+            if(level < _minimumLevel)
+            {
+                return;
+            }
+
             try
             {
                 lock(_sync)
                 {
-                    _entries.Add(new SessionLogEntry($"{DateTime.UtcNow:O} [{category}] {message}"));
-                    _hasSignificantEntries |= importance == Importance.Significant;
+                    _entries.Add(new SessionLogEntry(level, $"{DateTime.UtcNow:O} [{category}] {message}"));
                 }
             }
             catch
             {
-                // Deferred logging must remain best effort.
+                // Best effort deferred logging only.
             }
         }
 
@@ -100,36 +96,27 @@ internal sealed partial class DeferredSessionLogService : Singleton
 
             lock(_sync)
             {
-                if(_entries.Count == 0 || !_hasSignificantEntries)
+                if(_entries.Count == 0)
                 {
-                    _entries.Clear();
-                    _hasSignificantEntries = false;
                     return;
                 }
 
                 entries = [.. _entries];
                 _entries.Clear();
-                _hasSignificantEntries = false;
             }
 
-            try
+            if(AnsiConsole.Profile.Capabilities.Interactive)
             {
-                Console.WriteLine();
-                Console.WriteLine("ocw session log:");
-                foreach(SessionLogEntry entry in entries)
-                {
-                    Console.WriteLine(entry.Text);
-                }
+                AnsiConsole.Clear();
             }
-            catch
+
+            AppIO.WriteHeader("Session Log");
+            foreach(SessionLogEntry entry in entries)
             {
-                foreach(SessionLogEntry entry in entries)
-                {
-                    AppIO.WriteInfo(entry.Text);
-                }
+                AppIO.WriteLog(entry.Level, entry.Text);
             }
         }
 
-        private readonly record struct SessionLogEntry(string Text);
+        private readonly record struct SessionLogEntry(LogLevel Level, string Text);
     }
 }

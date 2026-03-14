@@ -11,6 +11,7 @@ internal sealed class RunCliCommand : Command
     private readonly Option<string?> _profileOption;
     private readonly Option<string?> _mountModeOption;
     private readonly Option<string[]> _resourceDirOption;
+    private readonly Option<bool> _verboseOption;
 
     public RunCliCommand(OpencodeLauncherService launcherService, ProfileService profileService, BuiltInProfileTemplateService builtInProfileTemplateService)
         : base("run", "Run opencode with a selected profile config.")
@@ -30,16 +31,22 @@ internal sealed class RunCliCommand : Command
         {
             Description = "Additional host directory to mount read-only. Repeat the option to mount multiple directories."
         };
+        _verboseOption = new Option<bool>("--verbose", "-v")
+        {
+            Description = "Show deferred debug session logs after the interactive session exits."
+        };
 
         Add(_profileOption);
         Add(_mountModeOption);
         Add(_resourceDirOption);
+        Add(_verboseOption);
 
         SetAction(async parseResult =>
         {
             string? profile = parseResult.GetValue(_profileOption);
             string mountModeInput = parseResult.GetValue(_mountModeOption) ?? "mount";
             string[] resourceDirs = parseResult.GetValue(_resourceDirOption) ?? [];
+            bool verbose = parseResult.GetValue(_verboseOption);
             if(!TryParseMountMode(mountModeInput, out var mountMode))
             {
                 AppIO.WriteError($"Invalid --mount-mode value '{mountModeInput}'. Expected one of: mount, readonly-mount, no-mount.");
@@ -59,7 +66,7 @@ internal sealed class RunCliCommand : Command
                 resourceDirs = [.. selection.ResourceDirectories];
             }
 
-            return await _launcherService.ExecuteAsync([], requestedProfileName: profile, includeProfileConfig: true, workspaceMountMode: mountMode, extraReadonlyMountDirs: resourceDirs);
+            return await _launcherService.ExecuteAsync([], requestedProfileName: profile, includeProfileConfig: true, workspaceMountMode: mountMode, extraReadonlyMountDirs: resourceDirs, verboseSessionLogs: verbose);
         });
     }
 

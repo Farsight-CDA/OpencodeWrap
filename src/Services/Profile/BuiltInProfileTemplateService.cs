@@ -32,9 +32,11 @@ internal sealed partial class BuiltInProfileTemplateService : Singleton
     public BuiltInProfileTemplate StarterProfile { get; } = _builtInProfiles.First(profile => profile.IsDefault);
     public string DefaultEntrypointScript { get; } = LoadEmbeddedTextResource(DEFAULT_ENTRYPOINT_RESOURCE_NAME);
 
-    public async Task<(bool Success, string TemporaryDirectoryPath)> TryMaterializeBuiltInProfileAsync(BuiltInProfileTemplate builtInProfile)
+    public async Task<(bool Success, string TemporaryDirectoryPath)> TryMaterializeBuiltInProfileAsync(BuiltInProfileTemplate builtInProfile, string? materializationRootDirectory = null)
     {
-        string temporaryDirectoryPath = Path.Combine(Path.GetTempPath(), $"ocw-profile-{builtInProfile.Name}-{Guid.NewGuid():N}");
+        string temporaryDirectoryPath = String.IsNullOrWhiteSpace(materializationRootDirectory)
+            ? Path.Combine(Path.GetTempPath(), $"ocw-profile-{builtInProfile.Name}-{Guid.NewGuid():N}")
+            : Path.Combine(materializationRootDirectory, "profile");
 
         try
         {

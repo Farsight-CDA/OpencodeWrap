@@ -17,7 +17,7 @@ internal sealed partial class ProfileService : Singleton
         => _dockerHostService.TryEnsureGlobalConfigDirectory(out string configRoot)
             && TryEnsureProfilesRoot(configRoot, out _);
 
-    public async Task<(bool Success, ResolvedProfile Profile)> TryResolveProfileAsync(string? requestedProfileName)
+    public async Task<(bool Success, ResolvedProfile Profile)> TryResolveProfileAsync(string? requestedProfileName, string? materializationRootDirectory = null)
     {
         var emptyProfile = new ResolvedProfile("", "", "", null, null);
 
@@ -42,7 +42,7 @@ internal sealed partial class ProfileService : Singleton
         if(_builtInProfileTemplateService.BuiltInProfiles.Any(profile =>
             profile.Name.Equals(selectedProfileName, StringComparison.OrdinalIgnoreCase)))
         {
-            return await TryResolveBuiltInProfileAsync(catalog, selectedProfileName, emptyProfile);
+            return await TryResolveBuiltInProfileAsync(catalog, selectedProfileName, emptyProfile, materializationRootDirectory);
         }
 
         if(!catalog.ProfileDirectories.TryGetValue(selectedProfileName, out string? relativeDirectoryPath))
@@ -235,7 +235,7 @@ internal sealed partial class ProfileService : Singleton
         return normalizedChild.StartsWith(normalizedParent, StringComparison.OrdinalIgnoreCase);
     }
 
-    private async Task<(bool Success, ResolvedProfile Profile)> TryResolveBuiltInProfileAsync(ProfileCatalog catalog, string profileName, ResolvedProfile emptyProfile)
+    private async Task<(bool Success, ResolvedProfile Profile)> TryResolveBuiltInProfileAsync(ProfileCatalog catalog, string profileName, ResolvedProfile emptyProfile, string? materializationRootDirectory)
     {
         var builtInProfile = _builtInProfileTemplateService.BuiltInProfiles.FirstOrDefault(profile =>
             profile.Name.Equals(profileName, StringComparison.OrdinalIgnoreCase));
@@ -272,17 +272,18 @@ internal sealed partial class ProfileService : Singleton
                 ConfigDirectoryPath: Directory.Exists(overrideConfigDirectoryPath) ? overrideConfigDirectoryPath : null));
         }
 
-        var (materialized, temporaryDirectoryPath) = await _builtInProfileTemplateService.TryMaterializeBuiltInProfileAsync(builtInProfile);
+        var (materialized, temporaryDirectoryPath) = await _builtInProfileTemplateService.TryMaterializeBuiltInProfileAsync(builtInProfile, materializationRootDirectory);
         if(!materialized)
         {
             return (false, emptyProfile);
         }
 
+        bool materializedWithinSession = !String.IsNullOrWhiteSpace(materializationRootDirectory);
         return (true, new ResolvedProfile(
             profileName,
             temporaryDirectoryPath,
             Path.Combine(temporaryDirectoryPath, OpencodeWrapConstants.PROFILE_DOCKERFILE_NAME),
             ConfigDirectoryPath: Path.Combine(temporaryDirectoryPath, OpencodeWrapConstants.PROFILE_OPENCODE_DIRECTORY_NAME),
-            CleanupDirectoryPath: temporaryDirectoryPath));
+            CleanupDirectoryPath: materializedWithinSession ? null : temporaryDirectoryPath));
     }
 }

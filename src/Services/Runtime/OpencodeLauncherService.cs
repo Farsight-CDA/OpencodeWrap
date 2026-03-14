@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using Microsoft.Extensions.Logging;
 
 namespace OpencodeWrap.Services.Runtime;
 
@@ -25,6 +26,9 @@ internal sealed partial class OpencodeLauncherService : Singleton
     [Inject]
     private readonly InteractiveDockerRunnerService _interactiveDockerRunnerService;
 
+    [Inject]
+    private readonly DeferredSessionLogService _deferredSessionLogService;
+
     private int _cleanupStarted;
     private string? _containerName;
     private string? _hostSessionDirectory;
@@ -35,23 +39,13 @@ internal sealed partial class OpencodeLauncherService : Singleton
         string? requestedProfileName,
         bool includeProfileConfig,
         WorkspaceMountMode workspaceMountMode = WorkspaceMountMode.ReadWrite,
-        IReadOnlyList<string>? extraReadonlyMountDirs = null)
+        IReadOnlyList<string>? extraReadonlyMountDirs = null,
+        bool verboseSessionLogs = false)
     {
-        var (success, profile) = await _profileService.TryResolveProfileAsync(includeProfileConfig ? requestedProfileName : null);
-        if(!success)
-        {
-            return 1;
-        }
-
+        using var sessionLog = _deferredSessionLogService.BeginSession(verboseSessionLogs ? LogLevel.Debug : LogLevel.Information);
         try
         {
             if(!await AppIO.RunWithLoadingStateAsync("Checking Docker volume...", _volumeService.EnsureVolumeReadyAsync))
-            {
-                return 1;
-            }
-
-            var (imageReady, imageTag) = await _dockerImageService.TryEnsureImageAsync(profile.DockerfilePath);
-            if(!imageReady)
             {
                 return 1;
             }
@@ -86,8 +80,22 @@ internal sealed partial class OpencodeLauncherService : Singleton
             }
 
             _hostSessionDirectory = session.HostSessionDirectory;
+            _deferredSessionLogService.Write("session", $"created runtime session '{session.SessionId}' at '{session.HostSessionDirectory}'", LogLevel.Information);
+
+            var (success, profile) = await _profileService.TryResolveProfileAsync(includeProfileConfig ? requestedProfileName : null, session.HostSessionDirectory);
+            if(!success)
+            {
+                return 1;
+            }
+
             RegisterCleanupHandlers();
             await EnsureCleanupWatchdogAsync(_containerName, session.HostSessionDirectory);
+
+            var (imageReady, imageTag) = await _dockerImageService.TryEnsureImageAsync(profile.DockerfilePath);
+            if(!imageReady)
+            {
+                return 1;
+            }
 
             string? userSpec = await _hostService.GetContainerUserSpecAsync();
             var runArgs = new List<string> { "run" };
@@ -160,13 +168,11 @@ internal sealed partial class OpencodeLauncherService : Singleton
         {
             if(_hostSessionDirectory is not null)
             {
+                _deferredSessionLogService.Write("session", $"deleting runtime session directory '{_hostSessionDirectory}'", LogLevel.Information);
                 AppIO.TryDeleteDirectory(_hostSessionDirectory);
             }
 
-            if(profile.CleanupDirectoryPath is not null)
-            {
-                AppIO.TryDeleteDirectory(profile.CleanupDirectoryPath);
-            }
+            sessionLog.FlushToConsole();
         }
     }
 
