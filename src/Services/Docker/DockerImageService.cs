@@ -2,9 +2,9 @@ using System.Security.Cryptography;
 
 namespace OpencodeWrap.Services.Docker;
 
-internal sealed class DockerImageService
+internal sealed partial class DockerImageService : Singleton
 {
-    public static async Task<(bool Success, string ImageTag)> TryEnsureImageAsync(string dockerfilePath)
+    public async Task<(bool Success, string ImageTag)> TryEnsureImageAsync(string dockerfilePath)
     {
         string imageTag = "opencode-wrap:unavailable";
 
@@ -26,7 +26,7 @@ internal sealed class DockerImageService
         return await TryBuildImageAsync(dockerfilePath, imageTag, noCache: false);
     }
 
-    public static async Task<(bool Success, string ImageTag)> TryBuildImageAsync(string dockerfilePath, bool noCache)
+    public async Task<(bool Success, string ImageTag)> TryBuildImageAsync(string dockerfilePath, bool noCache)
     {
         string imageTag = "opencode-wrap:unavailable";
 

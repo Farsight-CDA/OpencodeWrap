@@ -5,10 +5,14 @@ namespace OpencodeWrap.Cli.Profile;
 internal sealed class AddProfileCliCommand : Command
 {
     private readonly Argument<string> _nameArgument;
+    private readonly ProfileService _profileService;
+    private readonly BuiltInProfileTemplateService _builtInProfileTemplateService;
 
-    public AddProfileCliCommand()
+    public AddProfileCliCommand(ProfileService profileService, BuiltInProfileTemplateService builtInProfileTemplateService)
         : base("add", "Add a new profile with a starter Dockerfile and entrypoint script.")
     {
+        _profileService = profileService;
+        _builtInProfileTemplateService = builtInProfileTemplateService;
         _nameArgument = new Argument<string>("name")
         {
             Description = "New profile name."
@@ -23,16 +27,16 @@ internal sealed class AddProfileCliCommand : Command
         });
     }
 
-    private static async Task<int> ExecuteAsync(string profileName)
+    private async Task<int> ExecuteAsync(string profileName)
     {
         string normalizedName = profileName.Trim();
-        if(!ProfileService.IsValidProfileName(normalizedName))
+        if(!_profileService.IsValidProfileName(normalizedName))
         {
             AppIO.WriteError(ProfileService.INVALID_PROFILE_NAME_MESSAGE);
             return 1;
         }
 
-        var (success, catalog) = ProfileService.TryLoadProfileCatalog();
+        var (success, catalog) = _profileService.TryLoadProfileCatalog();
         if(!success)
         {
             return 1;
@@ -43,7 +47,7 @@ internal sealed class AddProfileCliCommand : Command
             return 1;
         }
 
-        if(!ProfileService.TryResolveProfileDirectoryPath(catalog.ProfilesRoot, normalizedName, out string profileDirectoryPath))
+        if(!_profileService.TryResolveProfileDirectoryPath(catalog.ProfilesRoot, normalizedName, out string profileDirectoryPath))
         {
             AppIO.WriteError($"Profile directory '{profileDirectoryPath}' resolves outside '{catalog.ProfilesRoot}'.");
             return 1;
@@ -66,7 +70,7 @@ internal sealed class AddProfileCliCommand : Command
 
                 Directory.CreateDirectory(opencodeDirectoryPath);
 
-                var builtInProfile = BuiltInProfileTemplateService.BuiltInProfiles.FirstOrDefault(profile =>
+                var builtInProfile = _builtInProfileTemplateService.BuiltInProfiles.FirstOrDefault(profile =>
                     profile.Name.Equals(normalizedName, StringComparison.OrdinalIgnoreCase));
 
                 if(builtInProfile is not null)
@@ -76,10 +80,10 @@ internal sealed class AddProfileCliCommand : Command
                 }
                 else
                 {
-                    await File.WriteAllTextAsync(dockerfilePath, BuiltInProfileTemplateService.StarterProfile.Dockerfile);
+                    await File.WriteAllTextAsync(dockerfilePath, _builtInProfileTemplateService.StarterProfile.Dockerfile);
                 }
 
-                await BuiltInProfileTemplateService.WriteDefaultEntrypointAsync(profileDirectoryPath);
+                await _builtInProfileTemplateService.WriteDefaultEntrypointAsync(profileDirectoryPath);
                 return true;
             });
 
@@ -94,7 +98,7 @@ internal sealed class AddProfileCliCommand : Command
             return 1;
         }
 
-        string mode = BuiltInProfileTemplateService.BuiltInProfiles.Any(profile =>
+        string mode = _builtInProfileTemplateService.BuiltInProfiles.Any(profile =>
             profile.Name.Equals(normalizedName, StringComparison.OrdinalIgnoreCase))
             ? "override"
             : "profile";

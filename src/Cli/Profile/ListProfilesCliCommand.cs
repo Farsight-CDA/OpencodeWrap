@@ -5,22 +5,27 @@ namespace OpencodeWrap.Cli.Profile;
 
 internal sealed class ListProfilesCliCommand : Command
 {
-    public ListProfilesCliCommand()
+    private readonly ProfileService _profileService;
+    private readonly BuiltInProfileTemplateService _builtInProfileTemplateService;
+
+    public ListProfilesCliCommand(ProfileService profileService, BuiltInProfileTemplateService builtInProfileTemplateService)
         : base("list", "List all configured profiles.")
     {
+        _profileService = profileService;
+        _builtInProfileTemplateService = builtInProfileTemplateService;
         SetAction(async _ => await ExecuteAsync());
     }
 
-    private static async Task<int> ExecuteAsync()
+    private async Task<int> ExecuteAsync()
     {
-        var (success, catalog) = ProfileService.TryLoadProfileCatalog();
+        var (success, catalog) = _profileService.TryLoadProfileCatalog();
         if(!success)
         {
             return 1;
         }
 
         var allProfileNames = new HashSet<string>(catalog.ProfileDirectories.Keys, StringComparer.OrdinalIgnoreCase);
-        foreach(var builtInProfile in BuiltInProfileTemplateService.BuiltInProfiles)
+        foreach(var builtInProfile in _builtInProfileTemplateService.BuiltInProfiles)
         {
             allProfileNames.Add(builtInProfile.Name);
         }
@@ -47,7 +52,7 @@ internal sealed class ListProfilesCliCommand : Command
             .ThenBy(name => name, StringComparer.OrdinalIgnoreCase))
         {
             bool isDefault = String.Equals(profileName, catalog.DefaultProfileName, StringComparison.OrdinalIgnoreCase);
-            bool isBuiltIn = BuiltInProfileTemplateService.BuiltInProfiles.Any(builtInProfile =>
+            bool isBuiltIn = _builtInProfileTemplateService.BuiltInProfiles.Any(builtInProfile =>
                 builtInProfile.Name.Equals(profileName, StringComparison.OrdinalIgnoreCase));
             bool hasOverride = catalog.ProfileDirectories.ContainsKey(profileName);
 
@@ -63,7 +68,7 @@ internal sealed class ListProfilesCliCommand : Command
             else
             {
                 string relativeDirectoryPath = catalog.ProfileDirectories[profileName];
-                if(ProfileService.TryResolveProfileDirectoryPath(catalog.ProfilesRoot, relativeDirectoryPath, out string profileDirectoryPath))
+                if(_profileService.TryResolveProfileDirectoryPath(catalog.ProfilesRoot, relativeDirectoryPath, out string profileDirectoryPath))
                 {
                     displayPath = Markup.Escape(profileDirectoryPath);
                 }

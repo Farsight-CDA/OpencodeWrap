@@ -131,9 +131,7 @@ internal sealed class UpdateCliCommand : Command
     }
 
     private static string GetPackageName()
-        => Environment.GetEnvironmentVariable("OCW_NPM_PACKAGE")?.Trim() is { Length: > 0 } packageFromEnv
-            ? packageFromEnv
-            : DEFAULT_NPM_PACKAGE_NAME;
+        => DEFAULT_NPM_PACKAGE_NAME;
 
     private static string BuildPackageSpecifier(string packageName, string version)
         => String.IsNullOrWhiteSpace(version)

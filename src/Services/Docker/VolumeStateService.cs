@@ -1,8 +1,9 @@
 namespace OpencodeWrap.Services.Docker;
 
-internal sealed class VolumeStateService(DockerHostService hostService)
+internal sealed partial class VolumeStateService : Singleton
 {
-    private readonly DockerHostService _hostService = hostService;
+    [Inject]
+    private readonly DockerHostService _hostService;
 
     public async Task<bool> EnsureVolumeReadyAsync()
     {
@@ -21,11 +22,11 @@ internal sealed class VolumeStateService(DockerHostService hostService)
             return true;
         }
 
-        var (success, userSpec) = await DockerHostService.TryGetUnixUserSpecAsync();
+        var (success, userSpec) = await _hostService.TryGetUnixUserSpecAsync();
         return success && await EnsureVolumeIsWritableAsync(OpencodeWrapConstants.XDG_VOLUME_NAME, userSpec);
     }
 
-    public static async Task<bool> ValidateImportTargetStateAsync(bool force)
+    public async Task<bool> ValidateImportTargetStateAsync(bool force)
     {
         if(force)
         {
@@ -67,7 +68,7 @@ internal sealed class VolumeStateService(DockerHostService hostService)
             return true;
         }
 
-        var (success, userSpec) = await DockerHostService.TryGetUnixUserSpecAsync();
+        var (success, userSpec) = await _hostService.TryGetUnixUserSpecAsync();
         return success && await EnsureVolumeIsWritableAsync(OpencodeWrapConstants.XDG_VOLUME_NAME, userSpec);
     }
 
@@ -102,11 +103,11 @@ internal sealed class VolumeStateService(DockerHostService hostService)
         return (true, true);
     }
 
-    public static string BuildBindMount(string source, string target) => $"type=bind,src={Path.GetFullPath(source)},dst={target}";
+    public string BuildBindMount(string source, string target) => $"type=bind,src={Path.GetFullPath(source)},dst={target}";
 
-    public static string BuildVolumeMount(string source, string target) => $"type=volume,src={source},dst={target}";
+    public string BuildVolumeMount(string source, string target) => $"type=volume,src={source},dst={target}";
 
-    private static async Task<bool> EnsureVolumeAsync(string volumeName)
+    private async Task<bool> EnsureVolumeAsync(string volumeName)
     {
         var inspect = await ProcessRunner.RunAsync("docker", ["volume", "inspect", volumeName]);
         if(inspect.Success)
@@ -129,7 +130,7 @@ internal sealed class VolumeStateService(DockerHostService hostService)
         return true;
     }
 
-    private static async Task<bool> EnsureVolumeIsWritableAsync(string volumeName, string userSpec)
+    private async Task<bool> EnsureVolumeIsWritableAsync(string volumeName, string userSpec)
     {
         var result = await ProcessRunner.RunAsync(
             "docker",
@@ -156,7 +157,7 @@ internal sealed class VolumeStateService(DockerHostService hostService)
         return result.Success;
     }
 
-    private static async Task<bool> CopyHostXdgDirectoryToVolumeAsync(string sourceRootDirectory, string volumeName)
+    private async Task<bool> CopyHostXdgDirectoryToVolumeAsync(string sourceRootDirectory, string volumeName)
     {
         var result = await ProcessRunner.RunAsync(
             "docker",
@@ -227,7 +228,7 @@ internal sealed class VolumeStateService(DockerHostService hostService)
         _ => sourceSubdirectory
     };
 
-    private static async Task<(bool Success, bool HasState)> TryVolumeHasImportedStateAsync(string volumeName)
+    private async Task<(bool Success, bool HasState)> TryVolumeHasImportedStateAsync(string volumeName)
     {
         var result = await ProcessRunner.RunAsync(
             "docker",

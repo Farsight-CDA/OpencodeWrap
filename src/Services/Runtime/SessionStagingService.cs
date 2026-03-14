@@ -4,12 +4,15 @@ using System.Globalization;
 
 namespace OpencodeWrap.Services.Runtime;
 
-internal static class SessionStagingService
+internal sealed partial class SessionStagingService : Singleton
 {
     private const string SESSION_METADATA_FILE_NAME = ".owner";
     private static readonly TimeSpan _missingMetadataGracePeriod = TimeSpan.FromMinutes(10);
 
-    public static bool TryCreateSession(string containerName, out InteractiveSessionContext session)
+    [Inject]
+    private readonly DockerHostService _dockerHostService;
+
+    public bool TryCreateSession(string containerName, out InteractiveSessionContext session)
     {
         session = new InteractiveSessionContext("", "", "", "", "", 0, 0, new ConcurrentDictionary<string, string>(StringComparer.OrdinalIgnoreCase));
 
@@ -21,7 +24,7 @@ internal static class SessionStagingService
             return false;
         }
 
-        if(!DockerHostService.TryEnsureGlobalConfigDirectory(out string configDirectory))
+        if(!_dockerHostService.TryEnsureGlobalConfigDirectory(out string configDirectory))
         {
             return false;
         }
@@ -67,9 +70,9 @@ internal static class SessionStagingService
         return true;
     }
 
-    public static void CleanupStaleSessions()
+    public void CleanupStaleSessions()
     {
-        if(!DockerHostService.TryEnsureGlobalConfigDirectory(out string configDirectory))
+        if(!_dockerHostService.TryEnsureGlobalConfigDirectory(out string configDirectory))
         {
             return;
         }

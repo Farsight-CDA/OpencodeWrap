@@ -7,10 +7,14 @@ internal sealed class DeleteProfileCliCommand : Command
 {
     private readonly Option<string?> _profileOption;
     private readonly Option<bool> _yesOption;
+    private readonly ProfileService _profileService;
+    private readonly BuiltInProfileTemplateService _builtInProfileTemplateService;
 
-    public DeleteProfileCliCommand()
+    public DeleteProfileCliCommand(ProfileService profileService, BuiltInProfileTemplateService builtInProfileTemplateService)
         : base("delete", "Delete a profile and its directory.")
     {
+        _profileService = profileService;
+        _builtInProfileTemplateService = builtInProfileTemplateService;
         _profileOption = new Option<string?>("--profile", "-p")
         {
             Description = "Profile name from a directory under $HOME/.opencode-wrap/profiles."
@@ -31,9 +35,9 @@ internal sealed class DeleteProfileCliCommand : Command
         });
     }
 
-    private static async Task<int> ExecuteAsync(string? profileNameInput, bool skipConfirmation)
+    private async Task<int> ExecuteAsync(string? profileNameInput, bool skipConfirmation)
     {
-        var (success, catalog) = ProfileService.TryLoadProfileCatalog();
+        var (success, catalog) = _profileService.TryLoadProfileCatalog();
         if(!success)
         {
             return 1;
@@ -46,14 +50,14 @@ internal sealed class DeleteProfileCliCommand : Command
         }
 
         string normalizedName = selectedProfileName.Trim();
-        if(!ProfileService.IsValidProfileName(normalizedName))
+        if(!_profileService.IsValidProfileName(normalizedName))
         {
             AppIO.WriteError(ProfileService.INVALID_PROFILE_NAME_MESSAGE);
             return 1;
         }
 
         bool hasOverrideDirectory = catalog.ProfileDirectories.TryGetValue(normalizedName, out string? relativeDirectoryPath);
-        bool isBuiltIn = BuiltInProfileTemplateService.BuiltInProfiles.Any(profile =>
+        bool isBuiltIn = _builtInProfileTemplateService.BuiltInProfiles.Any(profile =>
             profile.Name.Equals(normalizedName, StringComparison.OrdinalIgnoreCase));
 
         if(!hasOverrideDirectory)
@@ -68,7 +72,7 @@ internal sealed class DeleteProfileCliCommand : Command
             return 1;
         }
 
-        if(!ProfileService.TryResolveProfileDirectoryPath(catalog.ProfilesRoot, relativeDirectoryPath!, out string profileDirectoryPath))
+        if(!_profileService.TryResolveProfileDirectoryPath(catalog.ProfilesRoot, relativeDirectoryPath!, out string profileDirectoryPath))
         {
             AppIO.WriteError($"Profile '{normalizedName}' directory resolves outside '{catalog.ProfilesRoot}'.");
             return 1;
@@ -117,7 +121,7 @@ internal sealed class DeleteProfileCliCommand : Command
         return 0;
     }
 
-    private static string? ResolveProfileName(string? profileNameInput, ProfileCatalog catalog)
+    private string? ResolveProfileName(string? profileNameInput, ProfileCatalog catalog)
     {
         if(!String.IsNullOrWhiteSpace(profileNameInput))
         {
@@ -131,7 +135,7 @@ internal sealed class DeleteProfileCliCommand : Command
         }
 
         var profileNames = new HashSet<string>(catalog.ProfileDirectories.Keys, StringComparer.OrdinalIgnoreCase);
-        foreach(var builtInProfile in BuiltInProfileTemplateService.BuiltInProfiles)
+        foreach(var builtInProfile in _builtInProfileTemplateService.BuiltInProfiles)
         {
             profileNames.Add(builtInProfile.Name);
         }

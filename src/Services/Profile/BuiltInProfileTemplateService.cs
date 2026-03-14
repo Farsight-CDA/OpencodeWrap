@@ -1,6 +1,6 @@
 namespace OpencodeWrap.Services.Profile;
 
-internal static class BuiltInProfileTemplateService
+internal sealed partial class BuiltInProfileTemplateService : Singleton
 {
     private const string DEFAULT_ENTRYPOINT_RESOURCE_NAME = "ProfileTemplates.entrypoint.sh";
 
@@ -28,11 +28,11 @@ internal static class BuiltInProfileTemplateService
             LoadEmbeddedTextResource("ProfileTemplates.solidity.opencode.json"))
     ];
 
-    public static IReadOnlyList<BuiltInProfileTemplate> BuiltInProfiles { get; } = _builtInProfiles;
-    public static BuiltInProfileTemplate StarterProfile { get; } = _builtInProfiles.First(profile => profile.IsDefault);
-    public static string DefaultEntrypointScript { get; } = LoadEmbeddedTextResource(DEFAULT_ENTRYPOINT_RESOURCE_NAME);
+    public IReadOnlyList<BuiltInProfileTemplate> BuiltInProfiles { get; } = _builtInProfiles;
+    public BuiltInProfileTemplate StarterProfile { get; } = _builtInProfiles.First(profile => profile.IsDefault);
+    public string DefaultEntrypointScript { get; } = LoadEmbeddedTextResource(DEFAULT_ENTRYPOINT_RESOURCE_NAME);
 
-    public static async Task<(bool Success, string TemporaryDirectoryPath)> TryMaterializeBuiltInProfileAsync(BuiltInProfileTemplate builtInProfile)
+    public async Task<(bool Success, string TemporaryDirectoryPath)> TryMaterializeBuiltInProfileAsync(BuiltInProfileTemplate builtInProfile)
     {
         string temporaryDirectoryPath = Path.Combine(Path.GetTempPath(), $"ocw-profile-{builtInProfile.Name}-{Guid.NewGuid():N}");
 
@@ -54,7 +54,7 @@ internal static class BuiltInProfileTemplateService
         }
     }
 
-    public static async Task WriteDefaultEntrypointAsync(string profileDirectoryPath)
+    public async Task WriteDefaultEntrypointAsync(string profileDirectoryPath)
     {
         string entrypointPath = Path.Combine(profileDirectoryPath, OpencodeWrapConstants.PROFILE_ENTRYPOINT_FILE_NAME);
         await File.WriteAllTextAsync(entrypointPath, DefaultEntrypointScript);

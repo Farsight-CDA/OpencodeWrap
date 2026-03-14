@@ -13,8 +13,9 @@ internal static class OpencodeWrapCli
         }
 
         var rootCommand = services.GetRequiredService<OpencodeWrapRootCommand>();
+        var profileService = services.GetRequiredService<ProfileService>();
 
-        if(!ProfileService.TryEnsureInitialized())
+        if(!profileService.TryEnsureInitialized())
         {
             return 1;
         }

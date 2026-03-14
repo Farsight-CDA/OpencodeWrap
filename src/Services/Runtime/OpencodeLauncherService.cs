@@ -2,15 +2,28 @@ using System.Runtime.InteropServices;
 
 namespace OpencodeWrap.Services.Runtime;
 
-internal sealed class OpencodeLauncherService(
-    DockerHostService hostService,
-    VolumeStateService volumeService)
+internal sealed partial class OpencodeLauncherService : Singleton
 {
     private static readonly TimeSpan _watchdogReadyTimeout = TimeSpan.FromSeconds(2);
     private static readonly string _containerCommand = BuildContainerCommand();
 
-    private readonly DockerHostService _hostService = hostService;
-    private readonly VolumeStateService _volumeService = volumeService;
+    [Inject]
+    private readonly DockerHostService _hostService;
+
+    [Inject]
+    private readonly VolumeStateService _volumeService;
+
+    [Inject]
+    private readonly ProfileService _profileService;
+
+    [Inject]
+    private readonly DockerImageService _dockerImageService;
+
+    [Inject]
+    private readonly SessionStagingService _sessionStagingService;
+
+    [Inject]
+    private readonly InteractiveDockerRunnerService _interactiveDockerRunnerService;
 
     private int _cleanupStarted;
     private string? _containerName;
@@ -24,7 +37,7 @@ internal sealed class OpencodeLauncherService(
         WorkspaceMountMode workspaceMountMode = WorkspaceMountMode.ReadWrite,
         IReadOnlyList<string>? extraReadonlyMountDirs = null)
     {
-        var (success, profile) = await ProfileService.TryResolveProfileAsync(includeProfileConfig ? requestedProfileName : null);
+        var (success, profile) = await _profileService.TryResolveProfileAsync(includeProfileConfig ? requestedProfileName : null);
         if(!success)
         {
             return 1;
@@ -37,7 +50,7 @@ internal sealed class OpencodeLauncherService(
                 return 1;
             }
 
-            var (imageReady, imageTag) = await DockerImageService.TryEnsureImageAsync(profile.DockerfilePath);
+            var (imageReady, imageTag) = await _dockerImageService.TryEnsureImageAsync(profile.DockerfilePath);
             if(!imageReady)
             {
                 return 1;
@@ -67,7 +80,7 @@ internal sealed class OpencodeLauncherService(
             }
 
             _containerName = $"opencode-wrap-{Guid.NewGuid():N}"[..27];
-            if(!SessionStagingService.TryCreateSession(_containerName, out var session))
+            if(!_sessionStagingService.TryCreateSession(_containerName, out var session))
             {
                 return 1;
             }
@@ -93,6 +106,7 @@ internal sealed class OpencodeLauncherService(
                 "-e", $"XDG_CONFIG_HOME={OpencodeWrapConstants.CONTAINER_XDG_CONFIG_HOME}",
                 "-e", $"XDG_DATA_HOME={OpencodeWrapConstants.CONTAINER_XDG_DATA_HOME}",
                 "-e", $"XDG_STATE_HOME={OpencodeWrapConstants.CONTAINER_XDG_STATE_HOME}",
+                "-e", $"{InteractiveDockerRunnerService.STARTUP_READY_MARKER_ENV_VAR}={InteractiveDockerRunnerService.STARTUP_READY_MARKER}",
                 "-e", $"OCW_PROFILE_ROOT={OpencodeWrapConstants.CONTAINER_PROFILE_ROOT}",
                 "-e", $"OCW_HOST_CONFIG_SOURCE={OpencodeWrapConstants.CONTAINER_HOST_CONFIG_SOURCE}"
             ]);
@@ -101,7 +115,7 @@ internal sealed class OpencodeLauncherService(
 
             if(workspaceMountMode != WorkspaceMountMode.None)
             {
-                string workspaceMount = VolumeStateService.BuildBindMount(hostWorkDir!, containerWorkDir);
+                string workspaceMount = _volumeService.BuildBindMount(hostWorkDir!, containerWorkDir);
                 if(workspaceMountMode == WorkspaceMountMode.ReadOnly)
                 {
                     workspaceMount += ",readonly";
@@ -110,21 +124,21 @@ internal sealed class OpencodeLauncherService(
                 runArgs.AddRange(["--mount", workspaceMount]);
             }
 
-            runArgs.AddRange(["--mount", VolumeStateService.BuildBindMount(session.HostPasteDirectory, session.ContainerPasteDirectory) + ",readonly"]);
+            runArgs.AddRange(["--mount", _volumeService.BuildBindMount(session.HostPasteDirectory, session.ContainerPasteDirectory) + ",readonly"]);
 
             foreach(var (hostPath, containerPath) in additionalReadonlyMounts)
             {
-                runArgs.AddRange(["--mount", VolumeStateService.BuildBindMount(hostPath, containerPath) + ",readonly"]);
+                runArgs.AddRange(["--mount", _volumeService.BuildBindMount(hostPath, containerPath) + ",readonly"]);
             }
 
             if(includeProfileConfig)
             {
-                runArgs.AddRange(["--mount", VolumeStateService.BuildBindMount(profile.DirectoryPath, OpencodeWrapConstants.CONTAINER_PROFILE_ROOT) + ",readonly"]);
+                runArgs.AddRange(["--mount", _volumeService.BuildBindMount(profile.DirectoryPath, OpencodeWrapConstants.CONTAINER_PROFILE_ROOT) + ",readonly"]);
             }
 
             runArgs.AddRange(
             [
-                "--mount", VolumeStateService.BuildVolumeMount(OpencodeWrapConstants.XDG_VOLUME_NAME, OpencodeWrapConstants.CONTAINER_XDG_ROOT),
+                "--mount", _volumeService.BuildVolumeMount(OpencodeWrapConstants.XDG_VOLUME_NAME, OpencodeWrapConstants.CONTAINER_XDG_ROOT),
                 "-w", containerWorkDir,
                 imageTag,
                 "bash",
@@ -138,7 +152,7 @@ internal sealed class OpencodeLauncherService(
                 runArgs.Add(arg);
             }
 
-            int exitCode = await InteractiveDockerRunnerService.RunDockerAsync(runArgs, session, hostWorkDir);
+            int exitCode = await _interactiveDockerRunnerService.RunDockerAsync(runArgs, session, hostWorkDir);
             CleanupContainer(force: false);
             return exitCode;
         }
@@ -159,12 +173,14 @@ internal sealed class OpencodeLauncherService(
     private static string BuildContainerCommand()
     {
         string profileEntrypointPath = $"{OpencodeWrapConstants.CONTAINER_PROFILE_ROOT}/{OpencodeWrapConstants.PROFILE_ENTRYPOINT_FILE_NAME}";
+        string startupReadyMarkerEnvVar = InteractiveDockerRunnerService.STARTUP_READY_MARKER_ENV_VAR;
         return "set -e; "
             + "mkdir -p \"$XDG_CONFIG_HOME\" \"$XDG_DATA_HOME/opencode\" \"$XDG_STATE_HOME/opencode\" \"$HOME/.local/bin\"; "
             + "rm -rf \"$XDG_CONFIG_HOME/opencode\"; "
             + "mkdir -p \"$XDG_CONFIG_HOME/opencode\"; "
             + "if [ -d \"$OCW_HOST_CONFIG_SOURCE\" ]; then cp -a \"$OCW_HOST_CONFIG_SOURCE\"/. \"$XDG_CONFIG_HOME/opencode/\"; fi; "
             + "export PATH=\"/opt/opencode/.opencode/bin:/opt/opencode/.local/share/opencode/bin:/opt/opencode/.local/bin:$HOME/.opencode/bin:$XDG_DATA_HOME/opencode/bin:$HOME/.local/bin:$PATH\"; "
+            + $"if [ -n \"${{{startupReadyMarkerEnvVar}:-}}\" ]; then printf '%s' \"${{{startupReadyMarkerEnvVar}}}\" >&2; fi; "
             + $"if [ -f \"{profileEntrypointPath}\" ]; then exec bash \"{profileEntrypointPath}\" \"$@\"; fi; "
             + "exec opencode \"$@\"";
     }
@@ -321,7 +337,7 @@ internal sealed class OpencodeLauncherService(
             _ = ProcessRunner.CommandSucceedsBlocking("docker", args);
         }
 
-        InteractiveDockerRunnerService.RestoreTerminalStateIfNeeded();
+        _interactiveDockerRunnerService.RestoreTerminalStateIfNeeded();
 
         if(_hostSessionDirectory is not null)
         {

@@ -2,7 +2,7 @@ using System.Runtime.InteropServices;
 
 namespace OpencodeWrap.Services.Docker;
 
-internal sealed class DockerHostService
+internal sealed partial class DockerHostService : Singleton
 {
     public bool IsWindows { get; } = RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
     public bool IsLinux { get; } = RuntimeInformation.IsOSPlatform(OSPlatform.Linux);
@@ -34,7 +34,7 @@ internal sealed class DockerHostService
             ? userSpec
             : null;
 
-    public static async Task<(bool Success, string UserSpec)> TryGetUnixUserSpecAsync()
+    public async Task<(bool Success, string UserSpec)> TryGetUnixUserSpecAsync()
     {
         var uidResult = await ProcessRunner.RunAsync("id", ["-u"]);
         if(!uidResult.Success)
@@ -71,7 +71,7 @@ internal sealed class DockerHostService
         return (true, $"{uid}:{gid}");
     }
 
-    public static bool TryEnsureGlobalConfigDirectory(out string configDirectory)
+    public bool TryEnsureGlobalConfigDirectory(out string configDirectory)
     {
         configDirectory = "";
 

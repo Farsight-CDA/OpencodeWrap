@@ -6,14 +6,18 @@ namespace OpencodeWrap.Cli.Run;
 internal sealed class RunCliCommand : Command
 {
     private readonly OpencodeLauncherService _launcherService;
+    private readonly ProfileService _profileService;
+    private readonly BuiltInProfileTemplateService _builtInProfileTemplateService;
     private readonly Option<string?> _profileOption;
     private readonly Option<string?> _mountModeOption;
     private readonly Option<string[]> _resourceDirOption;
 
-    public RunCliCommand(OpencodeLauncherService launcherService)
+    public RunCliCommand(OpencodeLauncherService launcherService, ProfileService profileService, BuiltInProfileTemplateService builtInProfileTemplateService)
         : base("run", "Run opencode with a selected profile config.")
     {
         _launcherService = launcherService;
+        _profileService = profileService;
+        _builtInProfileTemplateService = builtInProfileTemplateService;
         _profileOption = new Option<string?>("--profile", "-p")
         {
             Description = "Profile name from a directory under $HOME/.opencode-wrap/profiles."
@@ -59,16 +63,16 @@ internal sealed class RunCliCommand : Command
         });
     }
 
-    private static RunSelection? PromptForRunSelection(WorkspaceMountMode defaultMountMode, IReadOnlyList<string> initialResourceDirectories)
+    private RunSelection? PromptForRunSelection(WorkspaceMountMode defaultMountMode, IReadOnlyList<string> initialResourceDirectories)
     {
-        var (success, catalog) = ProfileService.TryLoadProfileCatalog();
+        var (success, catalog) = _profileService.TryLoadProfileCatalog();
         if(!success)
         {
             return null;
         }
 
         var profileNames = new HashSet<string>(catalog.ProfileDirectories.Keys, StringComparer.OrdinalIgnoreCase);
-        foreach(var builtInProfile in BuiltInProfileTemplateService.BuiltInProfiles)
+        foreach(var builtInProfile in _builtInProfileTemplateService.BuiltInProfiles)
         {
             profileNames.Add(builtInProfile.Name);
         }

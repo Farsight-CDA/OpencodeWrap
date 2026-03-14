@@ -1,3 +1,4 @@
+using Farsight.Common.Startup;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using System.Text;
@@ -13,10 +14,7 @@ internal static class Program
             EnsureUnicodeConsoleEncoding();
 
             var builder = Host.CreateApplicationBuilder(args);
-
-            builder.Services.AddSingleton<DockerHostService>();
-            builder.Services.AddSingleton<VolumeStateService>();
-            builder.Services.AddSingleton<OpencodeLauncherService>();
+            builder.AddApplication<BasicFarsightStartup>();
 
             builder.Services.AddTransient<OpencodeWrapRootCommand>();
             builder.Services.AddTransient<RunCliCommand>();

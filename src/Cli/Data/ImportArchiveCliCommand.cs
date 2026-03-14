@@ -39,7 +39,7 @@ internal sealed class ImportArchiveCliCommand : Command
             return 1;
         }
 
-        if(!await VolumeStateService.ValidateImportTargetStateAsync(force))
+        if(!await _volumeService.ValidateImportTargetStateAsync(force))
         {
             return 1;
         }

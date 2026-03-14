@@ -3,15 +3,21 @@ namespace OpencodeWrap.Services.Profile;
 internal sealed record ResolvedProfile(string Name, string DirectoryPath, string DockerfilePath, string? ConfigDirectoryPath = null, string? CleanupDirectoryPath = null);
 internal sealed record ProfileCatalog(string ConfigRoot, string ProfilesRoot, string DefaultProfileName, IReadOnlyDictionary<string, string> ProfileDirectories);
 
-internal sealed class ProfileService
+internal sealed partial class ProfileService : Singleton
 {
     public const string INVALID_PROFILE_NAME_MESSAGE = "Profile name may only contain letters, numbers, '-', '_', and '.'.";
 
-    public static bool TryEnsureInitialized()
-        => DockerHostService.TryEnsureGlobalConfigDirectory(out string configRoot)
+    [Inject]
+    private readonly DockerHostService _dockerHostService;
+
+    [Inject]
+    private readonly BuiltInProfileTemplateService _builtInProfileTemplateService;
+
+    public bool TryEnsureInitialized()
+        => _dockerHostService.TryEnsureGlobalConfigDirectory(out string configRoot)
             && TryEnsureProfilesRoot(configRoot, out _);
 
-    public static async Task<(bool Success, ResolvedProfile Profile)> TryResolveProfileAsync(string? requestedProfileName)
+    public async Task<(bool Success, ResolvedProfile Profile)> TryResolveProfileAsync(string? requestedProfileName)
     {
         var emptyProfile = new ResolvedProfile("", "", "", null, null);
 
@@ -33,7 +39,7 @@ internal sealed class ProfileService
             return (false, emptyProfile);
         }
 
-        if(BuiltInProfileTemplateService.BuiltInProfiles.Any(profile =>
+        if(_builtInProfileTemplateService.BuiltInProfiles.Any(profile =>
             profile.Name.Equals(selectedProfileName, StringComparison.OrdinalIgnoreCase)))
         {
             return await TryResolveBuiltInProfileAsync(catalog, selectedProfileName, emptyProfile);
@@ -72,9 +78,9 @@ internal sealed class ProfileService
             ConfigDirectoryPath: Directory.Exists(configDirectoryPath) ? configDirectoryPath : null));
     }
 
-    public static (bool Success, ProfileCatalog Catalog) TryLoadProfileCatalog()
+    public (bool Success, ProfileCatalog Catalog) TryLoadProfileCatalog()
     {
-        if(!DockerHostService.TryEnsureGlobalConfigDirectory(out string configRoot))
+        if(!_dockerHostService.TryEnsureGlobalConfigDirectory(out string configRoot))
         {
             return (false, CreateEmptyCatalog());
         }
@@ -85,11 +91,11 @@ internal sealed class ProfileService
         }
 
         var profileDirectories = DiscoverProfileDirectories(profilesRoot);
-        var catalog = new ProfileCatalog(configRoot, profilesRoot, BuiltInProfileTemplateService.StarterProfile.Name, profileDirectories);
+        var catalog = new ProfileCatalog(configRoot, profilesRoot, _builtInProfileTemplateService.StarterProfile.Name, profileDirectories);
         return (true, catalog);
     }
 
-    private static Dictionary<string, string> DiscoverProfileDirectories(string profilesRoot)
+    private Dictionary<string, string> DiscoverProfileDirectories(string profilesRoot)
     {
         var profileDirectories = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
@@ -118,7 +124,7 @@ internal sealed class ProfileService
         return profileDirectories;
     }
 
-    public static bool IsValidProfileName(string profileName)
+    public bool IsValidProfileName(string profileName)
     {
         if(profileName.Length == 0)
         {
@@ -138,7 +144,7 @@ internal sealed class ProfileService
         return true;
     }
 
-    public static bool TryResolveProfileDirectoryPath(string configRoot, string profileRelativePath, out string profileDirectoryPath)
+    public bool TryResolveProfileDirectoryPath(string configRoot, string profileRelativePath, out string profileDirectoryPath)
     {
         profileDirectoryPath = Path.GetFullPath(Path.Combine(configRoot, profileRelativePath));
         return PathIsWithin(configRoot, profileDirectoryPath);
@@ -150,7 +156,7 @@ internal sealed class ProfileService
             "",
             new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase));
 
-    private static bool TryEnsureProfilesRoot(string configRoot, out string profilesRoot)
+    private bool TryEnsureProfilesRoot(string configRoot, out string profilesRoot)
     {
         profilesRoot = Path.Combine(configRoot, OpencodeWrapConstants.HOST_PROFILE_ROOT_DIRECTORY_NAME);
 
@@ -166,7 +172,7 @@ internal sealed class ProfileService
         }
     }
 
-    private static bool TryMigrateLegacyProfiles(string configRoot, string profilesRoot)
+    private bool TryMigrateLegacyProfiles(string configRoot, string profilesRoot)
     {
         IEnumerable<string> directories;
         try
@@ -229,9 +235,9 @@ internal sealed class ProfileService
         return normalizedChild.StartsWith(normalizedParent, StringComparison.OrdinalIgnoreCase);
     }
 
-    private static async Task<(bool Success, ResolvedProfile Profile)> TryResolveBuiltInProfileAsync(ProfileCatalog catalog, string profileName, ResolvedProfile emptyProfile)
+    private async Task<(bool Success, ResolvedProfile Profile)> TryResolveBuiltInProfileAsync(ProfileCatalog catalog, string profileName, ResolvedProfile emptyProfile)
     {
-        var builtInProfile = BuiltInProfileTemplateService.BuiltInProfiles.FirstOrDefault(profile =>
+        var builtInProfile = _builtInProfileTemplateService.BuiltInProfiles.FirstOrDefault(profile =>
             profile.Name.Equals(profileName, StringComparison.OrdinalIgnoreCase));
         if(builtInProfile is null)
         {
@@ -266,7 +272,7 @@ internal sealed class ProfileService
                 ConfigDirectoryPath: Directory.Exists(overrideConfigDirectoryPath) ? overrideConfigDirectoryPath : null));
         }
 
-        var (materialized, temporaryDirectoryPath) = await BuiltInProfileTemplateService.TryMaterializeBuiltInProfileAsync(builtInProfile);
+        var (materialized, temporaryDirectoryPath) = await _builtInProfileTemplateService.TryMaterializeBuiltInProfileAsync(builtInProfile);
         if(!materialized)
         {
             return (false, emptyProfile);

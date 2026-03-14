@@ -6,18 +6,20 @@ namespace OpencodeWrap.Cli.Profile;
 internal sealed class OpenProfileDirectoryCliCommand : Command
 {
     private readonly DockerHostService _hostService;
+    private readonly ProfileService _profileService;
 
-    public OpenProfileDirectoryCliCommand(DockerHostService hostService)
+    public OpenProfileDirectoryCliCommand(DockerHostService hostService, ProfileService profileService)
         : base("open", "Open $HOME/.opencode-wrap/profiles in the file explorer.")
     {
         _hostService = hostService;
+        _profileService = profileService;
 
         SetAction(async _ => await ExecuteAsync());
     }
 
     private async Task<int> ExecuteAsync()
     {
-        var (success, catalog) = ProfileService.TryLoadProfileCatalog();
+        var (success, catalog) = _profileService.TryLoadProfileCatalog();
         if(!success)
         {
             return 1;
