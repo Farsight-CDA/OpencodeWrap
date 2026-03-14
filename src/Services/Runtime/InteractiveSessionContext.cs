@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+
 namespace OpencodeWrap.Services.Runtime;
 
 internal sealed record InteractiveSessionContext(
@@ -7,4 +9,6 @@ internal sealed record InteractiveSessionContext(
     string HostPasteDirectory,
     string ContainerPasteDirectory,
     int OwnerProcessId,
-    long OwnerProcessStartTicks);
+    long OwnerProcessStartTicks,
+    ConcurrentDictionary<string, string> StagedPastePaths
+);

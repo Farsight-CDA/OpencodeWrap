@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Globalization;
 
@@ -10,7 +11,7 @@ internal sealed class SessionStagingService
 
     public bool TryCreateSession(string containerName, out InteractiveSessionContext session)
     {
-        session = new InteractiveSessionContext(String.Empty, String.Empty, String.Empty, String.Empty, String.Empty, 0, 0);
+        session = new InteractiveSessionContext("", "", "", "", "", 0, 0, new ConcurrentDictionary<string, string>(StringComparer.OrdinalIgnoreCase));
 
         CleanupStaleSessions();
 
@@ -61,7 +62,8 @@ internal sealed class SessionStagingService
             pasteDirectory,
             OpencodeWrapConstants.CONTAINER_PASTE_ROOT,
             ownerProcessId,
-            ownerProcessStartTicks);
+            ownerProcessStartTicks,
+            new ConcurrentDictionary<string, string>(StringComparer.OrdinalIgnoreCase));
         return true;
     }
 

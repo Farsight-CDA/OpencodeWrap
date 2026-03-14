@@ -13,7 +13,7 @@ internal sealed class ProfileService
 
     public static async Task<(bool Success, ResolvedProfile Profile)> TryResolveProfileAsync(string? requestedProfileName)
     {
-        var emptyProfile = new ResolvedProfile(String.Empty, String.Empty, String.Empty, null, null);
+        var emptyProfile = new ResolvedProfile("", "", "", null, null);
 
         var (success, catalog) = TryLoadProfileCatalog();
         if(!success)
@@ -21,7 +21,7 @@ internal sealed class ProfileService
             return (false, emptyProfile);
         }
 
-        string selectedProfileName = requestedProfileName?.Trim() ?? String.Empty;
+        string selectedProfileName = requestedProfileName?.Trim() ?? "";
         if(selectedProfileName.Length == 0)
         {
             selectedProfileName = catalog.DefaultProfileName;
@@ -145,9 +145,9 @@ internal sealed class ProfileService
     }
 
     private static ProfileCatalog CreateEmptyCatalog() => new ProfileCatalog(
-            String.Empty,
-            String.Empty,
-            String.Empty,
+            "",
+            "",
+            "",
             new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase));
 
     private static bool TryEnsureProfilesRoot(string configRoot, out string profilesRoot)

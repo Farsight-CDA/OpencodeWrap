@@ -45,7 +45,7 @@ internal sealed class DockerHostService
                 AppIO.WriteError(uidResult.StdErr.Trim());
             }
 
-            return (false, String.Empty);
+            return (false, "");
         }
 
         var gidResult = await ProcessRunner.RunAsync("id", ["-g"]);
@@ -57,7 +57,7 @@ internal sealed class DockerHostService
                 AppIO.WriteError(gidResult.StdErr.Trim());
             }
 
-            return (false, String.Empty);
+            return (false, "");
         }
 
         string uid = uidResult.StdOut.Trim();
@@ -65,7 +65,7 @@ internal sealed class DockerHostService
         if(uid.Length == 0 || gid.Length == 0)
         {
             AppIO.WriteError("Unix user ID/group ID cannot be empty.");
-            return (false, String.Empty);
+            return (false, "");
         }
 
         return (true, $"{uid}:{gid}");
@@ -73,7 +73,7 @@ internal sealed class DockerHostService
 
     public static bool TryEnsureGlobalConfigDirectory(out string configDirectory)
     {
-        configDirectory = String.Empty;
+        configDirectory = "";
 
         string homeDirectory = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         if(String.IsNullOrWhiteSpace(homeDirectory))

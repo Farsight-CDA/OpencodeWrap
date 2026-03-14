@@ -50,7 +50,7 @@ internal static class BuiltInProfileTemplateService
         {
             AppIO.TryDeleteDirectory(temporaryDirectoryPath);
             AppIO.WriteError($"Failed to prepare built-in profile '{builtInProfile.Name}': {ex.Message}");
-            return (false, String.Empty);
+            return (false, "");
         }
     }
 

@@ -211,14 +211,14 @@ internal sealed class RunCliCommand : Command
         var profileTable = new Table()
             .Border(TableBorder.None)
             .Expand();
-        profileTable.AddColumn(new TableColumn(String.Empty));
+        profileTable.AddColumn(new TableColumn(""));
         for(int i = 0; i < profileChoices.Count; i++)
         {
             var choice = profileChoices[i];
             bool isSelected = i == selectedIndex;
             string cursor = isSelected ? "[deepskyblue1]>[/]" : " ";
             string escapedName = Markup.Escape(choice.Name);
-            string defaultTag = choice.IsDefault ? " [grey](default)[/]" : String.Empty;
+            string defaultTag = choice.IsDefault ? " [grey](default)[/]" : "";
             string label = isSelected
                 ? $"[bold deepskyblue1]{escapedName}[/]{defaultTag}"
                 : $"{escapedName}{defaultTag}";
@@ -249,7 +249,7 @@ internal sealed class RunCliCommand : Command
         var resourceTable = new Table()
             .Border(TableBorder.None)
             .Expand();
-        resourceTable.AddColumn(new TableColumn(String.Empty));
+        resourceTable.AddColumn(new TableColumn(""));
         if(selectedResourceDirectories.Count == 0)
         {
             resourceTable.AddRow("[grey](none selected)[/]");
@@ -504,7 +504,7 @@ internal sealed class RunCliCommand : Command
         var entryTable = new Table()
             .Border(TableBorder.None)
             .Expand();
-        entryTable.AddColumn(new TableColumn(String.Empty));
+        entryTable.AddColumn(new TableColumn(""));
         if(entries.Count == 0)
         {
             entryTable.AddRow("[grey](no subdirectories)[/]");
@@ -629,7 +629,7 @@ internal sealed class RunCliCommand : Command
     {
         if(String.IsNullOrWhiteSpace(requestedDirectory))
         {
-            normalizedPath = String.Empty;
+            normalizedPath = "";
             errorMessage = "--resource-dir cannot be empty.";
             return false;
         }
@@ -641,7 +641,7 @@ internal sealed class RunCliCommand : Command
             return false;
         }
 
-        errorMessage = String.Empty;
+        errorMessage = "";
         return true;
     }
 

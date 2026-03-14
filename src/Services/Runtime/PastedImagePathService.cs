@@ -20,16 +20,20 @@ internal sealed class PastedImagePathService
             return new PasteRewriteResult(pastedText, false);
         }
 
-        string stagedFileName = BuildStagedFileName(candidate.ResolvedHostPath);
+        string stagedFileName = session.StagedPastePaths.GetOrAdd(candidate.ResolvedHostPath, BuildStagedFileName);
         string stagedHostPath = Path.Combine(session.HostPasteDirectory, stagedFileName);
 
         try
         {
             Directory.CreateDirectory(session.HostPasteDirectory);
-            File.Copy(candidate.ResolvedHostPath, stagedHostPath, overwrite: false);
+            if(!File.Exists(stagedHostPath))
+            {
+                File.Copy(candidate.ResolvedHostPath, stagedHostPath, overwrite: false);
+            }
         }
         catch(Exception ex)
         {
+            session.StagedPastePaths.TryRemove(candidate.ResolvedHostPath, out _);
             AppIO.WriteWarning($"failed to stage pasted image '{candidate.ResolvedHostPath}': {ex.Message}");
             return new PasteRewriteResult(pastedText, false);
         }
@@ -109,7 +113,7 @@ internal sealed class PastedImagePathService
 
     private static bool TryResolveHostPath(string candidatePath, string? hostWorkingDirectory, out string resolvedHostPath)
     {
-        resolvedHostPath = String.Empty;
+        resolvedHostPath = "";
 
         if(candidatePath.StartsWith("file://", StringComparison.OrdinalIgnoreCase))
         {
@@ -134,7 +138,7 @@ internal sealed class PastedImagePathService
         }
         catch
         {
-            resolvedHostPath = String.Empty;
+            resolvedHostPath = "";
             return false;
         }
     }

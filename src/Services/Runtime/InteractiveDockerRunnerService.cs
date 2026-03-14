@@ -653,7 +653,7 @@ internal sealed class InteractiveDockerRunnerService(PastedImagePathService past
 
         public static bool TryGetText(out string clipboardText)
         {
-            clipboardText = String.Empty;
+            clipboardText = "";
             if(!OperatingSystem.IsWindows() || !IsClipboardFormatAvailable(CF_UNICODETEXT))
             {
                 return false;
@@ -680,7 +680,7 @@ internal sealed class InteractiveDockerRunnerService(PastedImagePathService past
 
                 try
                 {
-                    clipboardText = Marshal.PtrToStringUni(lockedData) ?? String.Empty;
+                    clipboardText = Marshal.PtrToStringUni(lockedData) ?? "";
                     return clipboardText.Length > 0;
                 }
                 finally

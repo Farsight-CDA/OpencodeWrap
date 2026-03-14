@@ -31,7 +31,7 @@ internal static class ProcessRunner
         }
         catch(Exception ex)
         {
-            return new ProcessRunResult(false, 1, String.Empty, ex.Message);
+            return new ProcessRunResult(false, 1, "", ex.Message);
         }
     }
 
@@ -63,13 +63,13 @@ internal static class ProcessRunner
         using var process = Process.Start(psi);
         if(process is null)
         {
-            return new ProcessRunResult(false, 1, String.Empty, "Unable to start process.");
+            return new ProcessRunResult(false, 1, "", "Unable to start process.");
         }
 
         if(!captureOutput)
         {
             await process.WaitForExitAsync();
-            return new ProcessRunResult(true, process.ExitCode, String.Empty, String.Empty);
+            return new ProcessRunResult(true, process.ExitCode, "", "");
         }
 
         var stdOutTask = process.StandardOutput.ReadToEndAsync();

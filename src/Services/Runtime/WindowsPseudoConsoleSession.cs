@@ -124,7 +124,7 @@ internal sealed class WindowsPseudoConsoleSession : IDisposable
         catch(Exception ex)
         {
             int lastError = OperatingSystem.IsWindows() ? Marshal.GetLastWin32Error() : 0;
-            string lastErrorDetail = lastError != 0 ? $" (Win32 error {lastError}: {new Win32Exception(lastError).Message})" : String.Empty;
+            string lastErrorDetail = lastError != 0 ? $" (Win32 error {lastError}: {new Win32Exception(lastError).Message})" : "";
             failureReason = $"{ex.GetType().Name}: {ex.Message}{lastErrorDetail}";
 
             if(attributeList != IntPtr.Zero)
