@@ -8,7 +8,7 @@ internal sealed class OpenProfileDirectoryCliCommand : Command
     private readonly DockerHostService _hostService;
 
     public OpenProfileDirectoryCliCommand(DockerHostService hostService)
-        : base("open", "Open $HOME/.opencode-wrap in the file explorer.")
+        : base("open", "Open $HOME/.opencode-wrap/profiles in the file explorer.")
     {
         _hostService = hostService;
 
@@ -17,24 +17,20 @@ internal sealed class OpenProfileDirectoryCliCommand : Command
 
     private async Task<int> ExecuteAsync()
     {
-        if(!ProfileService.TryEnsureInitialized())
+        var (success, catalog) = ProfileService.TryLoadProfileCatalog();
+        if(!success)
         {
             return 1;
         }
 
-        if(!DockerHostService.TryEnsureGlobalConfigDirectory(out string configRoot))
-        {
-            return 1;
-        }
-
-        bool opened = await TryOpenDirectoryAsync(configRoot);
+        bool opened = await TryOpenDirectoryAsync(catalog.ProfilesRoot);
 
         if(!opened)
         {
             return 1;
         }
 
-        AppIO.WriteInfo($"Opened profile directory: '{configRoot}'.");
+        AppIO.WriteInfo($"Opened profile directory: '{catalog.ProfilesRoot}'.");
         return 0;
     }
 

@@ -7,6 +7,7 @@ internal static class OpencodeWrapConstants
     public const string CONTAINER_PASTE_ROOT = CONTAINER_WORKSPACE + "/.ocw-pastes";
     public const string CONTAINER_HOME = "/home/opencode";
     public const string HOST_GLOBAL_CONFIG_DIRECTORY_NAME = ".opencode-wrap";
+    public const string HOST_PROFILE_ROOT_DIRECTORY_NAME = "profiles";
     public const string HOST_SESSION_ROOT_DIRECTORY_NAME = "sessions";
     public const string HOST_SESSION_PASTE_DIRECTORY_NAME = "pastes";
     public const string PROFILE_DOCKERFILE_NAME = "Dockerfile";

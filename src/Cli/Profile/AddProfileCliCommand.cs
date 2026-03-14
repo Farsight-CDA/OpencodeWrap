@@ -43,9 +43,9 @@ internal sealed class AddProfileCliCommand : Command
             return 1;
         }
 
-        if(!ProfileService.TryResolveProfileDirectoryPath(catalog.ConfigRoot, normalizedName, out string profileDirectoryPath))
+        if(!ProfileService.TryResolveProfileDirectoryPath(catalog.ProfilesRoot, normalizedName, out string profileDirectoryPath))
         {
-            AppIO.WriteError($"Profile directory '{profileDirectoryPath}' resolves outside '{catalog.ConfigRoot}'.");
+            AppIO.WriteError($"Profile directory '{profileDirectoryPath}' resolves outside '{catalog.ProfilesRoot}'.");
             return 1;
         }
 

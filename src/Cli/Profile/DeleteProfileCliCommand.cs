@@ -13,7 +13,7 @@ internal sealed class DeleteProfileCliCommand : Command
     {
         _profileOption = new Option<string?>("--profile", "-p")
         {
-            Description = "Profile name from a directory under $HOME/.opencode-wrap."
+            Description = "Profile name from a directory under $HOME/.opencode-wrap/profiles."
         };
         _yesOption = new Option<bool>("--yes", "-y")
         {
@@ -68,9 +68,9 @@ internal sealed class DeleteProfileCliCommand : Command
             return 1;
         }
 
-        if(!ProfileService.TryResolveProfileDirectoryPath(catalog.ConfigRoot, relativeDirectoryPath!, out string profileDirectoryPath))
+        if(!ProfileService.TryResolveProfileDirectoryPath(catalog.ProfilesRoot, relativeDirectoryPath!, out string profileDirectoryPath))
         {
-            AppIO.WriteError($"Profile '{normalizedName}' directory resolves outside '{catalog.ConfigRoot}'.");
+            AppIO.WriteError($"Profile '{normalizedName}' directory resolves outside '{catalog.ProfilesRoot}'.");
             return 1;
         }
 

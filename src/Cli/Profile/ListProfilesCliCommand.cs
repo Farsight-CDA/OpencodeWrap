@@ -63,7 +63,7 @@ internal sealed class ListProfilesCliCommand : Command
             else
             {
                 string relativeDirectoryPath = catalog.ProfileDirectories[profileName];
-                if(ProfileService.TryResolveProfileDirectoryPath(catalog.ConfigRoot, relativeDirectoryPath, out string profileDirectoryPath))
+                if(ProfileService.TryResolveProfileDirectoryPath(catalog.ProfilesRoot, relativeDirectoryPath, out string profileDirectoryPath))
                 {
                     displayPath = Markup.Escape(profileDirectoryPath);
                 }

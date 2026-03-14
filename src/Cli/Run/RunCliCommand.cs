@@ -16,7 +16,7 @@ internal sealed class RunCliCommand : Command
         _launcherService = launcherService;
         _profileOption = new Option<string?>("--profile", "-p")
         {
-            Description = "Profile name from a directory under $HOME/.opencode-wrap."
+            Description = "Profile name from a directory under $HOME/.opencode-wrap/profiles."
         };
         _mountModeOption = new Option<string?>("--mount-mode")
         {
