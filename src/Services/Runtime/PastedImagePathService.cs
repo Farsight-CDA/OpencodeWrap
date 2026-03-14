@@ -1,5 +1,3 @@
-using System.Text;
-
 namespace OpencodeWrap.Services.Runtime;
 
 internal sealed record PasteRewriteResult(string Text, bool Rewritten);
@@ -151,90 +149,9 @@ internal sealed class PastedImagePathService
 
         return extension.ToLowerInvariant() switch
         {
-            ".png" => HasMagicHeader(filePath, [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]),
-            ".jpg" or ".jpeg" => HasMagicHeaderPrefix(filePath, [0xFF, 0xD8, 0xFF]),
-            ".gif" => HasAnyMagicHeader(filePath, [[(byte) 'G', (byte) 'I', (byte) 'F', (byte) '8', (byte) '7', (byte) 'a'], [(byte) 'G', (byte) 'I', (byte) 'F', (byte) '8', (byte) '9', (byte) 'a']]),
-            ".webp" => HasWebpHeader(filePath),
-            ".bmp" => HasMagicHeaderPrefix(filePath, [(byte) 'B', (byte) 'M']),
-            ".svg" => LooksLikeSvg(filePath),
-            ".txt" => true,
+            ".png" or ".jpg" or ".jpeg" or ".gif" or ".webp" or ".bmp" or ".svg" => true,
             _ => false
         };
-    }
-
-    private static bool HasMagicHeader(string filePath, byte[] expectedHeader)
-        => TryReadHeader(filePath, expectedHeader.Length, out byte[] actualHeader)
-            && actualHeader.AsSpan().SequenceEqual(expectedHeader);
-
-    private static bool HasMagicHeaderPrefix(string filePath, byte[] expectedPrefix)
-        => TryReadHeader(filePath, expectedPrefix.Length, out byte[] actualHeader)
-            && actualHeader.AsSpan().SequenceEqual(expectedPrefix);
-
-    private static bool HasAnyMagicHeader(string filePath, byte[][] headers)
-    {
-        int headerLength = headers.Max(header => header.Length);
-        if(!TryReadHeader(filePath, headerLength, out byte[] actualHeader))
-        {
-            return false;
-        }
-
-        return headers.Any(header => actualHeader.AsSpan(0, header.Length).SequenceEqual(header));
-    }
-
-    private static bool HasWebpHeader(string filePath)
-    {
-        if(!TryReadHeader(filePath, 12, out byte[] actualHeader))
-        {
-            return false;
-        }
-
-        return actualHeader.AsSpan(0, 4).SequenceEqual("RIFF"u8)
-            && actualHeader.AsSpan(8, 4).SequenceEqual("WEBP"u8);
-    }
-
-    private static bool LooksLikeSvg(string filePath)
-    {
-        try
-        {
-            using var stream = File.OpenRead(filePath);
-            byte[] buffer = new byte[1024];
-            int bytesRead = stream.Read(buffer, 0, buffer.Length);
-            if(bytesRead <= 0)
-            {
-                return false;
-            }
-
-            string snippet = Encoding.UTF8.GetString(buffer, 0, bytesRead).TrimStart('\uFEFF', ' ', '\t', '\r', '\n');
-            return snippet.Contains("<svg", StringComparison.OrdinalIgnoreCase)
-                || snippet.Contains("<?xml", StringComparison.OrdinalIgnoreCase);
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    private static bool TryReadHeader(string filePath, int requiredLength, out byte[] header)
-    {
-        header = [];
-
-        try
-        {
-            using var stream = File.OpenRead(filePath);
-            header = new byte[requiredLength];
-            int bytesRead = stream.Read(header, 0, requiredLength);
-            if(bytesRead < requiredLength)
-            {
-                Array.Resize(ref header, bytesRead);
-            }
-
-            return bytesRead >= requiredLength;
-        }
-        catch
-        {
-            header = [];
-            return false;
-        }
     }
 
     private static string BuildStagedFileName(string sourcePath)
