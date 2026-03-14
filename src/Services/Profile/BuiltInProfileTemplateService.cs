@@ -2,7 +2,7 @@ namespace OpencodeWrap.Services.Profile;
 
 internal static class BuiltInProfileTemplateService
 {
-    private const string _defaultEntrypointResourceName = "ProfileTemplates.entrypoint.sh";
+    private const string DEFAULT_ENTRYPOINT_RESOURCE_NAME = "ProfileTemplates.entrypoint.sh";
 
     private static readonly BuiltInProfileTemplate[] _builtInProfiles = [
         new BuiltInProfileTemplate(
@@ -30,7 +30,7 @@ internal static class BuiltInProfileTemplateService
 
     public static IReadOnlyList<BuiltInProfileTemplate> BuiltInProfiles { get; } = _builtInProfiles;
     public static BuiltInProfileTemplate StarterProfile { get; } = _builtInProfiles.First(profile => profile.IsDefault);
-    public static string DefaultEntrypointScript { get; } = LoadEmbeddedTextResource(_defaultEntrypointResourceName);
+    public static string DefaultEntrypointScript { get; } = LoadEmbeddedTextResource(DEFAULT_ENTRYPOINT_RESOURCE_NAME);
 
     public static async Task<(bool Success, string TemporaryDirectoryPath)> TryMaterializeBuiltInProfileAsync(BuiltInProfileTemplate builtInProfile)
     {

@@ -4,30 +4,18 @@ using System.Text;
 
 namespace OpencodeWrap.Services.Runtime;
 
-internal sealed class InteractiveDockerRunnerService(PastedImagePathService pastedImagePathService)
+internal static partial class InteractiveDockerRunnerService
 {
     private static readonly byte[] _bracketedPasteEnableSequence = "\u001b[?2004h"u8.ToArray();
-    private readonly PastedImagePathService _pastedImagePathService = pastedImagePathService;
 
-    public async Task<int> RunDockerAsync(IReadOnlyList<string> dockerArgs, InteractiveSessionContext? session, string? hostWorkingDirectory)
-    {
-        if(session is null || !CanUseRelay())
-        {
-            return (await ProcessRunner.RunAsync("docker", dockerArgs, captureOutput: false)).ExitCode;
-        }
-
-        if(OperatingSystem.IsWindows())
-        {
-            return await RunWindowsAsync(dockerArgs, session, hostWorkingDirectory);
-        }
-
-        if(OperatingSystem.IsLinux() || OperatingSystem.IsMacOS())
-        {
-            return await RunUnixAsync(dockerArgs, session, hostWorkingDirectory);
-        }
-
-        return (await ProcessRunner.RunAsync("docker", dockerArgs, captureOutput: false)).ExitCode;
-    }
+    public static async Task<int> RunDockerAsync(IReadOnlyList<string> dockerArgs, InteractiveSessionContext? session, string? hostWorkingDirectory)
+        => session is null || !CanUseRelay()
+            ? (await ProcessRunner.RunAsync("docker", dockerArgs, captureOutput: false)).ExitCode
+            : OperatingSystem.IsWindows()
+                ? await RunWindowsAsync(dockerArgs, session, hostWorkingDirectory)
+                : OperatingSystem.IsLinux() || OperatingSystem.IsMacOS()
+                    ? await RunUnixAsync(dockerArgs, session, hostWorkingDirectory)
+                    : (await ProcessRunner.RunAsync("docker", dockerArgs, captureOutput: false)).ExitCode;
 
     public static void RestoreTerminalStateIfNeeded()
     {
@@ -35,14 +23,14 @@ internal sealed class InteractiveDockerRunnerService(PastedImagePathService past
         WindowsConsoleModeScope.RestoreActiveState();
     }
 
-    private async Task<int> RunUnixAsync(IReadOnlyList<string> dockerArgs, InteractiveSessionContext session, string? hostWorkingDirectory)
+    private static async Task<int> RunUnixAsync(IReadOnlyList<string> dockerArgs, InteractiveSessionContext session, string? hostWorkingDirectory)
     {
-        if(!UnixTerminalModeScope.TryEnter(out UnixTerminalModeScope? terminalModeScope) || terminalModeScope is null)
+        if(!UnixTerminalModeScope.TryEnter(out var terminalModeScope) || terminalModeScope is null)
         {
             return (await ProcessRunner.RunAsync("docker", dockerArgs, captureOutput: false)).ExitCode;
         }
 
-        using Process? relayProcess = TryStartUnixRelayProcess(dockerArgs);
+        using var relayProcess = TryStartUnixRelayProcess(dockerArgs);
         if(relayProcess is null)
         {
             terminalModeScope.Dispose();
@@ -51,17 +39,17 @@ internal sealed class InteractiveDockerRunnerService(PastedImagePathService past
 
         using(terminalModeScope)
         {
-            Stream standardOutput = Console.OpenStandardOutput();
-            Stream standardError = Console.OpenStandardError();
+            var standardOutput = Console.OpenStandardOutput();
+            var standardError = Console.OpenStandardError();
             await standardOutput.WriteAsync(_bracketedPasteEnableSequence);
             await standardOutput.FlushAsync();
 
             using var inputCancellationSource = new CancellationTokenSource();
-            var pasteRelay = new BracketedPasteRelay(_pastedImagePathService, session, hostWorkingDirectory);
+            var pasteRelay = new BracketedPasteRelay(session, hostWorkingDirectory);
 
-            Task stdoutTask = PumpStreamAsync(relayProcess.StandardOutput.BaseStream, standardOutput, CancellationToken.None);
-            Task stderrTask = PumpStreamAsync(relayProcess.StandardError.BaseStream, standardError, CancellationToken.None);
-            Task inputTask = Task.Run(() => RelayInputLoop(
+            var stdoutTask = PumpStreamAsync(relayProcess.StandardOutput.BaseStream, standardOutput, CancellationToken.None);
+            var stderrTask = PumpStreamAsync(relayProcess.StandardError.BaseStream, standardError, CancellationToken.None);
+            var inputTask = Task.Run(() => RelayInputLoop(
                 relayProcess.StandardInput.BaseStream,
                 pasteRelay,
                 () => relayProcess.HasExited,
@@ -77,15 +65,15 @@ internal sealed class InteractiveDockerRunnerService(PastedImagePathService past
         }
     }
 
-    private async Task<int> RunWindowsAsync(IReadOnlyList<string> dockerArgs, InteractiveSessionContext session, string? hostWorkingDirectory)
+    private static async Task<int> RunWindowsAsync(IReadOnlyList<string> dockerArgs, InteractiveSessionContext session, string? hostWorkingDirectory)
     {
-        if(!WindowsConsoleModeScope.TryEnter(out WindowsConsoleModeScope? terminalModeScope, out string? consoleFailureReason) || terminalModeScope is null)
+        if(!WindowsConsoleModeScope.TryEnter(out var terminalModeScope, out string? consoleFailureReason) || terminalModeScope is null)
         {
             AppIO.WriteWarning($"Windows terminal relay unavailable; falling back to direct docker attach. {consoleFailureReason}");
             return (await ProcessRunner.RunAsync("docker", dockerArgs, captureOutput: false)).ExitCode;
         }
 
-        if(!WindowsPseudoConsoleSession.TryStart("docker", dockerArgs, out WindowsPseudoConsoleSession? pseudoConsoleSession, out string? pseudoConsoleFailureReason) || pseudoConsoleSession is null)
+        if(!WindowsPseudoConsoleSession.TryStart("docker", dockerArgs, out var pseudoConsoleSession, out string? pseudoConsoleFailureReason) || pseudoConsoleSession is null)
         {
             terminalModeScope.Dispose();
             AppIO.WriteWarning($"Windows ConPTY relay failed to start; falling back to direct docker attach. {pseudoConsoleFailureReason}");
@@ -95,22 +83,22 @@ internal sealed class InteractiveDockerRunnerService(PastedImagePathService past
         using(terminalModeScope)
         using(pseudoConsoleSession)
         {
-            Stream standardOutput = Console.OpenStandardOutput();
+            var standardOutput = Console.OpenStandardOutput();
             await standardOutput.WriteAsync(_bracketedPasteEnableSequence);
             await standardOutput.FlushAsync();
 
             using var inputCancellationSource = new CancellationTokenSource();
             using var resizeCancellationSource = new CancellationTokenSource();
-            var plainTextInterceptor = new WindowsPlainTextPasteInterceptor(_pastedImagePathService, session, hostWorkingDirectory);
-            var pasteRelay = new BracketedPasteRelay(_pastedImagePathService, session, hostWorkingDirectory, plainTextInterceptor);
+            var plainTextInterceptor = new WindowsPlainTextPasteInterceptor(session, hostWorkingDirectory);
+            var pasteRelay = new BracketedPasteRelay(session, hostWorkingDirectory, plainTextInterceptor);
 
-            Task outputTask = PumpStreamAsync(pseudoConsoleSession.OutputStream, standardOutput, CancellationToken.None);
-            Task inputTask = Task.Run(() => RelayWindowsRawInputLoop(
+            var outputTask = PumpStreamAsync(pseudoConsoleSession.OutputStream, standardOutput, CancellationToken.None);
+            var inputTask = Task.Run(() => RelayWindowsRawInputLoop(
                 pseudoConsoleSession.InputStream,
                 pasteRelay,
                 () => pseudoConsoleSession.HasExited,
                 inputCancellationSource.Token));
-            Task resizeTask = Task.Run(() => PollConsoleResizeAsync(pseudoConsoleSession, resizeCancellationSource.Token));
+            var resizeTask = Task.Run(() => PollConsoleResizeAsync(pseudoConsoleSession, resizeCancellationSource.Token));
 
             int exitCode = await pseudoConsoleSession.WaitForExitAsync();
             inputCancellationSource.Cancel();
@@ -204,7 +192,7 @@ internal sealed class InteractiveDockerRunnerService(PastedImagePathService past
 
         try
         {
-            using Stream standardInput = Console.OpenStandardInput();
+            using var standardInput = Console.OpenStandardInput();
 
             while(!cancellationToken.IsCancellationRequested && !hasExited())
             {
@@ -257,7 +245,7 @@ internal sealed class InteractiveDockerRunnerService(PastedImagePathService past
 
     private static async Task PollConsoleResizeAsync(WindowsPseudoConsoleSession pseudoConsoleSession, CancellationToken cancellationToken)
     {
-        (short Columns, short Rows) lastSize = WindowsPseudoConsoleSession.GetCurrentConsoleSize();
+        var lastSize = WindowsPseudoConsoleSession.GetCurrentConsoleSize();
 
         try
         {
@@ -306,7 +294,7 @@ internal sealed class InteractiveDockerRunnerService(PastedImagePathService past
         relayInput.Flush();
     }
 
-    private static class WindowsConsoleInput
+    private static partial class WindowsConsoleInput
     {
         private const int STD_INPUT_HANDLE = -10;
         private static readonly IntPtr _inputHandle = GetStdHandle(STD_INPUT_HANDLE);
@@ -328,18 +316,18 @@ internal sealed class InteractiveDockerRunnerService(PastedImagePathService past
             return true;
         }
 
-        [DllImport("kernel32.dll", SetLastError = true)]
-        private static extern IntPtr GetStdHandle(int nStdHandle);
+        [LibraryImport("kernel32.dll", SetLastError = true)]
+        private static partial IntPtr GetStdHandle(int nStdHandle);
 
-        [DllImport("kernel32.dll", SetLastError = true)]
-        private static extern bool ReadFile(IntPtr hFile, byte[] lpBuffer, int nNumberOfBytesToRead, out int lpNumberOfBytesRead, IntPtr lpOverlapped);
+        [LibraryImport("kernel32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static partial bool ReadFile(IntPtr hFile, byte[] lpBuffer, int nNumberOfBytesToRead, out int lpNumberOfBytesRead, IntPtr lpOverlapped);
     }
 
     private static string QuoteForShell(string value)
         => "'" + value.Replace("'", "'\"'\"'", StringComparison.Ordinal) + "'";
 
     private sealed class BracketedPasteRelay(
-        PastedImagePathService pastedImagePathService,
         InteractiveSessionContext session,
         string? hostWorkingDirectory,
         INormalInputInterceptor? normalInputInterceptor = null)
@@ -347,7 +335,6 @@ internal sealed class InteractiveDockerRunnerService(PastedImagePathService past
         private static readonly byte[] _pasteStartMarker = "\u001b[200~"u8.ToArray();
         private static readonly byte[] _pasteEndMarker = "\u001b[201~"u8.ToArray();
 
-        private readonly PastedImagePathService _pastedImagePathService = pastedImagePathService;
         private readonly InteractiveSessionContext _session = session;
         private readonly string? _hostWorkingDirectory = hostWorkingDirectory;
         private readonly INormalInputInterceptor? _normalInputInterceptor = normalInputInterceptor;
@@ -363,7 +350,7 @@ internal sealed class InteractiveDockerRunnerService(PastedImagePathService past
                 return;
             }
 
-            ReadOnlySpan<byte> current = PrepareCurrentBuffer(buffer);
+            var current = PrepareCurrentBuffer(buffer);
             int offset = 0;
 
             while(offset < current.Length)
@@ -444,14 +431,14 @@ internal sealed class InteractiveDockerRunnerService(PastedImagePathService past
                 }
 
                 WriteBytes(relayInput, _pasteStartMarker);
-                WriteBytes(relayInput, _pasteBuffer.ToArray());
+                WriteBytes(relayInput, [.. _pasteBuffer]);
                 _pasteBuffer.Clear();
                 _insidePaste = false;
             }
 
             if(_startMarkerCandidate.Count > 0)
             {
-                WriteNormalInput(relayInput, _startMarkerCandidate.ToArray());
+                WriteNormalInput(relayInput, [.. _startMarkerCandidate]);
                 _startMarkerCandidate.Clear();
             }
 
@@ -497,8 +484,8 @@ internal sealed class InteractiveDockerRunnerService(PastedImagePathService past
 
         private byte[] RewritePasteBytes(List<byte> pasteBytes)
         {
-            string pastedText = Encoding.UTF8.GetString(pasteBytes.ToArray());
-            PasteRewriteResult rewriteResult = _pastedImagePathService.RewritePaste(pastedText, _session, _hostWorkingDirectory);
+            string pastedText = Encoding.UTF8.GetString([.. pasteBytes]);
+            var rewriteResult = PastedImagePathService.RewritePaste(pastedText, _session, _hostWorkingDirectory);
             return Encoding.UTF8.GetBytes(rewriteResult.Text);
         }
 
@@ -534,13 +521,11 @@ internal sealed class InteractiveDockerRunnerService(PastedImagePathService past
     }
 
     private sealed class WindowsPlainTextPasteInterceptor(
-        PastedImagePathService pastedImagePathService,
         InteractiveSessionContext session,
         string? hostWorkingDirectory) : INormalInputInterceptor
     {
         private const byte CTRL_V = 0x16;
 
-        private readonly PastedImagePathService _pastedImagePathService = pastedImagePathService;
         private readonly InteractiveSessionContext _session = session;
         private readonly string? _hostWorkingDirectory = hostWorkingDirectory;
 
@@ -591,7 +576,7 @@ internal sealed class InteractiveDockerRunnerService(PastedImagePathService past
                 return false;
             }
 
-            PasteRewriteResult rewriteResult = _pastedImagePathService.RewritePaste(clipboardText, _session, _hostWorkingDirectory);
+            var rewriteResult = PastedImagePathService.RewritePaste(clipboardText, _session, _hostWorkingDirectory);
             string forwardedText = rewriteResult.Rewritten ? rewriteResult.Text : clipboardText;
             WriteForwardedBytes(relayInput, Encoding.UTF8.GetBytes(forwardedText));
             return true;
@@ -625,12 +610,12 @@ internal sealed class InteractiveDockerRunnerService(PastedImagePathService past
                 return false;
             }
 
-            if(!_pastedImagePathService.CanRewritePaste(inputText, _hostWorkingDirectory))
+            if(!PastedImagePathService.CanRewritePaste(inputText, _hostWorkingDirectory))
             {
                 return false;
             }
 
-            PasteRewriteResult rewriteResult = _pastedImagePathService.RewritePaste(inputText, _session, _hostWorkingDirectory);
+            var rewriteResult = PastedImagePathService.RewritePaste(inputText, _session, _hostWorkingDirectory);
             if(!rewriteResult.Rewritten)
             {
                 return false;
@@ -644,7 +629,7 @@ internal sealed class InteractiveDockerRunnerService(PastedImagePathService past
             => WriteRelayBytes(relayInput, bytes);
     }
 
-    private static class WindowsClipboardReader
+    private static partial class WindowsClipboardReader
     {
         private const uint CF_UNICODETEXT = 13;
 
@@ -694,26 +679,30 @@ internal sealed class InteractiveDockerRunnerService(PastedImagePathService past
             }
         }
 
-        [DllImport("user32.dll")]
-        private static extern uint GetClipboardSequenceNumber();
+        [LibraryImport("user32.dll")]
+        private static partial uint GetClipboardSequenceNumber();
 
-        [DllImport("user32.dll", SetLastError = true)]
-        private static extern bool OpenClipboard(IntPtr hWndNewOwner);
+        [LibraryImport("user32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static partial bool OpenClipboard(IntPtr hWndNewOwner);
 
-        [DllImport("user32.dll")]
-        private static extern bool CloseClipboard();
+        [LibraryImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static partial bool CloseClipboard();
 
-        [DllImport("user32.dll")]
-        private static extern bool IsClipboardFormatAvailable(uint format);
+        [LibraryImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static partial bool IsClipboardFormatAvailable(uint format);
 
-        [DllImport("user32.dll")]
-        private static extern IntPtr GetClipboardData(uint uFormat);
+        [LibraryImport("user32.dll")]
+        private static partial IntPtr GetClipboardData(uint uFormat);
 
-        [DllImport("kernel32.dll")]
-        private static extern IntPtr GlobalLock(IntPtr hMem);
+        [LibraryImport("kernel32.dll")]
+        private static partial IntPtr GlobalLock(IntPtr hMem);
 
-        [DllImport("kernel32.dll")]
-        private static extern bool GlobalUnlock(IntPtr hMem);
+        [LibraryImport("kernel32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static partial bool GlobalUnlock(IntPtr hMem);
     }
 
     private sealed class UnixTerminalModeScope(string savedState) : IDisposable
@@ -784,7 +773,7 @@ internal sealed class InteractiveDockerRunnerService(PastedImagePathService past
         {
             try
             {
-                using Stream standardOutput = Console.OpenStandardOutput();
+                using var standardOutput = Console.OpenStandardOutput();
                 standardOutput.Write(sequence, 0, sequence.Length);
                 standardOutput.Flush();
             }

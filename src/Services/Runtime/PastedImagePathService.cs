@@ -2,13 +2,13 @@ namespace OpencodeWrap.Services.Runtime;
 
 internal sealed record PasteRewriteResult(string Text, bool Rewritten);
 
-internal sealed class PastedImagePathService
+internal static class PastedImagePathService
 {
-    public bool CanRewritePaste(string pastedText, string? hostWorkingDirectory)
+    public static bool CanRewritePaste(string pastedText, string? hostWorkingDirectory)
         => TryNormalizePastedPath(pastedText, hostWorkingDirectory, out var candidate)
             && IsSupportedImageFile(candidate.ResolvedHostPath);
 
-    public PasteRewriteResult RewritePaste(string pastedText, InteractiveSessionContext session, string? hostWorkingDirectory)
+    public static PasteRewriteResult RewritePaste(string pastedText, InteractiveSessionContext session, string? hostWorkingDirectory)
     {
         if(!TryNormalizePastedPath(pastedText, hostWorkingDirectory, out var candidate))
         {
@@ -117,14 +117,14 @@ internal sealed class PastedImagePathService
 
         if(candidatePath.StartsWith("file://", StringComparison.OrdinalIgnoreCase))
         {
-            if(!Uri.TryCreate(candidatePath, UriKind.Absolute, out Uri? fileUri) || !fileUri.IsFile)
+            if(!Uri.TryCreate(candidatePath, UriKind.Absolute, out var fileUri) || !fileUri.IsFile)
             {
                 return false;
             }
 
             candidatePath = fileUri.LocalPath;
         }
-        else if(Uri.TryCreate(candidatePath, UriKind.Absolute, out Uri? absoluteUri) && !absoluteUri.IsFile)
+        else if(Uri.TryCreate(candidatePath, UriKind.Absolute, out var absoluteUri) && !absoluteUri.IsFile)
         {
             return false;
         }
@@ -146,16 +146,12 @@ internal sealed class PastedImagePathService
     private static bool IsSupportedImageFile(string filePath)
     {
         string extension = Path.GetExtension(filePath);
-        if(String.IsNullOrWhiteSpace(extension))
-        {
-            return false;
-        }
-
-        return extension.ToLowerInvariant() switch
-        {
-            ".png" or ".jpg" or ".jpeg" or ".gif" or ".webp" or ".bmp" or ".svg" => true,
-            _ => false
-        };
+        return !String.IsNullOrWhiteSpace(extension)
+            && extension.ToLowerInvariant() switch
+            {
+                ".png" or ".jpg" or ".jpeg" or ".gif" or ".webp" or ".bmp" or ".svg" => true,
+                _ => false
+            };
     }
 
     private static string BuildStagedFileName(string sourcePath)
@@ -163,9 +159,7 @@ internal sealed class PastedImagePathService
         string originalName = Path.GetFileNameWithoutExtension(sourcePath);
         string extension = Path.GetExtension(sourcePath);
 
-        char[] sanitizedChars = originalName
-            .Select(ch => Char.IsLetterOrDigit(ch) || ch is '-' or '_' or '.' ? ch : '-')
-            .ToArray();
+        char[] sanitizedChars = [.. originalName.Select(ch => Char.IsLetterOrDigit(ch) || ch is '-' or '_' or '.' ? ch : '-')];
 
         string sanitizedName = new string(sanitizedChars).Trim('-', '.', '_');
         if(String.IsNullOrWhiteSpace(sanitizedName))

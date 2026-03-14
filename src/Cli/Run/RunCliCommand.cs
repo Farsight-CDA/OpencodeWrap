@@ -196,7 +196,7 @@ internal sealed class RunCliCommand : Command
         int selectedIndex,
         WorkspaceMountMode mountMode,
         string currentWorkspacePath,
-        IReadOnlyList<string> selectedResourceDirectories)
+        List<string> selectedResourceDirectories)
     {
         AnsiConsole.Clear();
         AppIO.WriteHeader("Run Setup", "Choose profile, mount mode, and optional resource directories.");
@@ -306,7 +306,7 @@ internal sealed class RunCliCommand : Command
         return true;
     }
 
-    private static string? PromptForResourceDirectory(string workspacePath, IReadOnlyList<string> selectedResourceDirectories)
+    private static string? PromptForResourceDirectory(string workspacePath, List<string> selectedResourceDirectories)
     {
         string startDirectory = selectedResourceDirectories.Count > 0
             ? selectedResourceDirectories[^1]
@@ -340,7 +340,7 @@ internal sealed class RunCliCommand : Command
             List<ExplorerEntry> entries = [];
             if(selectingDrive)
             {
-                List<string> drives = GetAvailableDriveRoots();
+                var drives = GetAvailableDriveRoots();
                 foreach(string drive in drives)
                 {
                     entries.Add(new ExplorerEntry(drive, ExplorerEntryType.Drive, drive));
@@ -348,7 +348,7 @@ internal sealed class RunCliCommand : Command
             }
             else
             {
-                List<string> childDirectories = GetChildDirectories(currentDirectory);
+                var childDirectories = GetChildDirectories(currentDirectory);
                 if(Directory.GetParent(currentDirectory) is not null)
                 {
                     entries.Add(new ExplorerEntry(".. (parent)", ExplorerEntryType.Parent));

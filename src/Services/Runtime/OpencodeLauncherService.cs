@@ -4,17 +4,13 @@ namespace OpencodeWrap.Services.Runtime;
 
 internal sealed class OpencodeLauncherService(
     DockerHostService hostService,
-    VolumeStateService volumeService,
-    SessionStagingService sessionStagingService,
-    InteractiveDockerRunnerService interactiveDockerRunnerService)
+    VolumeStateService volumeService)
 {
     private static readonly TimeSpan _watchdogReadyTimeout = TimeSpan.FromSeconds(2);
     private static readonly string _containerCommand = BuildContainerCommand();
 
     private readonly DockerHostService _hostService = hostService;
     private readonly VolumeStateService _volumeService = volumeService;
-    private readonly SessionStagingService _sessionStagingService = sessionStagingService;
-    private readonly InteractiveDockerRunnerService _interactiveDockerRunnerService = interactiveDockerRunnerService;
 
     private int _cleanupStarted;
     private string? _containerName;
@@ -71,7 +67,7 @@ internal sealed class OpencodeLauncherService(
             }
 
             _containerName = $"opencode-wrap-{Guid.NewGuid():N}"[..27];
-            if(!_sessionStagingService.TryCreateSession(_containerName, out var session))
+            if(!SessionStagingService.TryCreateSession(_containerName, out var session))
             {
                 return 1;
             }
@@ -116,9 +112,9 @@ internal sealed class OpencodeLauncherService(
 
             runArgs.AddRange(["--mount", VolumeStateService.BuildBindMount(session.HostPasteDirectory, session.ContainerPasteDirectory) + ",readonly"]);
 
-            foreach(var mount in additionalReadonlyMounts)
+            foreach(var (hostPath, containerPath) in additionalReadonlyMounts)
             {
-                runArgs.AddRange(["--mount", VolumeStateService.BuildBindMount(mount.HostPath, mount.ContainerPath) + ",readonly"]);
+                runArgs.AddRange(["--mount", VolumeStateService.BuildBindMount(hostPath, containerPath) + ",readonly"]);
             }
 
             if(includeProfileConfig)
@@ -142,7 +138,7 @@ internal sealed class OpencodeLauncherService(
                 runArgs.Add(arg);
             }
 
-            int exitCode = await _interactiveDockerRunnerService.RunDockerAsync(runArgs, session, hostWorkDir);
+            int exitCode = await InteractiveDockerRunnerService.RunDockerAsync(runArgs, session, hostWorkDir);
             CleanupContainer(force: false);
             return exitCode;
         }
@@ -236,9 +232,7 @@ internal sealed class OpencodeLauncherService(
             baseName = "resource";
         }
 
-        char[] sanitizedChars = baseName
-            .Select(ch => Char.IsLetterOrDigit(ch) || ch is '-' or '_' or '.' ? ch : '-')
-            .ToArray();
+        char[] sanitizedChars = [.. baseName.Select(ch => Char.IsLetterOrDigit(ch) || ch is '-' or '_' or '.' ? ch : '-')];
         string sanitizedName = new string(sanitizedChars).Trim('-', '.', '_');
         if(String.IsNullOrWhiteSpace(sanitizedName))
         {

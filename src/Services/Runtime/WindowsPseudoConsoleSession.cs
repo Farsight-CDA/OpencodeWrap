@@ -5,7 +5,7 @@ using System.Text;
 
 namespace OpencodeWrap.Services.Runtime;
 
-internal sealed class WindowsPseudoConsoleSession : IDisposable
+internal sealed partial class WindowsPseudoConsoleSession : IDisposable
 {
     private const int HANDLE_FLAG_INHERIT = 0x00000001;
     private const uint EXTENDED_STARTUPINFO_PRESENT = 0x00080000;
@@ -55,9 +55,9 @@ internal sealed class WindowsPseudoConsoleSession : IDisposable
             SetParentPipeState(inputWrite);
             SetParentPipeState(outputRead);
 
-            var initialSize = GetCurrentConsoleSize();
+            var (columns, rows) = GetCurrentConsoleSize();
             int createPseudoConsoleResult = CreatePseudoConsole(
-                new Coord(initialSize.Columns, initialSize.Rows),
+                new Coord(columns, rows),
                 inputRead,
                 outputWrite,
                 0,
@@ -75,8 +75,8 @@ internal sealed class WindowsPseudoConsoleSession : IDisposable
             attributeList = BuildAttributeList(pseudoConsoleHandle);
 
             var startupInfo = new StartupInfoEx();
-            startupInfo.StartupInfo.cb = Marshal.SizeOf<StartupInfoEx>();
-            startupInfo.lpAttributeList = attributeList;
+            startupInfo.StartupInfo.Cb = Marshal.SizeOf<StartupInfoEx>();
+            startupInfo.LpAttributeList = attributeList;
 
             var processInformation = new ProcessInformation();
             var commandLine = new StringBuilder(BuildCommandLine(fileName, args));
@@ -97,8 +97,8 @@ internal sealed class WindowsPseudoConsoleSession : IDisposable
                 throw new Win32Exception(Marshal.GetLastWin32Error());
             }
 
-            processHandle = processInformation.hProcess;
-            threadHandle = processInformation.hThread;
+            processHandle = processInformation.HProcess;
+            threadHandle = processInformation.HThread;
             CloseHandle(threadHandle);
             threadHandle = IntPtr.Zero;
 
@@ -354,7 +354,7 @@ internal sealed class WindowsPseudoConsoleSession : IDisposable
 
             if(ch == '"')
             {
-                builder.Append('\\', backslashCount * 2 + 1);
+                builder.Append('\\', (backslashCount * 2) + 1);
                 builder.Append('"');
                 backslashCount = 0;
                 continue;
@@ -378,26 +378,30 @@ internal sealed class WindowsPseudoConsoleSession : IDisposable
         return builder.ToString();
     }
 
-    [DllImport("kernel32.dll", SetLastError = true)]
-    private static extern bool CreatePipe(out IntPtr hReadPipe, out IntPtr hWritePipe, IntPtr lpPipeAttributes, int nSize);
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool CreatePipe(out IntPtr hReadPipe, out IntPtr hWritePipe, IntPtr lpPipeAttributes, int nSize);
 
-    [DllImport("kernel32.dll", SetLastError = true)]
-    private static extern bool SetHandleInformation(IntPtr hObject, int dwMask, int dwFlags);
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool SetHandleInformation(IntPtr hObject, int dwMask, int dwFlags);
 
-    [DllImport("kernel32.dll", SetLastError = true)]
-    private static extern int CreatePseudoConsole(Coord size, IntPtr hInput, IntPtr hOutput, uint dwFlags, out IntPtr phPC);
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    private static partial int CreatePseudoConsole(Coord size, IntPtr hInput, IntPtr hOutput, uint dwFlags, out IntPtr phPC);
 
-    [DllImport("kernel32.dll", SetLastError = true)]
-    private static extern int ResizePseudoConsole(IntPtr hPC, Coord size);
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    private static partial int ResizePseudoConsole(IntPtr hPC, Coord size);
 
-    [DllImport("kernel32.dll")]
-    private static extern void ClosePseudoConsole(IntPtr hPC);
+    [LibraryImport("kernel32.dll")]
+    private static partial void ClosePseudoConsole(IntPtr hPC);
 
-    [DllImport("kernel32.dll", SetLastError = true)]
-    private static extern bool InitializeProcThreadAttributeList(IntPtr lpAttributeList, int dwAttributeCount, int dwFlags, ref nuint lpSize);
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool InitializeProcThreadAttributeList(IntPtr lpAttributeList, int dwAttributeCount, int dwFlags, ref nuint lpSize);
 
-    [DllImport("kernel32.dll", SetLastError = true)]
-    private static extern bool UpdateProcThreadAttribute(
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool UpdateProcThreadAttribute(
         IntPtr lpAttributeList,
         uint dwFlags,
         IntPtr attribute,
@@ -406,8 +410,8 @@ internal sealed class WindowsPseudoConsoleSession : IDisposable
         IntPtr lpPreviousValue,
         IntPtr lpReturnSize);
 
-    [DllImport("kernel32.dll")]
-    private static extern void DeleteProcThreadAttributeList(IntPtr lpAttributeList);
+    [LibraryImport("kernel32.dll")]
+    private static partial void DeleteProcThreadAttributeList(IntPtr lpAttributeList);
 
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern bool CreateProcessW(
@@ -422,14 +426,16 @@ internal sealed class WindowsPseudoConsoleSession : IDisposable
         ref StartupInfoEx lpStartupInfo,
         out ProcessInformation lpProcessInformation);
 
-    [DllImport("kernel32.dll", SetLastError = true)]
-    private static extern uint WaitForSingleObject(IntPtr hHandle, uint dwMilliseconds);
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    private static partial uint WaitForSingleObject(IntPtr hHandle, uint dwMilliseconds);
 
-    [DllImport("kernel32.dll", SetLastError = true)]
-    private static extern bool GetExitCodeProcess(IntPtr hProcess, out uint lpExitCode);
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool GetExitCodeProcess(IntPtr hProcess, out uint lpExitCode);
 
-    [DllImport("kernel32.dll", SetLastError = true)]
-    private static extern bool CloseHandle(IntPtr hObject);
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool CloseHandle(IntPtr hObject);
 
     [StructLayout(LayoutKind.Sequential)]
     private readonly struct Coord(short x, short y)
@@ -441,44 +447,44 @@ internal sealed class WindowsPseudoConsoleSession : IDisposable
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
     private struct StartupInfo
     {
-        public int cb;
-        public string? lpReserved;
-        public string? lpDesktop;
-        public string? lpTitle;
-        public int dwX;
-        public int dwY;
-        public int dwXSize;
-        public int dwYSize;
-        public int dwXCountChars;
-        public int dwYCountChars;
-        public int dwFillAttribute;
-        public int dwFlags;
-        public short wShowWindow;
-        public short cbReserved2;
-        public IntPtr lpReserved2;
-        public IntPtr hStdInput;
-        public IntPtr hStdOutput;
-        public IntPtr hStdError;
+        public int Cb;
+        public string? LpReserved;
+        public string? LpDesktop;
+        public string? LpTitle;
+        public int DwX;
+        public int DwY;
+        public int DwXSize;
+        public int DwYSize;
+        public int DwXCountChars;
+        public int DwYCountChars;
+        public int DwFillAttribute;
+        public int DwFlags;
+        public short WShowWindow;
+        public short CbReserved2;
+        public IntPtr LpReserved2;
+        public IntPtr HStdInput;
+        public IntPtr HStdOutput;
+        public IntPtr HStdError;
     }
 
     [StructLayout(LayoutKind.Sequential)]
     private struct StartupInfoEx
     {
         public StartupInfo StartupInfo;
-        public IntPtr lpAttributeList;
+        public IntPtr LpAttributeList;
     }
 
     [StructLayout(LayoutKind.Sequential)]
     private struct ProcessInformation
     {
-        public IntPtr hProcess;
-        public IntPtr hThread;
-        public int dwProcessId;
-        public int dwThreadId;
+        public IntPtr HProcess;
+        public IntPtr HThread;
+        public int DwProcessId;
+        public int DwThreadId;
     }
 }
 
-internal sealed class WindowsConsoleModeScope : IDisposable
+internal sealed partial class WindowsConsoleModeScope : IDisposable
 {
     private const int STD_INPUT_HANDLE = -10;
     private const int STD_OUTPUT_HANDLE = -11;
@@ -502,7 +508,9 @@ internal sealed class WindowsConsoleModeScope : IDisposable
     private bool _disposed;
 
     private WindowsConsoleModeScope(WindowsConsoleState state)
-        => _state = state;
+    {
+        _state = state;
+    }
 
     public static bool TryEnter(out WindowsConsoleModeScope? scope, out string? failureReason)
     {
@@ -585,7 +593,7 @@ internal sealed class WindowsConsoleModeScope : IDisposable
     {
         try
         {
-            using Stream standardOutput = Console.OpenStandardOutput();
+            using var standardOutput = Console.OpenStandardOutput();
             standardOutput.Write(sequence, 0, sequence.Length);
             standardOutput.Flush();
         }
@@ -595,14 +603,16 @@ internal sealed class WindowsConsoleModeScope : IDisposable
         }
     }
 
-    [DllImport("kernel32.dll", SetLastError = true)]
-    private static extern IntPtr GetStdHandle(int nStdHandle);
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    private static partial IntPtr GetStdHandle(int nStdHandle);
 
-    [DllImport("kernel32.dll", SetLastError = true)]
-    private static extern bool GetConsoleMode(IntPtr hConsoleHandle, out uint lpMode);
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool GetConsoleMode(IntPtr hConsoleHandle, out uint lpMode);
 
-    [DllImport("kernel32.dll", SetLastError = true)]
-    private static extern bool SetConsoleMode(IntPtr hConsoleHandle, uint dwMode);
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool SetConsoleMode(IntPtr hConsoleHandle, uint dwMode);
 
     private readonly record struct WindowsConsoleState(IntPtr InputHandle, uint InputMode, IntPtr OutputHandle, uint OutputMode);
 }

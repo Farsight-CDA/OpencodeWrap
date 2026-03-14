@@ -4,12 +4,12 @@ using System.Globalization;
 
 namespace OpencodeWrap.Services.Runtime;
 
-internal sealed class SessionStagingService
+internal static class SessionStagingService
 {
-    private const string SessionMetadataFileName = ".owner";
+    private const string SESSION_METADATA_FILE_NAME = ".owner";
     private static readonly TimeSpan _missingMetadataGracePeriod = TimeSpan.FromMinutes(10);
 
-    public bool TryCreateSession(string containerName, out InteractiveSessionContext session)
+    public static bool TryCreateSession(string containerName, out InteractiveSessionContext session)
     {
         session = new InteractiveSessionContext("", "", "", "", "", 0, 0, new ConcurrentDictionary<string, string>(StringComparer.OrdinalIgnoreCase));
 
@@ -67,7 +67,7 @@ internal sealed class SessionStagingService
         return true;
     }
 
-    public void CleanupStaleSessions()
+    public static void CleanupStaleSessions()
     {
         if(!DockerHostService.TryEnsureGlobalConfigDirectory(out string configDirectory))
         {
@@ -80,7 +80,7 @@ internal sealed class SessionStagingService
             return;
         }
 
-        DateTime utcNow = DateTime.UtcNow;
+        var utcNow = DateTime.UtcNow;
 
         IEnumerable<string> sessionDirectories;
         try
@@ -126,18 +126,15 @@ internal sealed class SessionStagingService
             return Directory.GetLastWriteTimeUtc(sessionDirectory) <= utcNow - _missingMetadataGracePeriod;
         }
 
-        if(metadataLines.Length < 2
+        return metadataLines.Length < 2
             || !Int32.TryParse(metadataLines[0], NumberStyles.None, CultureInfo.InvariantCulture, out int ownerProcessId)
-            || !Int64.TryParse(metadataLines[1], NumberStyles.None, CultureInfo.InvariantCulture, out long ownerProcessStartTicks))
-        {
-            return Directory.GetLastWriteTimeUtc(sessionDirectory) <= utcNow - _missingMetadataGracePeriod;
-        }
-
-        return !IsProcessIdentityMatch(ownerProcessId, ownerProcessStartTicks);
+            || !Int64.TryParse(metadataLines[1], NumberStyles.None, CultureInfo.InvariantCulture, out long ownerProcessStartTicks)
+            ? Directory.GetLastWriteTimeUtc(sessionDirectory) <= utcNow - _missingMetadataGracePeriod
+            : !IsProcessIdentityMatch(ownerProcessId, ownerProcessStartTicks);
     }
 
     private static string BuildMetadataPath(string sessionDirectory)
-        => Path.Combine(sessionDirectory, SessionMetadataFileName);
+        => Path.Combine(sessionDirectory, SESSION_METADATA_FILE_NAME);
 
     private static bool TryGetCurrentProcessIdentity(out int processId, out long processStartTicks)
     {

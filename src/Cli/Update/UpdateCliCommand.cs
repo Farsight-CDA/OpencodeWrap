@@ -5,10 +5,10 @@ namespace OpencodeWrap.Cli.Update;
 
 internal sealed class UpdateCliCommand : Command
 {
-    private const string DefaultNpmPackageName = "@farsight-cda/ocw";
-    private static readonly HttpClient HttpClient = new();
-    private const string LatestDistTag = "latest";
-    private const string DevDistTag = "dev";
+    private const string DEFAULT_NPM_PACKAGE_NAME = "@farsight-cda/ocw";
+    private static readonly HttpClient _httpClient = new();
+    private const string LATEST_DIST_TAG = "latest";
+    private const string DEV_DIST_TAG = "dev";
 
     private readonly Option<bool> _checkOnlyOption;
     private readonly Option<bool> _devOption;
@@ -41,7 +41,7 @@ internal sealed class UpdateCliCommand : Command
     {
         string packageName = GetPackageName();
         var npmCheck = await RunNpmAsync(["--version"]);
-        string distTag = useDevTag ? DevDistTag : LatestDistTag;
+        string distTag = useDevTag ? DEV_DIST_TAG : LATEST_DIST_TAG;
 
         if(!npmCheck.Success)
         {
@@ -133,7 +133,7 @@ internal sealed class UpdateCliCommand : Command
     private static string GetPackageName()
         => Environment.GetEnvironmentVariable("OCW_NPM_PACKAGE")?.Trim() is { Length: > 0 } packageFromEnv
             ? packageFromEnv
-            : DefaultNpmPackageName;
+            : DEFAULT_NPM_PACKAGE_NAME;
 
     private static string BuildPackageSpecifier(string packageName, string version)
         => String.IsNullOrWhiteSpace(version)
@@ -147,20 +147,15 @@ internal sealed class UpdateCliCommand : Command
             string encodedPackageName = Uri.EscapeDataString(packageName);
             string endpoint = $"https://registry.npmjs.org/-/package/{encodedPackageName}/dist-tags";
 
-            using var response = await HttpClient.GetAsync(endpoint);
+            using var response = await _httpClient.GetAsync(endpoint);
             if(!response.IsSuccessStatusCode)
             {
                 return null;
             }
-            
+
             await using var stream = await response.Content.ReadAsStreamAsync();
             using var doc = await JsonDocument.ParseAsync(stream);
-            if(doc.RootElement.TryGetProperty(distTag, out JsonElement versionElement))
-            {
-                return versionElement.GetString();
-            }
-
-            return null;
+            return doc.RootElement.TryGetProperty(distTag, out var versionElement) ? versionElement.GetString() : null;
         }
         catch
         {
@@ -179,22 +174,13 @@ internal sealed class UpdateCliCommand : Command
         try
         {
             using var doc = JsonDocument.Parse(result.StdOut);
-            if(!doc.RootElement.TryGetProperty("dependencies", out JsonElement dependencies))
-            {
-                return null;
-            }
-
-            if(!dependencies.TryGetProperty(packageName, out JsonElement packageNode))
-            {
-                return null;
-            }
-
-            if(!packageNode.TryGetProperty("version", out JsonElement versionNode))
-            {
-                return null;
-            }
-
-            return versionNode.GetString();
+            return !doc.RootElement.TryGetProperty("dependencies", out var dependencies)
+                ? null
+                : !dependencies.TryGetProperty(packageName, out var packageNode)
+                    ? null
+                    : packageNode.TryGetProperty("version", out var versionNode)
+                        ? versionNode.GetString()
+                        : null;
         }
         catch
         {
@@ -203,31 +189,20 @@ internal sealed class UpdateCliCommand : Command
     }
 
     private static bool IsNewerVersion(string candidateVersion, string currentVersion)
-    {
-        if(String.Equals(candidateVersion, currentVersion, StringComparison.OrdinalIgnoreCase))
-        {
-            return false;
-        }
-
-        if(TryCompareSemVer(candidateVersion, currentVersion, out int comparison))
-        {
-            return comparison > 0;
-        }
-
-        return true;
-    }
+        => !String.Equals(candidateVersion, currentVersion, StringComparison.OrdinalIgnoreCase)
+            && (!TryCompareSemVer(candidateVersion, currentVersion, out int comparison) || comparison > 0);
 
     private static bool TryCompareSemVer(string left, string right, out int comparison)
     {
         comparison = 0;
-        if(!TryParseSemVer(left, out SemVerParts? leftParts)
-            || !TryParseSemVer(right, out SemVerParts? rightParts))
+        if(!TryParseSemVer(left, out var leftParts)
+            || !TryParseSemVer(right, out var rightParts))
         {
             return false;
         }
 
-        SemVerParts leftSemVer = leftParts!;
-        SemVerParts rightSemVer = rightParts!;
+        var leftSemVer = leftParts!;
+        var rightSemVer = rightParts!;
 
         comparison = CompareCore(leftSemVer.Core, rightSemVer.Core);
         if(comparison != 0)
