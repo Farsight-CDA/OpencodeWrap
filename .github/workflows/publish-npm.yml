@@ -33,29 +33,11 @@ jobs:
           RUN_ATTEMPT: ${{ github.run_attempt }}
           RUN_NUMBER: ${{ github.run_number }}
           SHA: ${{ github.sha }}
-        run: |
+        run: |2
           set -euo pipefail
 
           read_version() {
-            python3 - "$1" <<'PY'
-            import subprocess
-            import sys
-            import xml.etree.ElementTree as ET
-
-            target = sys.argv[1]
-            if target == "WORKTREE":
-                with open("version.props", "r", encoding="utf-8") as handle:
-                    text = handle.read()
-            else:
-                text = subprocess.check_output(["git", "show", f"{target}:version.props"], text=True)
-
-            root = ET.fromstring(text)
-            version = (root.findtext(".//Version") or "").strip()
-            if not version:
-                raise SystemExit("version.props does not contain a <Version> value")
-
-            print(version)
-            PY
+            python3 -c 'import subprocess, sys, xml.etree.ElementTree as ET; target=sys.argv[1]; text=open("version.props", encoding="utf-8").read() if target == "WORKTREE" else subprocess.check_output(["git", "show", f"{target}:version.props"], text=True); version=(ET.fromstring(text).findtext(".//Version") or "").strip(); print(version) if version else sys.exit("version.props does not contain a <Version> value")' "$1"
           }
 
           create_tag_if_needed() {
