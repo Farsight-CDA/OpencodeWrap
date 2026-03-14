@@ -57,7 +57,7 @@ jobs:
               exit 1
             fi
 
-            git tag -a "${tag}" "${commit}" -m "Release ${tag}"
+            git tag "${tag}" "${commit}"
             new_tags+=("${tag}")
             echo "Created ${tag} for ${commit}."
           }
