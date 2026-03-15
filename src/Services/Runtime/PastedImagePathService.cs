@@ -152,7 +152,10 @@ internal sealed partial class PastedImagePathService : Singleton
     private static bool IsSupportedImageExtension(string extension)
         => NormalizeImageExtension(extension) switch
         {
-            ".png" or ".jpg" or ".jpeg" or ".gif" or ".webp" or ".bmp" or ".svg" => true,
+            ".png" or ".jpg" or ".jpeg" or ".gif" or ".webp" or ".bmp" or ".svg" or
+            ".ico" or ".tif" or ".tiff" or ".svgz" or ".avif" or ".apng" or ".jxl" or
+            ".heic" or ".heif" or ".raw" or ".cr2" or ".nef" or ".arw" or ".dng" or
+            ".orf" or ".raf" or ".pef" or ".x3f" => true,
             _ => false
         };
 
