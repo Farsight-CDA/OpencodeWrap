@@ -25,7 +25,7 @@ internal sealed class RunCliCommand : Command
         };
         _mountModeOption = new Option<string?>("--mount-mode")
         {
-            Description = "Workspace mount mode: mount (default), readonly-mount, or no-mount."
+            Description = "Workspace mount mode: mount (default), readonly-mount, or no-mount (starts in /workspace)."
         };
         _resourceDirOption = new Option<string[]>("--resource-dir", "-r")
         {

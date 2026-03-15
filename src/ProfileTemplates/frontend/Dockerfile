@@ -47,9 +47,9 @@ RUN npm install -g --no-fund --no-audit \
 
 RUN curl -fsSL https://bun.sh/install | bash
 
-RUN mkdir -p /opt/opencode /home/opencode \
+RUN mkdir -p /opt/opencode /ocw \
     && chmod 755 /opt/opencode \
-    && chmod 777 /home/opencode
+    && chmod 777 /ocw
 
 RUN HOME=/opt/opencode bash -lc "curl -fsSL https://opencode.ai/install | bash -s -- --no-modify-path"
 

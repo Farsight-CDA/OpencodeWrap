@@ -6,6 +6,7 @@ Run [OpenCode](https://opencode.ai) in Docker with persistent state and lightwei
 
 - Runs OpenCode in an isolated Docker container on Linux/macOS/Windows hosts.
 - Persists OpenCode data across runs using a named Docker volume.
+- Keeps OCW-managed runtime config, state, and transient tool installs under `/ocw` inside the container while leaving `$HOME` unchanged.
 - Uses profile-based Dockerfiles from `~/.opencode-wrap/profiles/<profile>/Dockerfile`, profile entrypoints from `~/.opencode-wrap/profiles/<profile>/entrypoint.sh`, and OpenCode config files from `~/.opencode-wrap/profiles/<profile>/opencode/`.
 - Includes built-in starter profiles: `default`, `frontend`, `dotnet`, `data-science`, and `solidity`.
 
@@ -73,7 +74,7 @@ ocw run -p solidity
 # Workspace mount mode
 ocw run --mount-mode mount           # default: read-write workspace mount
 ocw run --mount-mode readonly-mount  # mount workspace as read-only
-ocw run --mount-mode no-mount        # do not mount workspace
+ocw run --mount-mode no-mount        # do not mount workspace; session starts in /workspace
 
 # Additional read-only resource mounts (repeat option)
 ocw run -p default --resource-dir "C:\\Something"

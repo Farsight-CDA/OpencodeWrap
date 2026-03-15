@@ -29,9 +29,9 @@ RUN mkdir -p /etc/apt/keyrings \
     && apt-get install -y --no-install-recommends dotnet-sdk-10.0 \
     && rm -rf /var/lib/apt/lists/*
 
-RUN mkdir -p /opt/opencode /home/opencode \
+RUN mkdir -p /opt/opencode /ocw \
     && chmod 755 /opt/opencode \
-    && chmod 777 /home/opencode
+    && chmod 777 /ocw
 
 RUN HOME=/opt/opencode bash -lc "curl -fsSL https://opencode.ai/install | bash -s -- --no-modify-path"
 
