@@ -4,7 +4,7 @@ internal static class OpencodeWrapConstants
 {
     public const string CONTAINER_WORKSPACE = "/workspace";
     public const string CONTAINER_RESOURCE_ROOT = $"{CONTAINER_WORKSPACE}/.ocw-resources";
-    public const string CONTAINER_PASTE_ROOT = $"{CONTAINER_WORKSPACE}/.ocw-pastes";
+    public const string CONTAINER_PASTE_ROOT = $"{CONTAINER_SESSION_ROOT}/pastes";
     public const string CONTAINER_OCW_ROOT = "/ocw";
     public const string CONTAINER_PERSISTENT_ROOT = $"{CONTAINER_OCW_ROOT}/state";
     public const string CONTAINER_SESSION_ROOT = $"{CONTAINER_OCW_ROOT}/session";
