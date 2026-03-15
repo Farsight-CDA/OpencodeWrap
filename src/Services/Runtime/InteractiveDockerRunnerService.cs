@@ -32,6 +32,42 @@ internal sealed partial class InteractiveDockerRunnerService : Singleton
             : await RunUnixAsync(dockerArgs, session, hostWorkingDirectory);
     }
 
+    public async Task<int> RunAttachedAsync(IReadOnlyList<string> dockerArgs)
+    {
+        try
+        {
+            using var process = new Process
+            {
+                StartInfo = new ProcessStartInfo("docker")
+                {
+                    UseShellExecute = false,
+                    RedirectStandardInput = false,
+                    RedirectStandardOutput = false,
+                    RedirectStandardError = false
+                }
+            };
+
+            foreach(string arg in dockerArgs)
+            {
+                process.StartInfo.ArgumentList.Add(arg);
+            }
+
+            if(!process.Start())
+            {
+                AppIO.WriteError("Failed to start attached Docker process.");
+                return 1;
+            }
+
+            await process.WaitForExitAsync();
+            return process.ExitCode;
+        }
+        catch(Exception ex)
+        {
+            AppIO.WriteError($"Failed to start attached Docker process: {ex.Message}");
+            return 1;
+        }
+    }
+
     public void RestoreTerminalStateIfNeeded()
     {
         UnixTerminalModeScope.RestoreActiveState();
@@ -71,10 +107,12 @@ internal sealed partial class InteractiveDockerRunnerService : Singleton
 
             using var inputCancellationSource = new CancellationTokenSource();
             var startupInputGate = new StartupInputGate();
+            var startupProgress = new StartupProgressTracker();
             var pasteRelay = new BracketedPasteRelay(session, hostWorkingDirectory, _pastedImagePathService);
+            var startupProgressTask = ReportStartupProgressAsync(startupProgress, standardError, () => relayProcess.HasExited, inputCancellationSource.Token);
 
-            var stdoutTask = PumpStreamAsync(relayProcess.StandardOutput.BaseStream, standardOutput, startupInputGate.CreateOutputFilter(), CancellationToken.None);
-            var stderrTask = PumpStreamAsync(relayProcess.StandardError.BaseStream, standardError, startupInputGate.CreateOutputFilter(), CancellationToken.None);
+            var stdoutTask = PumpStreamAsync(relayProcess.StandardOutput.BaseStream, standardOutput, startupInputGate.CreateOutputFilter(startupProgress), CancellationToken.None);
+            var stderrTask = PumpStreamAsync(relayProcess.StandardError.BaseStream, standardError, startupInputGate.CreateOutputFilter(startupProgress), CancellationToken.None);
             var inputTask = Task.Run(() => RelayInputLoop(
                 relayProcess.StandardInput.BaseStream,
                 pasteRelay,
@@ -87,6 +125,7 @@ internal sealed partial class InteractiveDockerRunnerService : Singleton
             TryCloseRelayInput(relayProcess.StandardInput.BaseStream);
 
             await Task.WhenAll(stdoutTask, stderrTask);
+            await Task.WhenAny(startupProgressTask, Task.Delay(100));
             await Task.WhenAny(inputTask, Task.Delay(100));
         }
 
@@ -126,10 +165,12 @@ internal sealed partial class InteractiveDockerRunnerService : Singleton
             using var inputCancellationSource = new CancellationTokenSource();
             using var resizeCancellationSource = new CancellationTokenSource();
             var startupInputGate = new StartupInputGate();
+            var startupProgress = new StartupProgressTracker();
             var plainTextInterceptor = new WindowsPlainTextPasteInterceptor(session, hostWorkingDirectory, _pastedImagePathService);
             var pasteRelay = new BracketedPasteRelay(session, hostWorkingDirectory, _pastedImagePathService, plainTextInterceptor);
+            var startupProgressTask = ReportStartupProgressAsync(startupProgress, standardOutput, () => pseudoConsoleSession.HasExited, inputCancellationSource.Token);
 
-            var outputTask = PumpStreamAsync(pseudoConsoleSession.OutputStream, standardOutput, startupInputGate.CreateOutputFilter(), CancellationToken.None);
+            var outputTask = PumpStreamAsync(pseudoConsoleSession.OutputStream, standardOutput, startupInputGate.CreateOutputFilter(startupProgress), CancellationToken.None);
             var inputTask = Task.Run(() => RelayWindowsRawInputLoop(
                 pseudoConsoleSession.InputStream,
                 pasteRelay,
@@ -145,6 +186,7 @@ internal sealed partial class InteractiveDockerRunnerService : Singleton
             pseudoConsoleSession.ClosePseudoConsole();
 
             await outputTask;
+            await Task.WhenAny(startupProgressTask, Task.Delay(100));
             await Task.WhenAny(inputTask, Task.Delay(100));
             await Task.WhenAny(resizeTask, Task.Delay(100));
             return exitCode;
@@ -341,6 +383,47 @@ internal sealed partial class InteractiveDockerRunnerService : Singleton
         }
     }
 
+    private static async Task ReportStartupProgressAsync(StartupProgressTracker tracker, Stream destination, Func<bool> hasExited, CancellationToken cancellationToken)
+    {
+        bool reportedContainerWait = false;
+        bool reportedUiWait = false;
+
+        try
+        {
+            while(!cancellationToken.IsCancellationRequested && !hasExited() && !tracker.HasVisibleOutput())
+            {
+                await Task.Delay(250, cancellationToken);
+
+                if(!reportedContainerWait && !tracker.IsContainerReady() && tracker.Elapsed >= TimeSpan.FromSeconds(1.5))
+                {
+                    reportedContainerWait = true;
+                    await WriteStartupProgressAsync(destination, $"[ocw] waiting for container startup... {tracker.Elapsed.TotalSeconds:F1}s", cancellationToken);
+                    continue;
+                }
+
+                if(!reportedUiWait && tracker.IsContainerReady() && !tracker.HasVisibleOutput() && tracker.ElapsedSinceContainerReady() >= TimeSpan.FromSeconds(1.0))
+                {
+                    reportedUiWait = true;
+                    await WriteStartupProgressAsync(destination, $"[ocw] container ready; waiting for opencode UI... {tracker.Elapsed.TotalSeconds:F1}s", cancellationToken);
+                }
+            }
+        }
+        catch(OperationCanceledException)
+        {
+        }
+        catch
+        {
+            // Startup progress logging is best effort only.
+        }
+    }
+
+    private static async Task WriteStartupProgressAsync(Stream destination, string message, CancellationToken cancellationToken)
+    {
+        byte[] bytes = Encoding.UTF8.GetBytes(message + Environment.NewLine);
+        await destination.WriteAsync(bytes, cancellationToken);
+        await destination.FlushAsync(cancellationToken);
+    }
+
     private static void RelayInputLoop(Stream relayInput, BracketedPasteRelay pasteRelay, Func<bool> canForwardInput, Func<bool> hasExited, CancellationToken cancellationToken)
     {
         byte[] buffer = new byte[4096];
@@ -472,15 +555,16 @@ internal sealed partial class InteractiveDockerRunnerService : Singleton
         public void Open()
             => Interlocked.Exchange(ref _ready, 1);
 
-        public StartupOutputFilter CreateOutputFilter()
-            => new(this);
+        public StartupOutputFilter CreateOutputFilter(StartupProgressTracker tracker)
+            => new(this, tracker);
     }
 
-    private sealed class StartupOutputFilter(StartupInputGate inputGate)
+    private sealed class StartupOutputFilter(StartupInputGate inputGate, StartupProgressTracker tracker)
     {
         private static readonly byte[] _markerBytes = Encoding.ASCII.GetBytes(STARTUP_READY_MARKER);
 
         private readonly StartupInputGate _inputGate = inputGate;
+        private readonly StartupProgressTracker _tracker = tracker;
         private readonly List<byte> _startupBytes = [];
         private bool _startupComplete;
 
@@ -493,6 +577,11 @@ internal sealed partial class InteractiveDockerRunnerService : Singleton
 
             if(_startupComplete)
             {
+                if(buffer.Length > 0)
+                {
+                    _tracker.MarkVisibleOutput();
+                }
+
                 return buffer.ToArray();
             }
 
@@ -511,11 +600,16 @@ internal sealed partial class InteractiveDockerRunnerService : Singleton
                 _startupBytes.Clear();
                 _startupComplete = true;
                 _inputGate.Open();
+                _tracker.MarkContainerReady();
 
                 int trailingLength = current.Length - markerIndex - _markerBytes.Length;
-                return trailingLength > 0
-                    ? current.AsMemory(markerIndex + _markerBytes.Length, trailingLength)
-                    : ReadOnlyMemory<byte>.Empty;
+                if(trailingLength > 0)
+                {
+                    _tracker.MarkVisibleOutput();
+                    return current.AsMemory(markerIndex + _markerBytes.Length, trailingLength);
+                }
+
+                return ReadOnlyMemory<byte>.Empty;
             }
 
             return ReadOnlyMemory<byte>.Empty;
@@ -541,7 +635,49 @@ internal sealed partial class InteractiveDockerRunnerService : Singleton
 
             byte[] bytes = [.. _startupBytes];
             _startupBytes.Clear();
+            if(bytes.Length > 0)
+            {
+                _tracker.MarkVisibleOutput();
+            }
+
             return bytes;
+        }
+    }
+
+    private sealed class StartupProgressTracker
+    {
+        private readonly Stopwatch _stopwatch = Stopwatch.StartNew();
+        private long _containerReadyElapsedTicks = -1;
+        private int _visibleOutput;
+
+        public TimeSpan Elapsed => _stopwatch.Elapsed;
+
+        public bool IsContainerReady()
+            => Volatile.Read(ref _containerReadyElapsedTicks) >= 0;
+
+        public bool HasVisibleOutput()
+            => Volatile.Read(ref _visibleOutput) != 0;
+
+        public void MarkContainerReady()
+        {
+            long elapsedTicks = _stopwatch.ElapsedTicks;
+            Interlocked.CompareExchange(ref _containerReadyElapsedTicks, elapsedTicks, -1);
+        }
+
+        public void MarkVisibleOutput()
+            => Interlocked.Exchange(ref _visibleOutput, 1);
+
+        public TimeSpan ElapsedSinceContainerReady()
+        {
+            long readyElapsedTicks = Volatile.Read(ref _containerReadyElapsedTicks);
+            if(readyElapsedTicks < 0)
+            {
+                return TimeSpan.Zero;
+            }
+
+            long currentElapsedTicks = _stopwatch.ElapsedTicks;
+            long deltaTicks = Math.Max(0, currentElapsedTicks - readyElapsedTicks);
+            return TimeSpan.FromSeconds(deltaTicks / (double) Stopwatch.Frequency);
         }
     }
 

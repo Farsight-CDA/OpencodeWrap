@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
 
@@ -43,13 +44,21 @@ internal sealed partial class OpencodeLauncherService : Singleton
         IReadOnlyList<string>? extraReadonlyMountDirs = null,
         bool verboseSessionLogs = false)
     {
-        using var sessionLog = _deferredSessionLogService.BeginSession(verboseSessionLogs ? LogLevel.Debug : LogLevel.Information);
+        bool useInteractiveRelay = includeProfileConfig;
+        DeferredSessionLogService.SessionScope? sessionLog = includeProfileConfig
+            ? _deferredSessionLogService.BeginSession(verboseSessionLogs ? LogLevel.Debug : LogLevel.Information)
+            : null;
+        var startupTimer = Stopwatch.StartNew();
         try
         {
+            LogStartupPhase("starting ocw run startup", LogLevel.Debug);
+
             if(!await AppIO.RunWithLoadingStateAsync("Checking Docker volume...", _volumeService.EnsureVolumeReadyAsync))
             {
                 return 1;
             }
+
+            LogStartupPhase("docker volume ready", LogLevel.Debug);
 
             string? hostWorkDir = null;
             string containerWorkDir;
@@ -84,6 +93,7 @@ internal sealed partial class OpencodeLauncherService : Singleton
 
             _hostSessionDirectory = session.HostSessionDirectory;
             _deferredSessionLogService.Write("session", $"created runtime session '{session.SessionId}' at '{session.HostSessionDirectory}'", LogLevel.Information);
+            LogStartupPhase($"runtime session '{session.SessionId}' prepared", LogLevel.Debug);
 
             var (success, profile) = await _profileService.TryResolveProfileAsync(includeProfileConfig ? requestedProfileName : null, session.HostSessionDirectory);
             if(!success)
@@ -91,19 +101,26 @@ internal sealed partial class OpencodeLauncherService : Singleton
                 return 1;
             }
 
+            LogStartupPhase($"resolved profile '{profile.Name}' from '{profile.DirectoryPath}'", LogLevel.Debug);
+
             if(!TryPrepareSessionProfile(profile, session.HostSessionDirectory, runtimeAgentInstructions, out profile))
             {
                 return 1;
             }
 
+            LogStartupPhase("session profile prepared", LogLevel.Debug);
+
             RegisterCleanupHandlers();
             await EnsureCleanupWatchdogAsync(_containerName, session.HostSessionDirectory);
+            LogStartupPhase("cleanup watchdog ready", LogLevel.Debug);
 
             var (imageReady, imageTag) = await _dockerImageService.TryEnsureImageAsync(profile.DockerfilePath);
             if(!imageReady)
             {
                 return 1;
             }
+
+            LogStartupPhase($"docker image ready: '{imageTag}'", LogLevel.Debug);
 
             string containerXdgConfigHome = includeProfileConfig
                 ? OpencodeWrapConstants.CONTAINER_PROFILE_ROOT
@@ -125,9 +142,13 @@ internal sealed partial class OpencodeLauncherService : Singleton
                 "-e", $"XDG_CONFIG_HOME={containerXdgConfigHome}",
                 "-e", $"XDG_DATA_HOME={OpencodeWrapConstants.CONTAINER_XDG_DATA_HOME}",
                 "-e", $"XDG_STATE_HOME={OpencodeWrapConstants.CONTAINER_XDG_STATE_HOME}",
-                "-e", $"{InteractiveDockerRunnerService.STARTUP_READY_MARKER_ENV_VAR}={InteractiveDockerRunnerService.STARTUP_READY_MARKER}",
                 "-e", $"OCW_PROFILE_ROOT={OpencodeWrapConstants.CONTAINER_PROFILE_ROOT}"
             ]);
+
+            if(useInteractiveRelay)
+            {
+                runArgs.AddRange(["-e", $"{InteractiveDockerRunnerService.STARTUP_READY_MARKER_ENV_VAR}={InteractiveDockerRunnerService.STARTUP_READY_MARKER}"]);
+            }
 
             runArgs.AddRange(BuildTerminalEnvironmentArgs());
 
@@ -170,7 +191,10 @@ internal sealed partial class OpencodeLauncherService : Singleton
                 runArgs.Add(arg);
             }
 
-            int exitCode = await _interactiveDockerRunnerService.RunDockerAsync(runArgs, session, hostWorkDir);
+            LogStartupPhase(useInteractiveRelay ? "starting interactive docker relay" : "starting attached docker process", LogLevel.Debug);
+            int exitCode = useInteractiveRelay
+                ? await _interactiveDockerRunnerService.RunDockerAsync(runArgs, session, hostWorkDir)
+                : await _interactiveDockerRunnerService.RunAttachedAsync(runArgs);
             CleanupContainer(force: false);
             return exitCode;
         }
@@ -182,8 +206,12 @@ internal sealed partial class OpencodeLauncherService : Singleton
                 AppIO.TryDeleteDirectory(_hostSessionDirectory);
             }
 
-            sessionLog.FlushToConsole();
+            sessionLog?.FlushToConsole();
+            sessionLog?.Dispose();
         }
+
+        void LogStartupPhase(string message, LogLevel level)
+            => _deferredSessionLogService.Write("startup", $"+{startupTimer.Elapsed.TotalMilliseconds:F0}ms {message}", level);
     }
 
     private static string BuildContainerCommand()
