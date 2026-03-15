@@ -1,6 +1,7 @@
 using Spectre.Console;
 using Spectre.Console.Rendering;
 using System.CommandLine;
+using System.Text;
 
 namespace OpencodeWrap.Cli.Run;
 
@@ -197,31 +198,28 @@ internal sealed class RunCliCommand : Command
                         break;
                     }
 
-                    goto case ConsoleKey.R;
-                case ConsoleKey.R:
-                    if(selectedTab is not RunSelectionTab.Resources || selectedResourceIndex != 0)
+                    if(selectedTab is RunSelectionTab.Resources && selectedResourceIndex == 0)
                     {
-                        break;
+                        string? inputPath = PromptForResourceDirectory(currentWorkspacePath, selectedResourceDirectories);
+                        if(inputPath is null)
+                        {
+                            break;
+                        }
+
+                        if(!TryNormalizeResourceDirectory(inputPath, out string normalizedPath, out _))
+                        {
+                            break;
+                        }
+
+                        if(!seenResourceDirectories.Add(normalizedPath))
+                        {
+                            break;
+                        }
+
+                        selectedResourceDirectories.Add(normalizedPath);
+                        selectedResourceIndex = selectedResourceDirectories.Count;
                     }
 
-                    string? inputPath = PromptForResourceDirectory(currentWorkspacePath, selectedResourceDirectories);
-                    if(inputPath is null)
-                    {
-                        break;
-                    }
-
-                    if(!TryNormalizeResourceDirectory(inputPath, out string normalizedPath, out _))
-                    {
-                        break;
-                    }
-
-                    if(!seenResourceDirectories.Add(normalizedPath))
-                    {
-                        break;
-                    }
-
-                    selectedResourceDirectories.Add(normalizedPath);
-                    selectedResourceIndex = selectedResourceDirectories.Count;
                     break;
                 case ConsoleKey.Backspace:
                 case ConsoleKey.Delete:
@@ -285,7 +283,7 @@ internal sealed class RunCliCommand : Command
                 ("Up / Down", "Move selection"),
                 ("W / S", "Move selection"),
                 ("M", "Toggle workspace mount"),
-                ("R / Space", "Add resource (resource tab)"),
+                ("Space", "Add resource (resource tab)"),
                 ("Space", "Cycle mode / toggle network"),
                 ("Backspace / Delete", "Remove selected resource"),
                 ("Enter", "Start session"),
@@ -295,25 +293,28 @@ internal sealed class RunCliCommand : Command
         }
 
         AnsiConsole.Clear();
-        AppIO.WriteHeader("Run Setup", "Press ? for controls.");
+        AppIO.WriteHeader("Run Setup");
 
         string mountModeLabel = mountMode switch
         {
-            WorkspaceMountMode.None => "[yellow]Mount disabled[/]",
-            _ => "[deepskyblue1]Read-write mount[/]"
+            WorkspaceMountMode.None => "[yellow]✗ Mount disabled[/]",
+            _ => "[green]✓ Read-write mount[/]"
         };
 
         var mountGrid = new Grid();
         mountGrid.AddColumn(new GridColumn().Width(12));
         mountGrid.AddColumn();
-        mountGrid.AddRow("[grey]Mode[/]", mountModeLabel);
-        mountGrid.AddRow("[grey]Workspace[/]", $"[deepskyblue1]{Markup.Escape(currentWorkspacePath)}[/]");
-        AnsiConsole.Write(new Panel(mountGrid)
+        mountGrid.AddRow("[grey58]Mode[/]", mountModeLabel);
+        mountGrid.AddRow("[grey58]Workspace[/]", $"[white]{Markup.Escape(currentWorkspacePath)}[/]");
+
+        var mountPanel = new Panel(mountGrid)
         {
             Border = BoxBorder.Rounded,
-            Header = new PanelHeader("[bold]Primary Mount[/] [grey](press M to toggle)[/]", Justify.Left),
+            BorderStyle = new Style(Color.DodgerBlue1),
+            Header = new PanelHeader("[bold dodgerblue1]Primary Mount[/]", Justify.Left),
             Padding = new Padding(1, 0, 1, 0)
-        });
+        };
+        AnsiConsole.Write(mountPanel);
 
         AnsiConsole.Write(CreateTabStrip(selectedTab, selectedResourceDirectories.Count, activeNetworkNames.Count));
         AnsiConsole.WriteLine();
@@ -325,108 +326,216 @@ internal sealed class RunCliCommand : Command
             _ => CreateProfileSelectionContent(profileChoices, selectedIndex)
         };
 
-        AnsiConsole.Write(activeContent);
+        // Wrap content in a panel for consistent styling
+        var contentPanel = new Panel(activeContent)
+        {
+            Border = BoxBorder.Rounded,
+            BorderStyle = new Style(Color.Grey39),
+            Padding = new Padding(2, 1),
+            Height = 16
+        };
+        AnsiConsole.Write(contentPanel);
+
+        // Footer with key hints
+        AnsiConsole.WriteLine();
+        var footerGrid = new Grid();
+        footerGrid.AddColumn(new GridColumn().Width(20));
+        footerGrid.AddColumn(new GridColumn().Width(20));
+        footerGrid.AddColumn(new GridColumn().Width(20));
+        footerGrid.AddColumn(new GridColumn());
+
+        string tabHint = selectedTab switch
+        {
+            RunSelectionTab.Profile => "[grey]Enter[/] [dodgerblue1]start[/] | [grey]↑↓[/] [dodgerblue1]navigate[/] | [grey]←→[/] [dodgerblue1]tabs[/]",
+            RunSelectionTab.Resources => "[grey]Enter[/] [dodgerblue1]start[/] | [grey]Space[/] [dodgerblue1]add[/] | [grey]Del[/] [dodgerblue1]remove[/] | [grey]←→[/] [dodgerblue1]tabs[/]",
+            RunSelectionTab.Networks => "[grey]Enter[/] [dodgerblue1]start[/] | [grey]Space[/] [dodgerblue1]toggle[/] | [grey]←→[/] [dodgerblue1]tabs[/]",
+            _ => ""
+        };
+
+        footerGrid.AddRow(
+            "[grey]ESC[/] [dodgerblue1]cancel[/]",
+            "[grey]?[/] [dodgerblue1]help[/]",
+            "[grey]M[/] [dodgerblue1]mount mode[/]",
+            tabHint
+        );
+
+        var footerPanel = new Panel(footerGrid)
+        {
+            Border = BoxBorder.Rounded,
+            BorderStyle = new Style(Color.Grey23),
+            Padding = new Padding(1, 0)
+        };
+        AnsiConsole.Write(footerPanel);
     }
 
     private static IRenderable CreateTabStrip(RunSelectionTab selectedTab, int resourceCount, int activeNetworkCount)
     {
-        string profileTab = selectedTab is RunSelectionTab.Profile
-            ? "[black on deepskyblue1] Profile Selection [/]"
-            : "[grey on grey11] Profile Selection [/]";
-        string resourceLabel = resourceCount == 0
-            ? "Resource Directories"
-            : $"Resource Directories ({resourceCount})";
-        string resourceTab = selectedTab is RunSelectionTab.Resources
-            ? $"[black on deepskyblue1] {Markup.Escape(resourceLabel)} [/]"
-            : $"[grey on grey11] {Markup.Escape(resourceLabel)} [/]";
-        string networkLabel = activeNetworkCount == 0
-            ? "Docker Networks"
-            : $"Docker Networks ({activeNetworkCount})";
-        string networkTab = selectedTab is RunSelectionTab.Networks
-            ? $"[black on deepskyblue1] {Markup.Escape(networkLabel)} [/]"
-            : $"[grey on grey11] {Markup.Escape(networkLabel)} [/]";
+        var tabGrid = new Grid();
+        tabGrid.AddColumn();
+        tabGrid.AddColumn();
+        tabGrid.AddColumn();
 
-        return new Markup($"{profileTab} {resourceTab} {networkTab}");
+        string profileTab = selectedTab is RunSelectionTab.Profile
+            ? "[white on dodgerblue1] 👤 Profile Selection [/]"
+            : "[grey70 on grey19] 👤 Profile Selection [/]";
+
+        string resourceLabel = resourceCount == 0
+            ? "📁 Resource Directories"
+            : $"📁 Resource Directories ([green]{resourceCount}[/])";
+        string resourceTab = selectedTab is RunSelectionTab.Resources
+            ? $"[white on dodgerblue1] {resourceLabel} [/]"
+            : $"[grey70 on grey19] {resourceLabel} [/]";
+
+        string networkLabel = activeNetworkCount == 0
+            ? "🌐 Docker Networks"
+            : $"🌐 Docker Networks ([green]{activeNetworkCount}[/])";
+        string networkTab = selectedTab is RunSelectionTab.Networks
+            ? $"[white on dodgerblue1] {networkLabel} [/]"
+            : $"[grey70 on grey19] {networkLabel} [/]";
+
+        tabGrid.AddRow(profileTab, resourceTab, networkTab);
+
+        return new Panel(tabGrid)
+        {
+            Border = BoxBorder.None,
+            Padding = new Padding(0)
+        };
     }
 
     private static IRenderable CreateProfileSelectionContent(IReadOnlyList<ProfileChoice> profileChoices, int selectedIndex)
     {
-        var profileTable = new Table()
-            .Border(TableBorder.None)
-            .Expand();
-        profileTable.AddColumn(new TableColumn(""));
+        var content = new StringBuilder();
+
+        if(profileChoices.Count == 0)
+        {
+            content.AppendLine("[grey](no profiles available)[/]");
+            return new Markup(content.ToString());
+        }
+
+        content.AppendLine("[grey58]Select a profile to run with opencode:[/]");
+        content.AppendLine();
 
         for(int i = 0; i < profileChoices.Count; i++)
         {
             var choice = profileChoices[i];
             bool isSelected = i == selectedIndex;
-            string cursor = isSelected ? "[deepskyblue1]>[/]" : " ";
             string escapedName = Markup.Escape(choice.Name);
-            string defaultTag = choice.IsDefault ? " [grey](default)[/]" : "";
-            string label = isSelected
-                ? $"[bold deepskyblue1]{escapedName}[/]{defaultTag}"
-                : $"{escapedName}{defaultTag}";
 
-            profileTable.AddRow($"{cursor} {label}");
+            if(isSelected)
+            {
+                content.Append($"[dodgerblue1]▶[/] [bold white]{escapedName}[/]");
+                content.AppendLine(" [grey]<--[/]");
+            }
+            else
+            {
+                content.AppendLine($"  [grey70]{escapedName}[/]");
+            }
         }
 
-        return profileTable;
+        return new Markup(content.ToString());
     }
 
     private static IRenderable CreateResourceSelectionContent(IReadOnlyList<string> selectedResourceDirectories, int selectedResourceIndex)
     {
-        var resourceTable = new Table()
-            .Border(TableBorder.None)
-            .Expand();
-        resourceTable.AddColumn(new TableColumn(""));
+        var content = new StringBuilder();
+        content.AppendLine("[grey58]Add read-only resource directories to mount in the container:[/]");
+        content.AppendLine();
 
-        resourceTable.AddRow(FormatSelectableRow("+ Add resource directory", selectedResourceIndex == 0, "[deepskyblue1]+[/]"));
-
-        if(selectedResourceDirectories.Count == 0)
+        // Add button
+        if(selectedResourceIndex == 0)
         {
-            resourceTable.AddRow("[grey]  (none selected)[/]");
+            content.AppendLine("[green]▶[/] [bold white]+ Add resource directory[/] [grey]<--[/]");
         }
         else
         {
+            content.AppendLine("  [grey70]+ Add resource directory[/]");
+        }
+
+        // Visual separator between add button and actual entries
+        content.AppendLine("  [grey50]─────────────────────────────────────[/]");
+
+        if(selectedResourceDirectories.Count == 0)
+        {
+            content.AppendLine("[grey]  (no directories selected)[/]");
+        }
+        else
+        {
+            content.AppendLine();
             for(int i = 0; i < selectedResourceDirectories.Count; i++)
             {
-                resourceTable.AddRow(FormatSelectableRow(Markup.Escape(selectedResourceDirectories[i]), selectedResourceIndex == i + 1, "[deepskyblue1]-[/]"));
+                bool isSelected = selectedResourceIndex == i + 1;
+                string path = Markup.Escape(selectedResourceDirectories[i]);
+
+                if(isSelected)
+                {
+                    content.AppendLine($"[red]▶[/] [bold white]{path}[/] [grey](press Del to remove)[/]");
+                }
+                else
+                {
+                    content.AppendLine($"  [grey70]{path}[/]");
+                }
             }
         }
 
-        return resourceTable;
+        return new Markup(content.ToString());
     }
 
     private static IRenderable CreateNetworkSelectionContent(IReadOnlyList<string> availableNetworkNames, int selectedNetworkIndex, DockerNetworkMode selectedNetworkMode, IReadOnlySet<string> activeNetworkNames)
     {
-        var networkTable = new Table()
-            .Border(TableBorder.None)
-            .Expand();
-        networkTable.AddColumn(new TableColumn(""));
+        var content = new StringBuilder();
+        content.AppendLine("[grey58]Configure Docker networking for the container:[/]");
+        content.AppendLine();
 
-        networkTable.AddRow(FormatSelectableRow($"Networking mode: {Markup.Escape(GetDockerNetworkModeLabel(selectedNetworkMode))}", selectedNetworkIndex == 0, "[deepskyblue1]~[/]"));
+        // Network mode
+        string modeLabel = GetDockerNetworkModeLabel(selectedNetworkMode);
+        string modeDisplay = selectedNetworkMode switch
+        {
+            DockerNetworkMode.Host => "[yellow]host[/]",
+            _ => "[green]bridge[/]"
+        };
+
+        if(selectedNetworkIndex == 0)
+        {
+            content.AppendLine($"[dodgerblue1]▶[/] [bold white]Mode:[/] {modeDisplay} [grey](press Space to cycle)[/]");
+        }
+        else
+        {
+            content.AppendLine($"  [grey70]Mode:[/] {modeDisplay}");
+        }
+
+        content.AppendLine();
 
         if(!DoesNetworkModeSupportAdditionalNetworks(selectedNetworkMode))
         {
-            networkTable.AddRow($"[grey]  Additional networks are disabled in {Markup.Escape(GetDockerNetworkModeLabel(selectedNetworkMode))} mode.[/]");
-            return networkTable;
+            content.AppendLine($"[grey]  Additional networks are disabled in {modeLabel} mode.[/]");
+            return new Markup(content.ToString());
         }
 
         if(availableNetworkNames.Count == 0)
         {
-            networkTable.AddRow("[grey]  (no additional Docker networks found)[/]");
-            return networkTable;
+            content.AppendLine("[grey]  (no additional Docker networks found)[/]");
+            return new Markup(content.ToString());
         }
 
+        content.AppendLine("[grey58]Additional networks (Space to toggle):[/]");
         for(int i = 0; i < availableNetworkNames.Count; i++)
         {
             string networkName = availableNetworkNames[i];
             bool isActive = activeNetworkNames.Contains(networkName);
-            string checkbox = isActive ? "[deepskyblue1][[x]][/]" : "[grey][[ ]][/]";
-            networkTable.AddRow(FormatSelectableRow(Markup.Escape(networkName), selectedNetworkIndex == i + 1, checkbox));
+            bool isSelected = selectedNetworkIndex == i + 1;
+            string checkbox = isActive ? "[green]☑[/]" : "[grey]☐[/]";
+
+            if(isSelected)
+            {
+                content.AppendLine($"[dodgerblue1]▶[/] {checkbox} [bold white]{Markup.Escape(networkName)}[/]");
+            }
+            else
+            {
+                content.AppendLine($"  {checkbox} [grey70]{Markup.Escape(networkName)}[/]");
+            }
         }
 
-        return networkTable;
+        return new Markup(content.ToString());
     }
 
     private static string FormatSelectableRow(string label, bool isSelected, string iconMarkup)
@@ -451,7 +560,6 @@ internal sealed class RunCliCommand : Command
     private static DockerNetworkMode CycleDockerNetworkMode(DockerNetworkMode networkMode) => networkMode switch
     {
         DockerNetworkMode.Bridge => DockerNetworkMode.Host,
-        DockerNetworkMode.Host => DockerNetworkMode.None,
         _ => DockerNetworkMode.Bridge
     };
 
@@ -460,14 +568,12 @@ internal sealed class RunCliCommand : Command
     private static string GetDockerNetworkModeLabel(DockerNetworkMode networkMode) => networkMode switch
     {
         DockerNetworkMode.Host => "host",
-        DockerNetworkMode.None => "none",
         _ => "bridge"
     };
 
     private static string? ResolveDockerNetworkModeArgument(DockerNetworkMode networkMode) => networkMode switch
     {
         DockerNetworkMode.Host => "host",
-        DockerNetworkMode.None => "none",
         _ => null
     };
 
@@ -871,8 +977,7 @@ internal sealed class RunCliCommand : Command
     private enum DockerNetworkMode
     {
         Bridge,
-        Host,
-        None
+        Host
     }
 
     private enum ExplorerEntryType

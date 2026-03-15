@@ -5,7 +5,7 @@ namespace OpencodeWrap;
 
 internal static class AppIO
 {
-    private const string BRAND_LABEL = "[bold deepskyblue1]ocw[/]";
+    private const string BRAND_LABEL = "[bold dodgerblue1]🚀 ocw[/]";
 
     public static void WriteError(string message)
         => WriteMessage("[red]✖[/]", message);
