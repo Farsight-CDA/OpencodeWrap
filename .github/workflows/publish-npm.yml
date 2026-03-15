@@ -308,11 +308,13 @@ jobs:
           dotnet restore src/OpencodeWrap.csproj -r "${{ matrix.runtime }}"
           dotnet publish src/OpencodeWrap.csproj -c Release -r "${{ matrix.runtime }}" --self-contained true -p:PublishAot=true -p:PublishSingleFile=true -p:PublishTrimmed=true -p:UseAppHost=true
 
-          mkdir -p "${{ matrix.package_dir }}/bin"
+          mkdir -p "${{ matrix.package_dir }}/bin" release-assets
           cp "src/bin/Release/net10.0/${{ matrix.runtime }}/publish/${{ matrix.binary }}" "${{ matrix.package_dir }}/bin/${{ matrix.binary }}"
+          cp "src/bin/Release/net10.0/${{ matrix.runtime }}/publish/${{ matrix.binary }}" "release-assets/${{ matrix.asset_name }}"
 
           if [[ "${{ matrix.binary }}" != *.exe ]]; then
             chmod +x "${{ matrix.package_dir }}/bin/${{ matrix.binary }}"
+            chmod +x "release-assets/${{ matrix.asset_name }}"
           fi
 
           npm version "$VERSION" --no-git-tag-version --prefix "${{ matrix.package_dir }}"
@@ -324,7 +326,7 @@ jobs:
             (cd "${{ matrix.package_dir }}" && npm publish --access public --tag latest)
           fi
 
-          gh release upload "$RELEASE_TAG" "src/bin/Release/net10.0/${{ matrix.runtime }}/publish/${{ matrix.binary }}#${{ matrix.asset_name }}" --clobber
+          gh release upload "$RELEASE_TAG" "release-assets/${{ matrix.asset_name }}" --clobber
 
   publish-release-main-package:
     name: Publish release main package
