@@ -79,6 +79,9 @@ ocw run --mount-mode no-mount        # do not mount workspace
 ocw run -p default --resource-dir "C:\\Something"
 ocw run -p default --resource-dir ../shared-assets --resource-dir ../docs
 # Mounted in container under /workspace/.ocw-resources/<directory-name>
+# OCW also appends runtime AGENTS instructions in the session profile's opencode directory so OpenCode
+# knows these mounts are read-only reference material, and that it is running inside a Docker container
+# where /tmp is safe for scratch clones and temp tools.
 
 # Profile management
 ocw profile list

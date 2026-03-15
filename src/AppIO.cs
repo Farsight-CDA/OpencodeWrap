@@ -1,5 +1,5 @@
-using Spectre.Console;
 using Microsoft.Extensions.Logging;
+using Spectre.Console;
 
 namespace OpencodeWrap;
 

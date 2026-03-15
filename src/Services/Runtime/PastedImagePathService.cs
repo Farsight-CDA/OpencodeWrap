@@ -160,16 +160,11 @@ internal sealed partial class PastedImagePathService : Singleton
         };
 
     private static string NormalizeImageExtension(string extension)
-    {
-        if(String.IsNullOrWhiteSpace(extension))
-        {
-            return "";
-        }
-
-        return extension.StartsWith(".", StringComparison.Ordinal)
-            ? extension.ToLowerInvariant()
-            : $".{extension.ToLowerInvariant()}";
-    }
+        => String.IsNullOrWhiteSpace(extension)
+            ? ""
+            : extension.StartsWith(".", StringComparison.Ordinal)
+                ? extension.ToLowerInvariant()
+                : $".{extension.ToLowerInvariant()}";
 
     private static string BuildStagedFileName(string sourcePath)
     {

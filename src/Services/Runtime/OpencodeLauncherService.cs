@@ -1,5 +1,6 @@
-using System.Runtime.InteropServices;
 using Microsoft.Extensions.Logging;
+using System.Runtime.InteropServices;
+using System.Text;
 
 namespace OpencodeWrap.Services.Runtime;
 
@@ -73,6 +74,8 @@ internal sealed partial class OpencodeLauncherService : Singleton
                 return 1;
             }
 
+            string runtimeAgentInstructions = BuildRuntimeAgentInstructions(containerWorkDir, workspaceMountMode, additionalReadonlyMounts);
+
             _containerName = $"opencode-wrap-{Guid.NewGuid():N}"[..27];
             if(!_sessionStagingService.TryCreateSession(_containerName, out var session))
             {
@@ -84,6 +87,11 @@ internal sealed partial class OpencodeLauncherService : Singleton
 
             var (success, profile) = await _profileService.TryResolveProfileAsync(includeProfileConfig ? requestedProfileName : null, session.HostSessionDirectory);
             if(!success)
+            {
+                return 1;
+            }
+
+            if(!TryPrepareSessionProfile(profile, session.HostSessionDirectory, runtimeAgentInstructions, out profile))
             {
                 return 1;
             }
@@ -132,16 +140,16 @@ internal sealed partial class OpencodeLauncherService : Singleton
                 runArgs.AddRange(["--mount", workspaceMount]);
             }
 
-            runArgs.AddRange(["--mount", _volumeService.BuildBindMount(session.HostPasteDirectory, session.ContainerPasteDirectory) + ",readonly"]);
+            runArgs.AddRange(["--mount", $"{_volumeService.BuildBindMount(session.HostPasteDirectory, session.ContainerPasteDirectory)},readonly"]);
 
             foreach(var (hostPath, containerPath) in additionalReadonlyMounts)
             {
-                runArgs.AddRange(["--mount", _volumeService.BuildBindMount(hostPath, containerPath) + ",readonly"]);
+                runArgs.AddRange(["--mount", $"{_volumeService.BuildBindMount(hostPath, containerPath)},readonly"]);
             }
 
             if(includeProfileConfig)
             {
-                runArgs.AddRange(["--mount", _volumeService.BuildBindMount(profile.DirectoryPath, OpencodeWrapConstants.CONTAINER_PROFILE_ROOT) + ",readonly"]);
+                runArgs.AddRange(["--mount", $"{_volumeService.BuildBindMount(profile.DirectoryPath, OpencodeWrapConstants.CONTAINER_PROFILE_ROOT)},readonly"]);
             }
 
             runArgs.AddRange(
@@ -180,15 +188,139 @@ internal sealed partial class OpencodeLauncherService : Singleton
     {
         string profileEntrypointPath = $"{OpencodeWrapConstants.CONTAINER_PROFILE_ROOT}/{OpencodeWrapConstants.PROFILE_ENTRYPOINT_FILE_NAME}";
         string startupReadyMarkerEnvVar = InteractiveDockerRunnerService.STARTUP_READY_MARKER_ENV_VAR;
-        return "set -e; "
-            + "mkdir -p \"$XDG_CONFIG_HOME\" \"$XDG_DATA_HOME/opencode\" \"$XDG_STATE_HOME/opencode\" \"$HOME/.local/bin\"; "
-            + "rm -rf \"$XDG_CONFIG_HOME/opencode\"; "
-            + "mkdir -p \"$XDG_CONFIG_HOME/opencode\"; "
-            + "if [ -d \"$OCW_HOST_CONFIG_SOURCE\" ]; then cp -a \"$OCW_HOST_CONFIG_SOURCE\"/. \"$XDG_CONFIG_HOME/opencode/\"; fi; "
-            + "export PATH=\"/opt/opencode/.opencode/bin:/opt/opencode/.local/share/opencode/bin:/opt/opencode/.local/bin:$HOME/.opencode/bin:$XDG_DATA_HOME/opencode/bin:$HOME/.local/bin:$PATH\"; "
-            + $"if [ -n \"${{{startupReadyMarkerEnvVar}:-}}\" ]; then printf '%s' \"${{{startupReadyMarkerEnvVar}}}\" >&2; fi; "
-            + $"if [ -f \"{profileEntrypointPath}\" ]; then exec bash \"{profileEntrypointPath}\" \"$@\"; fi; "
-            + "exec opencode \"$@\"";
+        string startupReadyMarkerCheck = $"${{{startupReadyMarkerEnvVar}:-}}";
+        string startupReadyMarkerValue = $"${{{startupReadyMarkerEnvVar}}}";
+        return $$"""
+        set -e
+        mkdir -p "$XDG_CONFIG_HOME" "$XDG_DATA_HOME/opencode" "$XDG_STATE_HOME/opencode" "$HOME/.local/bin"
+        rm -rf "$XDG_CONFIG_HOME/opencode"
+        mkdir -p "$XDG_CONFIG_HOME/opencode"
+        if [ -d "$OCW_HOST_CONFIG_SOURCE" ]; then cp -a "$OCW_HOST_CONFIG_SOURCE"/. "$XDG_CONFIG_HOME/opencode/"; fi
+        export PATH="/opt/opencode/.opencode/bin:/opt/opencode/.local/share/opencode/bin:/opt/opencode/.local/bin:$HOME/.opencode/bin:$XDG_DATA_HOME/opencode/bin:$HOME/.local/bin:$PATH"
+        if [ -n "{{startupReadyMarkerCheck}}" ]; then printf '%s' "{{startupReadyMarkerValue}}" >&2; fi
+        if [ -f "{{profileEntrypointPath}}" ]; then exec bash "{{profileEntrypointPath}}" "$@"; fi
+        exec opencode "$@"
+        """;
+    }
+
+    private static string BuildRuntimeAgentInstructions(
+        string containerWorkDir,
+        WorkspaceMountMode workspaceMountMode,
+        IReadOnlyList<(string HostPath, string ContainerPath)> additionalReadonlyMounts)
+    {
+        var builder = new StringBuilder();
+        builder.AppendLine("# OCW Runtime Environment");
+        builder.AppendLine();
+        builder.AppendLine("- You are running inside a disposable Docker container started by OpencodeWrap.");
+        builder.AppendLine("- You may freely clone temporary reference repositories and create scratch files under `/tmp`.");
+        builder.AppendLine("- You may freely install transient user-space tools into writable locations such as `/tmp` and `$HOME/.local/bin`.");
+        builder.AppendLine("- Do not assume root access or that system-wide package installation is available.");
+
+        if(workspaceMountMode == WorkspaceMountMode.None)
+        {
+            builder.AppendLine("- No workspace directory is mounted for this session.");
+        }
+        else
+        {
+            builder.AppendLine($"- The current workspace for this session is `{containerWorkDir}`.");
+        }
+
+        if(additionalReadonlyMounts.Count == 0)
+        {
+            builder.AppendLine($"- No additional read-only reference directories are mounted under `{OpencodeWrapConstants.CONTAINER_RESOURCE_ROOT}` for this session.");
+            return builder.ToString().TrimEnd();
+        }
+
+        builder.AppendLine($"- Additional reference directories are mounted read-only under `{OpencodeWrapConstants.CONTAINER_RESOURCE_ROOT}`.");
+        builder.AppendLine("- Treat those resource directories as reference material only and do not attempt to modify them.");
+        builder.AppendLine();
+        builder.AppendLine("## Current Read-Only Resource Directories");
+        builder.AppendLine();
+
+        foreach(var (hostPath, containerPath) in additionalReadonlyMounts)
+        {
+            builder.AppendLine($"- `{containerPath}` (host source: `{hostPath}`)");
+        }
+
+        return builder.ToString().TrimEnd();
+    }
+
+    private static bool TryPrepareSessionProfile(
+        ResolvedProfile profile,
+        string sessionDirectoryPath,
+        string runtimeAgentInstructions,
+        out ResolvedProfile sessionProfile)
+    {
+        string sessionProfileDirectoryPath = Path.Combine(sessionDirectoryPath, "profile");
+        string sessionConfigDirectoryPath = Path.Combine(sessionProfileDirectoryPath, OpencodeWrapConstants.PROFILE_OPENCODE_DIRECTORY_NAME);
+
+        try
+        {
+            if(!String.Equals(profile.DirectoryPath, sessionProfileDirectoryPath, StringComparison.Ordinal))
+            {
+                AppIO.TryDeleteDirectory(sessionProfileDirectoryPath);
+                Directory.CreateDirectory(sessionProfileDirectoryPath);
+                CopyDirectoryContents(profile.DirectoryPath, sessionProfileDirectoryPath);
+            }
+
+            Directory.CreateDirectory(sessionConfigDirectoryPath);
+
+            string agentsPath = Path.Combine(sessionConfigDirectoryPath, "AGENTS.md");
+            if(File.Exists(agentsPath))
+            {
+                string existingContent = File.ReadAllText(agentsPath);
+                string combinedContent = String.IsNullOrWhiteSpace(existingContent)
+                    ? runtimeAgentInstructions
+                    : existingContent.TrimEnd() + Environment.NewLine + Environment.NewLine + runtimeAgentInstructions;
+                File.WriteAllText(agentsPath, combinedContent);
+            }
+            else
+            {
+                File.WriteAllText(agentsPath, runtimeAgentInstructions);
+            }
+
+            sessionProfile = new ResolvedProfile(
+                profile.Name,
+                sessionProfileDirectoryPath,
+                Path.Combine(sessionProfileDirectoryPath, OpencodeWrapConstants.PROFILE_DOCKERFILE_NAME),
+                ConfigDirectoryPath: sessionConfigDirectoryPath,
+                CleanupDirectoryPath: null);
+
+            return true;
+        }
+        catch(Exception ex)
+        {
+            AppIO.WriteError($"Failed to prepare session profile in '{sessionProfileDirectoryPath}': {ex.Message}");
+            if(!String.Equals(profile.DirectoryPath, sessionProfileDirectoryPath, StringComparison.Ordinal))
+            {
+                AppIO.TryDeleteDirectory(sessionProfileDirectoryPath);
+            }
+
+            sessionProfile = profile;
+            return false;
+        }
+    }
+
+    private static void CopyDirectoryContents(string sourceDirectoryPath, string destinationDirectoryPath)
+    {
+        foreach(string directoryPath in Directory.EnumerateDirectories(sourceDirectoryPath, "*", SearchOption.AllDirectories))
+        {
+            string relativePath = Path.GetRelativePath(sourceDirectoryPath, directoryPath);
+            Directory.CreateDirectory(Path.Combine(destinationDirectoryPath, relativePath));
+        }
+
+        foreach(string filePath in Directory.EnumerateFiles(sourceDirectoryPath, "*", SearchOption.AllDirectories))
+        {
+            string relativePath = Path.GetRelativePath(sourceDirectoryPath, filePath);
+            string destinationPath = Path.Combine(destinationDirectoryPath, relativePath);
+            string? destinationParent = Path.GetDirectoryName(destinationPath);
+            if(!String.IsNullOrWhiteSpace(destinationParent))
+            {
+                Directory.CreateDirectory(destinationParent);
+            }
+
+            File.Copy(filePath, destinationPath, overwrite: true);
+        }
     }
 
     private static string ResolveContainerWorkspacePath(string hostWorkDir)

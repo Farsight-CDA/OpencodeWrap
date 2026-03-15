@@ -197,9 +197,7 @@ internal sealed partial class InteractiveDockerRunnerService : Singleton
     }
 
     private static Process? TryStartUnixRelayProcess(IReadOnlyList<string> dockerArgs)
-    {
-        return TryStartUnixRelayProcess(dockerArgs, out _);
-    }
+        => TryStartUnixRelayProcess(dockerArgs, out _);
 
     private static Process? TryStartUnixRelayProcess(IReadOnlyList<string> dockerArgs, out string? failureReason)
     {
@@ -239,16 +237,13 @@ internal sealed partial class InteractiveDockerRunnerService : Singleton
     {
         string output = FirstNonEmptyLine(result.StdErr, result.StdOut);
 
-        if(!result.Started)
-        {
-            return String.IsNullOrWhiteSpace(output)
+        return !result.Started
+            ? String.IsNullOrWhiteSpace(output)
                 ? $"{commandDescription} could not start"
-                : $"{commandDescription} could not start: {output}";
-        }
-
-        return String.IsNullOrWhiteSpace(output)
-            ? $"{commandDescription} exited with code {result.ExitCode}"
-            : $"{commandDescription} exited with code {result.ExitCode}: {output}";
+                : $"{commandDescription} could not start: {output}"
+            : String.IsNullOrWhiteSpace(output)
+                ? $"{commandDescription} exited with code {result.ExitCode}"
+                : $"{commandDescription} exited with code {result.ExitCode}: {output}";
     }
 
     private static string FirstNonEmptyLine(params string[] values)
@@ -276,7 +271,7 @@ internal sealed partial class InteractiveDockerRunnerService : Singleton
 
     private static ProcessStartInfo BuildUnixRelayStartInfo(IReadOnlyList<string> dockerArgs)
     {
-        string dockerCommand = "exec docker " + String.Join(' ', dockerArgs.Select(QuoteForShell));
+        string dockerCommand = $"exec docker {String.Join(' ', dockerArgs.Select(QuoteForShell))}";
 
         var psi = new ProcessStartInfo("script")
         {
@@ -320,7 +315,7 @@ internal sealed partial class InteractiveDockerRunnerService : Singleton
                     break;
                 }
 
-                ReadOnlyMemory<byte> bytesToWrite = outputFilter?.Filter(buffer.AsSpan(0, bytesRead)) ?? buffer.AsMemory(0, bytesRead);
+                var bytesToWrite = outputFilter?.Filter(buffer.AsSpan(0, bytesRead)) ?? buffer.AsMemory(0, bytesRead);
                 if(bytesToWrite.Length == 0)
                 {
                     continue;
@@ -332,7 +327,7 @@ internal sealed partial class InteractiveDockerRunnerService : Singleton
 
             if(outputFilter is not null)
             {
-                ReadOnlyMemory<byte> trailingBytes = outputFilter.Flush();
+                var trailingBytes = outputFilter.Flush();
                 if(trailingBytes.Length > 0)
                 {
                     await destination.WriteAsync(trailingBytes, cancellationToken);
@@ -584,7 +579,7 @@ internal sealed partial class InteractiveDockerRunnerService : Singleton
     }
 
     private static string QuoteForShell(string value)
-        => "'" + value.Replace("'", "'\"'\"'", StringComparison.Ordinal) + "'";
+        => $"'{value.Replace("'", "'\"'\"'", StringComparison.Ordinal)}'";
 
     private sealed class BracketedPasteRelay(
         InteractiveSessionContext session,

@@ -12,7 +12,7 @@ internal sealed partial class DeferredSessionLogService : Singleton
     {
         lock(_sync)
         {
-            SessionBuffer? previousSession = _currentSession;
+            var previousSession = _currentSession;
             var session = new SessionBuffer(minimumLevel);
             _currentSession = session;
             return new SessionScope(this, previousSession, session);
@@ -111,7 +111,7 @@ internal sealed partial class DeferredSessionLogService : Singleton
             }
 
             AppIO.WriteHeader("Session Log");
-            foreach(SessionLogEntry entry in entries)
+            foreach(var entry in entries)
             {
                 AppIO.WriteLog(entry.Level, entry.Text);
             }

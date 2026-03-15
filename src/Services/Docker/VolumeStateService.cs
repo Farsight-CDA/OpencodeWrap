@@ -142,7 +142,12 @@ internal sealed partial class VolumeStateService : Singleton
                 "ubuntu:24.04",
                 "bash",
                 "-lc",
-                $"set -e; mkdir -p /target; chown -R {userSpec} /target; chmod -R u+rwX /target"
+                $"""
+                set -e
+                mkdir -p /target
+                chown -R {userSpec} /target
+                chmod -R u+rwX /target
+                """
             ]);
 
         if(!result.Success)
@@ -165,12 +170,20 @@ internal sealed partial class VolumeStateService : Singleton
                 "run",
                 "--rm",
                 "--user", "root",
-                "--mount", BuildBindMount(sourceRootDirectory, "/source") + ",readonly",
+                "--mount", $"{BuildBindMount(sourceRootDirectory, "/source")},readonly",
                 "--mount", BuildVolumeMount(volumeName, "/target"),
                 "ubuntu:24.04",
                 "bash",
                 "-lc",
-                "set -e; mkdir -p /target/.local/share /target/.local/state; rm -rf /target/.local/share/opencode /target/.local/state/opencode /target/share/opencode /target/state/opencode; if [ -d /source/.local/share/opencode ]; then cp -a /source/.local/share/opencode /target/.local/share/opencode; fi; if [ -d /source/.local/state/opencode ]; then cp -a /source/.local/state/opencode /target/.local/state/opencode; fi; find /target/.local/share/opencode /target/.local/state/opencode -type f -name '*-shm' -delete 2>/dev/null || true; find /target/.local/share/opencode /target/.local/state/opencode -type f -name '*-wal' -delete 2>/dev/null || true"
+                """
+                set -e
+                mkdir -p /target/.local/share /target/.local/state
+                rm -rf /target/.local/share/opencode /target/.local/state/opencode /target/share/opencode /target/state/opencode
+                if [ -d /source/.local/share/opencode ]; then cp -a /source/.local/share/opencode /target/.local/share/opencode; fi
+                if [ -d /source/.local/state/opencode ]; then cp -a /source/.local/state/opencode /target/.local/state/opencode; fi
+                find /target/.local/share/opencode /target/.local/state/opencode -type f -name '*-shm' -delete 2>/dev/null || true
+                find /target/.local/share/opencode /target/.local/state/opencode -type f -name '*-wal' -delete 2>/dev/null || true
+                """
             ]);
 
         if(!result.Success)
@@ -202,7 +215,16 @@ internal sealed partial class VolumeStateService : Singleton
             "ubuntu:24.04",
             "bash",
             "-lc",
-            $"set -e; rm -rf /target/* /target/.[!.]* /target/..?* 2>/dev/null || true; mkdir -p /target; source_dir=/source/{sourceSubdirectory}; legacy_dir=/source/{GetLegacyVolumeSubdirectory(sourceSubdirectory)}; if [ -d \"$source_dir\" ]; then cp -a \"$source_dir\"/. /target/; elif [ -d \"$legacy_dir\" ]; then cp -a \"$legacy_dir\"/. /target/; fi; find /target -type f -name '*-shm' -delete 2>/dev/null || true; find /target -type f -name '*-wal' -delete 2>/dev/null || true"
+            $"""
+            set -e
+            rm -rf /target/* /target/.[!.]* /target/..?* 2>/dev/null || true
+            mkdir -p /target
+            source_dir=/source/{sourceSubdirectory}
+            legacy_dir=/source/{GetLegacyVolumeSubdirectory(sourceSubdirectory)}
+            if [ -d "$source_dir" ]; then cp -a "$source_dir"/. /target/; elif [ -d "$legacy_dir" ]; then cp -a "$legacy_dir"/. /target/; fi
+            find /target -type f -name '*-shm' -delete 2>/dev/null || true
+            find /target -type f -name '*-wal' -delete 2>/dev/null || true
+            """
         ]);
 
         var result = await ProcessRunner.RunAsync(
@@ -240,7 +262,17 @@ internal sealed partial class VolumeStateService : Singleton
                 "ubuntu:24.04",
                 "bash",
                 "-lc",
-                "set -e; has_data=0; for dir in /target/.local/share/opencode /target/.local/state/opencode /target/share/opencode /target/state/opencode; do if [ -d \"$dir\" ] && [ \"$(find \"$dir\" -mindepth 1 -print -quit 2>/dev/null)\" ]; then has_data=1; break; fi; done; if [ \"$has_data\" -eq 1 ]; then printf 'has-data'; else printf 'empty'; fi"
+                """
+                set -e
+                has_data=0
+                for dir in /target/.local/share/opencode /target/.local/state/opencode /target/share/opencode /target/state/opencode; do
+                    if [ -d "$dir" ] && [ "$(find "$dir" -mindepth 1 -print -quit 2>/dev/null)" ]; then
+                        has_data=1
+                        break
+                    fi
+                done
+                if [ "$has_data" -eq 1 ]; then printf 'has-data'; else printf 'empty'; fi
+                """
             ]);
 
         if(!result.Success)
