@@ -103,6 +103,7 @@ jobs:
       contents: write
     env:
       GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
       RELEASE_TAG: v${{ needs.resolve-publish-context.outputs.release_version }}
 
     steps:
