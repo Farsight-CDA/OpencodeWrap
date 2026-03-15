@@ -230,9 +230,6 @@ internal sealed partial class InteractiveDockerRunnerService : Singleton
         }
     }
 
-    private static Process? TryStartUnixRelayProcess(IReadOnlyList<string> dockerArgs)
-        => TryStartUnixRelayProcess(dockerArgs, out _);
-
     private static Process? TryStartUnixRelayProcess(IReadOnlyList<string> dockerArgs, out string? failureReason)
     {
         failureReason = null;
@@ -1122,14 +1119,13 @@ internal sealed partial class InteractiveDockerRunnerService : Singleton
             => WriteRelayBytes(relayInput, bytes);
     }
 
-    private sealed partial class UnixTerminalModeScope(string savedState) : IDisposable
+    private sealed partial class UnixTerminalModeScope : IDisposable
     {
         private static readonly byte[] _bracketedPasteDisableSequence = "\u001b[?2004l"u8.ToArray();
         private const int STDIN_FILE_DESCRIPTOR = 0;
         private const int TCIFLUSH = 0;
         private static readonly Lock _sync = new();
         private static string? _activeState;
-        private readonly string _savedState = savedState;
         private bool _disposed;
 
         public static bool TryEnter(out UnixTerminalModeScope? scope, out string? failureReason)
@@ -1157,7 +1153,7 @@ internal sealed partial class InteractiveDockerRunnerService : Singleton
                 _activeState = savedState;
             }
 
-            scope = new UnixTerminalModeScope(savedState);
+            scope = new UnixTerminalModeScope();
             return true;
         }
 

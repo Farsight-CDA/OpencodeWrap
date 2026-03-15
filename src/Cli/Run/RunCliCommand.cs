@@ -206,7 +206,7 @@ internal sealed class RunCliCommand : Command
                             break;
                         }
 
-                        if(!TryNormalizeResourceDirectory(inputPath, out string normalizedPath, out _))
+                        if(!TryNormalizeResourceDirectory(inputPath, out string normalizedPath))
                         {
                             break;
                         }
@@ -536,15 +536,6 @@ internal sealed class RunCliCommand : Command
         }
 
         return new Markup(content.ToString());
-    }
-
-    private static string FormatSelectableRow(string label, bool isSelected, string iconMarkup)
-    {
-        string cursor = isSelected ? "[deepskyblue1]>[/]" : " ";
-        string formattedLabel = isSelected
-            ? $"[bold deepskyblue1]{label}[/]"
-            : label;
-        return $"{cursor} {iconMarkup} {formattedLabel}";
     }
 
     private static RunSelectionTab CycleInteractiveTab(RunSelectionTab selectedTab, bool movingRight) => (selectedTab, movingRight) switch
@@ -939,23 +930,20 @@ internal sealed class RunCliCommand : Command
         return true;
     }
 
-    private static bool TryNormalizeResourceDirectory(string requestedDirectory, out string normalizedPath, out string errorMessage)
+    private static bool TryNormalizeResourceDirectory(string requestedDirectory, out string normalizedPath)
     {
         if(String.IsNullOrWhiteSpace(requestedDirectory))
         {
             normalizedPath = "";
-            errorMessage = "Resource directory cannot be empty.";
             return false;
         }
 
         normalizedPath = Path.TrimEndingDirectorySeparator(Path.GetFullPath(requestedDirectory));
         if(!Directory.Exists(normalizedPath))
         {
-            errorMessage = $"Resource directory not found: '{normalizedPath}'.";
             return false;
         }
 
-        errorMessage = "";
         return true;
     }
 

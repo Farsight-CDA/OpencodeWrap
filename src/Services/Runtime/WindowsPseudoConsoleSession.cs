@@ -11,7 +11,6 @@ internal sealed partial class WindowsPseudoConsoleSession : IDisposable
     private const uint EXTENDED_STARTUPINFO_PRESENT = 0x00080000;
     private const uint PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE = 0x00020016;
     private const uint WAIT_OBJECT_0 = 0x00000000;
-    private const uint WAIT_TIMEOUT = 0x00000102;
     private const uint INFINITE = 0xFFFFFFFF;
 
     private readonly FileStream _inputStream;
@@ -492,8 +491,6 @@ internal sealed partial class WindowsConsoleModeScope : IDisposable
     private const uint ENABLE_PROCESSED_INPUT = 0x0001;
     private const uint ENABLE_LINE_INPUT = 0x0002;
     private const uint ENABLE_ECHO_INPUT = 0x0004;
-    private const uint ENABLE_WINDOW_INPUT = 0x0008;
-    private const uint ENABLE_MOUSE_INPUT = 0x0010;
     private const uint ENABLE_QUICK_EDIT_MODE = 0x0040;
     private const uint ENABLE_VIRTUAL_TERMINAL_INPUT = 0x0200;
     private const uint ENABLE_PROCESSED_OUTPUT = 0x0001;
