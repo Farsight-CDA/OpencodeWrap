@@ -105,6 +105,10 @@ internal sealed partial class OpencodeLauncherService : Singleton
                 return 1;
             }
 
+            string containerXdgConfigHome = includeProfileConfig
+                ? OpencodeWrapConstants.CONTAINER_PROFILE_ROOT
+                : OpencodeWrapConstants.CONTAINER_XDG_CONFIG_HOME;
+
             string? userSpec = await _hostService.GetContainerUserSpecAsync();
             var runArgs = new List<string> { "run" };
 
@@ -118,12 +122,11 @@ internal sealed partial class OpencodeLauncherService : Singleton
                 "--rm",
                 "-it",
                 "--name", _containerName,
-                "-e", $"XDG_CONFIG_HOME={OpencodeWrapConstants.CONTAINER_XDG_CONFIG_HOME}",
+                "-e", $"XDG_CONFIG_HOME={containerXdgConfigHome}",
                 "-e", $"XDG_DATA_HOME={OpencodeWrapConstants.CONTAINER_XDG_DATA_HOME}",
                 "-e", $"XDG_STATE_HOME={OpencodeWrapConstants.CONTAINER_XDG_STATE_HOME}",
                 "-e", $"{InteractiveDockerRunnerService.STARTUP_READY_MARKER_ENV_VAR}={InteractiveDockerRunnerService.STARTUP_READY_MARKER}",
-                "-e", $"OCW_PROFILE_ROOT={OpencodeWrapConstants.CONTAINER_PROFILE_ROOT}",
-                "-e", $"OCW_HOST_CONFIG_SOURCE={OpencodeWrapConstants.CONTAINER_HOST_CONFIG_SOURCE}"
+                "-e", $"OCW_PROFILE_ROOT={OpencodeWrapConstants.CONTAINER_PROFILE_ROOT}"
             ]);
 
             runArgs.AddRange(BuildTerminalEnvironmentArgs());
@@ -148,7 +151,7 @@ internal sealed partial class OpencodeLauncherService : Singleton
 
             if(includeProfileConfig)
             {
-                runArgs.AddRange(["--mount", $"{_volumeService.BuildBindMount(profile.DirectoryPath, OpencodeWrapConstants.CONTAINER_PROFILE_ROOT)},readonly"]);
+                runArgs.AddRange(["--mount", _volumeService.BuildBindMount(profile.DirectoryPath, OpencodeWrapConstants.CONTAINER_PROFILE_ROOT)]);
             }
 
             runArgs.AddRange(
@@ -186,17 +189,15 @@ internal sealed partial class OpencodeLauncherService : Singleton
     private static string BuildContainerCommand()
     {
         string profileEntrypointPath = $"{OpencodeWrapConstants.CONTAINER_PROFILE_ROOT}/{OpencodeWrapConstants.PROFILE_ENTRYPOINT_FILE_NAME}";
-        string ocwBinPath = $"{OpencodeWrapConstants.CONTAINER_OCW_ROOT}/bin";
+        string profileBinPath = $"{OpencodeWrapConstants.CONTAINER_PROFILE_ROOT}/{OpencodeWrapConstants.PROFILE_BIN_DIRECTORY_NAME}";
+        string ocwBinPath = OpencodeWrapConstants.CONTAINER_TOOL_BIN_ROOT;
         string startupReadyMarkerEnvVar = InteractiveDockerRunnerService.STARTUP_READY_MARKER_ENV_VAR;
         string startupReadyMarkerCheck = $"${{{startupReadyMarkerEnvVar}:-}}";
         string startupReadyMarkerValue = $"${{{startupReadyMarkerEnvVar}}}";
         return $$"""
         set -e
-        mkdir -p "$XDG_CONFIG_HOME" "$XDG_DATA_HOME/opencode" "$XDG_STATE_HOME/opencode" "{{ocwBinPath}}"
-        rm -rf "$XDG_CONFIG_HOME/opencode"
-        mkdir -p "$XDG_CONFIG_HOME/opencode"
-        if [ -d "$OCW_HOST_CONFIG_SOURCE" ]; then cp -a "$OCW_HOST_CONFIG_SOURCE"/. "$XDG_CONFIG_HOME/opencode/"; fi
-        export PATH="/opt/opencode/.opencode/bin:/opt/opencode/.local/share/opencode/bin:/opt/opencode/.local/bin:$XDG_DATA_HOME/opencode/bin:{{ocwBinPath}}${HOME:+:$HOME/.opencode/bin:$HOME/.local/share/opencode/bin:$HOME/.local/bin}:$PATH"
+        mkdir -p "$XDG_CONFIG_HOME" "$XDG_CONFIG_HOME/opencode" "$XDG_DATA_HOME/opencode" "$XDG_STATE_HOME/opencode" "{{ocwBinPath}}"
+        export PATH="/opt/opencode/.opencode/bin:/opt/opencode/.local/share/opencode/bin:/opt/opencode/.local/bin:$XDG_DATA_HOME/opencode/bin:{{ocwBinPath}}:{{profileBinPath}}${HOME:+:$HOME/.opencode/bin:$HOME/.local/share/opencode/bin:$HOME/.local/bin}:$PATH"
         if [ -n "{{startupReadyMarkerCheck}}" ]; then printf '%s' "{{startupReadyMarkerValue}}" >&2; fi
         if [ -f "{{profileEntrypointPath}}" ]; then exec bash "{{profileEntrypointPath}}" "$@"; fi
         exec opencode "$@"
@@ -213,7 +214,8 @@ internal sealed partial class OpencodeLauncherService : Singleton
         builder.AppendLine();
         builder.AppendLine("- You are running inside a disposable Docker container started by OpencodeWrap.");
         builder.AppendLine("- You may freely clone temporary reference repositories and create scratch files under `/tmp`.");
-        builder.AppendLine($"- You may freely install transient user-space tools into writable locations such as `/tmp` and `{OpencodeWrapConstants.CONTAINER_OCW_ROOT}/bin`.");
+        builder.AppendLine($"- You may freely install transient user-space tools into writable locations such as `/tmp` and `{OpencodeWrapConstants.CONTAINER_TOOL_BIN_ROOT}`.");
+        builder.AppendLine($"- Profile-local helper binaries live under `{OpencodeWrapConstants.CONTAINER_PROFILE_ROOT}/{OpencodeWrapConstants.PROFILE_BIN_DIRECTORY_NAME}` and are added to `PATH` for profile runs.");
         builder.AppendLine("- Do not assume root access or that system-wide package installation is available.");
 
         if(workspaceMountMode == WorkspaceMountMode.None)

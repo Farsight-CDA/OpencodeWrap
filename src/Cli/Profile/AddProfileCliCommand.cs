@@ -9,7 +9,7 @@ internal sealed class AddProfileCliCommand : Command
     private readonly BuiltInProfileTemplateService _builtInProfileTemplateService;
 
     public AddProfileCliCommand(ProfileService profileService, BuiltInProfileTemplateService builtInProfileTemplateService)
-        : base("add", "Add a new profile with a starter Dockerfile and entrypoint script.")
+        : base("add", "Add a new profile with a starter Dockerfile, entrypoint script, and bin directory.")
     {
         _profileService = profileService;
         _builtInProfileTemplateService = builtInProfileTemplateService;
@@ -54,8 +54,8 @@ internal sealed class AddProfileCliCommand : Command
         }
 
         string dockerfilePath = Path.Combine(profileDirectoryPath, OpencodeWrapConstants.PROFILE_DOCKERFILE_NAME);
-        string opencodeDirectoryPath = Path.Combine(profileDirectoryPath, OpencodeWrapConstants.PROFILE_OPENCODE_DIRECTORY_NAME);
-        string opencodeConfigPath = Path.Combine(opencodeDirectoryPath, "opencode.json");
+        string profileBinDirectoryPath = Path.Combine(profileDirectoryPath, OpencodeWrapConstants.PROFILE_BIN_DIRECTORY_NAME);
+        string opencodeConfigPath = Path.Combine(profileDirectoryPath, OpencodeWrapConstants.PROFILE_OPENCODE_DIRECTORY_NAME, "opencode.json");
 
         try
         {
@@ -68,7 +68,7 @@ internal sealed class AddProfileCliCommand : Command
                     return false;
                 }
 
-                Directory.CreateDirectory(opencodeDirectoryPath);
+                await _builtInProfileTemplateService.EnsureProfileSupportDirectoriesAsync(profileDirectoryPath);
 
                 var builtInProfile = _builtInProfileTemplateService.BuiltInProfiles.FirstOrDefault(profile =>
                     profile.Name.Equals(normalizedName, StringComparison.OrdinalIgnoreCase));
@@ -103,6 +103,7 @@ internal sealed class AddProfileCliCommand : Command
             ? "override"
             : "profile";
         AppIO.WriteSuccess($"Added {mode} '{normalizedName}' at '{profileDirectoryPath}'.");
+        AppIO.WriteInfo($"Profile-local helper binaries can go in '{profileBinDirectoryPath}'.");
         return 0;
     }
 }

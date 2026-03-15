@@ -6,8 +6,8 @@ Run [OpenCode](https://opencode.ai) in Docker with persistent state and lightwei
 
 - Runs OpenCode in an isolated Docker container on Linux/macOS/Windows hosts.
 - Persists OpenCode data across runs using a named Docker volume.
-- Keeps OCW-managed runtime config, state, and transient tool installs under `/ocw` inside the container while leaving `$HOME` unchanged.
-- Uses profile-based Dockerfiles from `~/.opencode-wrap/profiles/<profile>/Dockerfile`, profile entrypoints from `~/.opencode-wrap/profiles/<profile>/entrypoint.sh`, and OpenCode config files from `~/.opencode-wrap/profiles/<profile>/opencode/`.
+- Keeps OCW-managed persistent runtime state under `/ocw/state` and session-scoped config and ad hoc tool installs under `/ocw/session` inside the container while leaving `$HOME` unchanged.
+- Uses profile-based Dockerfiles from `~/.opencode-wrap/profiles/<profile>/Dockerfile`, profile entrypoints from `~/.opencode-wrap/profiles/<profile>/entrypoint.sh`, OpenCode config files from `~/.opencode-wrap/profiles/<profile>/opencode/`, and profile-local helper binaries from `~/.opencode-wrap/profiles/<profile>/bin/`.
 - Includes built-in starter profiles: `default`, `frontend`, `dotnet`, `data-science`, and `solidity`.
 
 ## Quick Start
@@ -53,7 +53,7 @@ dotnet publish src/OpencodeWrap.csproj -c Release -r linux-x64 --self-contained 
 ## Usage
 
 ```bash
-# Forward OpenCode args directly (default profile)
+# Forward OpenCode args directly without mounting a profile
 ocw <opencode-args>
 
 # Run with profile selection prompt
@@ -82,12 +82,15 @@ ocw run -p default --resource-dir ../shared-assets --resource-dir ../docs
 # Mounted in container under /workspace/.ocw-resources/<directory-name>
 # OCW also appends runtime AGENTS instructions in the session profile's opencode directory so OpenCode
 # knows these mounts are read-only reference material, and that it is running inside a Docker container
-# where /tmp is safe for scratch clones and temp tools.
+# where /tmp and /ocw/session/bin are safe for scratch clones and ad hoc session tools.
 
 # Profile management
 ocw profile list
 ocw profile add myprofile
 ocw profile build myprofile
+# New profiles include ~/.opencode-wrap/profiles/myprofile/bin/
+# Files placed there are mounted at /ocw/session/profile/bin and added to PATH
+# Built-in profiles materialized for a run also include that bin/ directory
 
 # Customize startup behavior per profile
 # ~/.opencode-wrap/profiles/myprofile/entrypoint.sh

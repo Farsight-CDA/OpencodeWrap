@@ -31,6 +31,14 @@ internal sealed partial class BuiltInProfileTemplateService : Singleton
     public IReadOnlyList<BuiltInProfileTemplate> BuiltInProfiles { get; } = _builtInProfiles;
     public BuiltInProfileTemplate StarterProfile { get; } = _builtInProfiles.First(profile => profile.IsDefault);
     public string DefaultEntrypointScript { get; } = LoadEmbeddedTextResource(DEFAULT_ENTRYPOINT_RESOURCE_NAME);
+    public string ProfileBinReadme { get; } = $$"""
+        Place helper executables or scripts for this profile in this directory.
+
+        OCW mounts this directory inside the container at `{{OpencodeWrapConstants.CONTAINER_PROFILE_ROOT}}/{{OpencodeWrapConstants.PROFILE_BIN_DIRECTORY_NAME}}`
+        and adds it to `PATH` for profile runs.
+
+        On Unix-like hosts, remember to mark scripts or binaries as executable.
+        """;
 
     public async Task<(bool Success, string TemporaryDirectoryPath)> TryMaterializeBuiltInProfileAsync(BuiltInProfileTemplate builtInProfile, string? materializationRootDirectory = null)
     {
@@ -42,8 +50,7 @@ internal sealed partial class BuiltInProfileTemplateService : Singleton
         {
             Directory.CreateDirectory(temporaryDirectoryPath);
             await File.WriteAllTextAsync(Path.Combine(temporaryDirectoryPath, OpencodeWrapConstants.PROFILE_DOCKERFILE_NAME), builtInProfile.Dockerfile);
-            string opencodeDirectoryPath = Path.Combine(temporaryDirectoryPath, OpencodeWrapConstants.PROFILE_OPENCODE_DIRECTORY_NAME);
-            Directory.CreateDirectory(opencodeDirectoryPath);
+            string opencodeDirectoryPath = await EnsureProfileSupportDirectoriesAsync(temporaryDirectoryPath);
             await File.WriteAllTextAsync(Path.Combine(opencodeDirectoryPath, "opencode.json"), builtInProfile.OpencodeConfig);
             await WriteDefaultEntrypointAsync(temporaryDirectoryPath);
             return (true, temporaryDirectoryPath);
@@ -77,6 +84,23 @@ internal sealed partial class BuiltInProfileTemplateService : Singleton
         catch(Exception)
         {
         }
+    }
+
+    public async Task<string> EnsureProfileSupportDirectoriesAsync(string profileDirectoryPath)
+    {
+        string opencodeDirectoryPath = Path.Combine(profileDirectoryPath, OpencodeWrapConstants.PROFILE_OPENCODE_DIRECTORY_NAME);
+        string binDirectoryPath = Path.Combine(profileDirectoryPath, OpencodeWrapConstants.PROFILE_BIN_DIRECTORY_NAME);
+        string binReadmePath = Path.Combine(binDirectoryPath, "README.md");
+
+        Directory.CreateDirectory(opencodeDirectoryPath);
+        Directory.CreateDirectory(binDirectoryPath);
+
+        if(!File.Exists(binReadmePath))
+        {
+            await File.WriteAllTextAsync(binReadmePath, ProfileBinReadme);
+        }
+
+        return opencodeDirectoryPath;
     }
 
     private static string LoadEmbeddedTextResource(string resourceNameSuffix)

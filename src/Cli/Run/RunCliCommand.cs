@@ -14,7 +14,7 @@ internal sealed class RunCliCommand : Command
     private readonly Option<bool> _verboseOption;
 
     public RunCliCommand(OpencodeLauncherService launcherService, ProfileService profileService, BuiltInProfileTemplateService builtInProfileTemplateService)
-        : base("run", "Run opencode with a selected profile config.")
+        : base("run", "Run opencode with a selected profile, including its config and bin directory.")
     {
         _launcherService = launcherService;
         _profileService = profileService;
