@@ -16,6 +16,7 @@ RUN apt-get update \
         less \
         procps \
         python3 \
+        python-is-python3 \
         unzip \
         zip \
     && rm -rf /var/lib/apt/lists/*

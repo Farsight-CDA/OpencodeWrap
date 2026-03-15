@@ -18,6 +18,7 @@ RUN apt-get update \
         miller \
         procps \
         python3 \
+        python-is-python3 \
         python3-pip \
         python3-venv \
         sqlite3 \

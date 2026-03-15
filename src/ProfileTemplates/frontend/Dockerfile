@@ -17,6 +17,7 @@ RUN apt-get update \
         less \
         procps \
         python3 \
+        python-is-python3 \
         unzip \
         xdg-utils \
         zip \
