@@ -5,6 +5,9 @@ internal sealed partial class VolumeStateService : Singleton
     [Inject]
     private readonly DockerHostService _hostService;
 
+    [Inject]
+    private readonly DeferredSessionLogService _deferredSessionLogService;
+
     public async Task<bool> EnsureVolumeReadyAsync()
     {
         if(!await _hostService.EnsureHostAndDockerAsync())
@@ -44,7 +47,7 @@ internal sealed partial class VolumeStateService : Singleton
             return true;
         }
 
-        AppIO.WriteError($"Docker volume '{OpencodeWrapConstants.XDG_VOLUME_NAME}' already contains imported state. Use -f or --force to overwrite it.");
+        _deferredSessionLogService.WriteErrorOrConsole("docker", $"Docker volume '{OpencodeWrapConstants.XDG_VOLUME_NAME}' already contains imported state. Use -f or --force to overwrite it.");
         return false;
     }
 
@@ -54,7 +57,7 @@ internal sealed partial class VolumeStateService : Singleton
         string sourceState = Path.Combine(sourceRoot, ".local", "state", "opencode");
         if(!Directory.Exists(sourceShare) && !Directory.Exists(sourceState))
         {
-            AppIO.WriteError($"Import source must contain at least one of '{sourceShare}' or '{sourceState}'.");
+            _deferredSessionLogService.WriteErrorOrConsole("docker", $"Import source must contain at least one of '{sourceShare}' or '{sourceState}'.");
             return false;
         }
 
@@ -91,11 +94,8 @@ internal sealed partial class VolumeStateService : Singleton
         var remove = await ProcessRunner.RunAsync("docker", ["volume", "rm", "-f", volumeName]);
         if(!remove.Success)
         {
-            AppIO.WriteError($"Failed to remove Docker volume '{volumeName}'.");
-            if(!String.IsNullOrWhiteSpace(remove.StdErr))
-            {
-                AppIO.WriteError(remove.StdErr.Trim());
-            }
+            _deferredSessionLogService.WriteErrorOrConsole("docker", $"Failed to remove Docker volume '{volumeName}'.");
+            _deferredSessionLogService.WriteErrorDetailsOrConsole("docker", remove.StdErr);
 
             return (false, false);
         }
@@ -118,11 +118,8 @@ internal sealed partial class VolumeStateService : Singleton
         var create = await ProcessRunner.RunAsync("docker", ["volume", "create", volumeName]);
         if(!create.Success)
         {
-            AppIO.WriteError($"Failed to create Docker volume '{volumeName}'.");
-            if(!String.IsNullOrWhiteSpace(create.StdErr))
-            {
-                AppIO.WriteError(create.StdErr.Trim());
-            }
+            _deferredSessionLogService.WriteErrorOrConsole("docker", $"Failed to create Docker volume '{volumeName}'.");
+            _deferredSessionLogService.WriteErrorDetailsOrConsole("docker", create.StdErr);
 
             return false;
         }
@@ -152,11 +149,8 @@ internal sealed partial class VolumeStateService : Singleton
 
         if(!result.Success)
         {
-            AppIO.WriteError($"Failed to set permissions on Docker volume '{volumeName}'.");
-            if(!String.IsNullOrWhiteSpace(result.StdErr))
-            {
-                AppIO.WriteError(result.StdErr.Trim());
-            }
+            _deferredSessionLogService.WriteErrorOrConsole("docker", $"Failed to set permissions on Docker volume '{volumeName}'.");
+            _deferredSessionLogService.WriteErrorDetailsOrConsole("docker", result.StdErr);
         }
 
         return result.Success;
@@ -188,11 +182,8 @@ internal sealed partial class VolumeStateService : Singleton
 
         if(!result.Success)
         {
-            AppIO.WriteError($"Failed to import state from '{sourceRootDirectory}' into volume '{volumeName}'.");
-            if(!String.IsNullOrWhiteSpace(result.StdErr))
-            {
-                AppIO.WriteError(result.StdErr.Trim());
-            }
+            _deferredSessionLogService.WriteErrorOrConsole("docker", $"Failed to import state from '{sourceRootDirectory}' into volume '{volumeName}'.");
+            _deferredSessionLogService.WriteErrorDetailsOrConsole("docker", result.StdErr);
         }
 
         return result.Success;
@@ -233,11 +224,8 @@ internal sealed partial class VolumeStateService : Singleton
 
         if(!result.Success)
         {
-            AppIO.WriteError($"Failed to export state from volume '{volumeName}/{sourceSubdirectory}' to '{destinationDirectory}'.");
-            if(!String.IsNullOrWhiteSpace(result.StdErr))
-            {
-                AppIO.WriteError(result.StdErr.Trim());
-            }
+            _deferredSessionLogService.WriteErrorOrConsole("docker", $"Failed to export state from volume '{volumeName}/{sourceSubdirectory}' to '{destinationDirectory}'.");
+            _deferredSessionLogService.WriteErrorDetailsOrConsole("docker", result.StdErr);
         }
 
         return result.Success;
@@ -277,11 +265,8 @@ internal sealed partial class VolumeStateService : Singleton
 
         if(!result.Success)
         {
-            AppIO.WriteError($"Failed to inspect Docker volume '{volumeName}' before import.");
-            if(!String.IsNullOrWhiteSpace(result.StdErr))
-            {
-                AppIO.WriteError(result.StdErr.Trim());
-            }
+            _deferredSessionLogService.WriteErrorOrConsole("docker", $"Failed to inspect Docker volume '{volumeName}' before import.");
+            _deferredSessionLogService.WriteErrorDetailsOrConsole("docker", result.StdErr);
 
             return (false, false);
         }

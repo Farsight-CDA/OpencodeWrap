@@ -4,13 +4,16 @@ namespace OpencodeWrap.Services.Docker;
 
 internal sealed partial class DockerImageService : Singleton
 {
+    [Inject]
+    private readonly DeferredSessionLogService _deferredSessionLogService;
+
     public async Task<(bool Success, string ImageTag)> TryEnsureImageAsync(string dockerfilePath)
     {
         string imageTag = "opencode-wrap:unavailable";
 
         if(!File.Exists(dockerfilePath))
         {
-            AppIO.WriteError($"Dockerfile not found: '{dockerfilePath}'.");
+            _deferredSessionLogService.WriteErrorOrConsole("docker", $"Dockerfile not found: '{dockerfilePath}'.");
             return (false, imageTag);
         }
 
@@ -23,7 +26,7 @@ internal sealed partial class DockerImageService : Singleton
         }
 
         AppIO.WriteInfo($"Docker image '{imageTag}' not found. Building it now...");
-        return await TryBuildImageAsync(dockerfilePath, imageTag, noCache: false);
+        return await TryBuildImageAsync(dockerfilePath, imageTag, noCache: false, _deferredSessionLogService);
     }
 
     public async Task<(bool Success, string ImageTag)> TryBuildImageAsync(string dockerfilePath, bool noCache)
@@ -32,15 +35,15 @@ internal sealed partial class DockerImageService : Singleton
 
         if(!File.Exists(dockerfilePath))
         {
-            AppIO.WriteError($"Dockerfile not found: '{dockerfilePath}'.");
+            _deferredSessionLogService.WriteErrorOrConsole("docker", $"Dockerfile not found: '{dockerfilePath}'.");
             return (false, imageTag);
         }
 
         imageTag = await BuildImageTagAsync(dockerfilePath);
-        return await TryBuildImageAsync(dockerfilePath, imageTag, noCache);
+        return await TryBuildImageAsync(dockerfilePath, imageTag, noCache, _deferredSessionLogService);
     }
 
-    private static async Task<(bool Success, string ImageTag)> TryBuildImageAsync(string dockerfilePath, string imageTag, bool noCache)
+    private static async Task<(bool Success, string ImageTag)> TryBuildImageAsync(string dockerfilePath, string imageTag, bool noCache, DeferredSessionLogService deferredSessionLogService)
     {
         string buildContextDirectory = Path.GetDirectoryName(dockerfilePath) ?? AppContext.BaseDirectory;
         var buildArgs = new List<string>
@@ -63,7 +66,7 @@ internal sealed partial class DockerImageService : Singleton
         bool built = (await ProcessRunner.RunAsync("docker", buildArgs, captureOutput: false, workDir: buildContextDirectory)).Success;
         if(!built)
         {
-            AppIO.WriteError($"Failed to build Docker image '{imageTag}'.");
+            deferredSessionLogService.WriteErrorOrConsole("docker", $"Failed to build Docker image '{imageTag}'.");
             return (false, imageTag);
         }
 

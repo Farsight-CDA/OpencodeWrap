@@ -60,29 +60,19 @@ ocw <opencode-args>
 ocw run
 # In interactive selection:
 # - Up/Down: choose profile
-# - Space: toggle mount mode
-# - R: add read-only resource directory
-# - Backspace (or D): remove last resource directory
+# - Left/Right: switch between profile, resources, and networks
+# - M: toggle workspace mount mode
+# - R or Space: add a read-only resource directory on the resource tab
+# - Backspace/Delete: remove the selected resource directory
+# - Space: toggle the selected Docker network on the network tab
 # - Enter: run, Esc: cancel
-
-# Or specify a profile explicitly
-ocw run --profile dotnet
-ocw run -p frontend
-ocw run -p data-science
-ocw run -p solidity
-
-# Workspace mount mode
-ocw run --mount-mode mount           # default: read-write workspace mount
-ocw run --mount-mode readonly-mount  # mount workspace as read-only
-ocw run --mount-mode no-mount        # do not mount workspace; session starts in /workspace
-
-# Additional read-only resource mounts (repeat option)
-ocw run -p default --resource-dir "C:\\Something"
-ocw run -p default --resource-dir ../shared-assets --resource-dir ../docs
 # Mounted in container under /workspace/.ocw-resources/<directory-name>
 # OCW also appends runtime AGENTS instructions in the session profile's opencode directory so OpenCode
 # knows these mounts are read-only reference material, and that it is running inside a Docker container
 # where /tmp and /ocw/session/bin are safe for scratch clones and ad hoc session tools.
+
+# Show deferred session logs after the interactive session exits
+ocw run --verbose
 
 # Profile management
 ocw profile list

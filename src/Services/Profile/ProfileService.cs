@@ -8,6 +8,9 @@ internal sealed partial class ProfileService : Singleton
     public const string INVALID_PROFILE_NAME_MESSAGE = "Profile name may only contain letters, numbers, '-', '_', and '.'.";
 
     [Inject]
+    private readonly DeferredSessionLogService _deferredSessionLogService;
+
+    [Inject]
     private readonly DockerHostService _dockerHostService;
 
     [Inject]
@@ -35,7 +38,7 @@ internal sealed partial class ProfileService : Singleton
 
         if(!IsValidProfileName(selectedProfileName))
         {
-            AppIO.WriteError(INVALID_PROFILE_NAME_MESSAGE);
+            _deferredSessionLogService.WriteErrorOrConsole("profile", INVALID_PROFILE_NAME_MESSAGE);
             return (false, emptyProfile);
         }
 
@@ -47,26 +50,26 @@ internal sealed partial class ProfileService : Singleton
 
         if(!catalog.ProfileDirectories.TryGetValue(selectedProfileName, out string? relativeDirectoryPath))
         {
-            AppIO.WriteError($"Profile '{selectedProfileName}' does not exist.");
+            _deferredSessionLogService.WriteErrorOrConsole("profile", $"Profile '{selectedProfileName}' does not exist.");
             return (false, emptyProfile);
         }
 
         if(!TryResolveProfileDirectoryPath(catalog.ProfilesRoot, relativeDirectoryPath, out string profileDirectoryPath))
         {
-            AppIO.WriteError($"Profile '{selectedProfileName}' directory resolves outside '{catalog.ProfilesRoot}'.");
+            _deferredSessionLogService.WriteErrorOrConsole("profile", $"Profile '{selectedProfileName}' directory resolves outside '{catalog.ProfilesRoot}'.");
             return (false, emptyProfile);
         }
 
         if(!Directory.Exists(profileDirectoryPath))
         {
-            AppIO.WriteError($"Profile directory not found: '{profileDirectoryPath}'.");
+            _deferredSessionLogService.WriteErrorOrConsole("profile", $"Profile directory not found: '{profileDirectoryPath}'.");
             return (false, emptyProfile);
         }
 
         string dockerfilePath = Path.Combine(profileDirectoryPath, OpencodeWrapConstants.PROFILE_DOCKERFILE_NAME);
         if(!File.Exists(dockerfilePath))
         {
-            AppIO.WriteError($"Profile Dockerfile not found: '{dockerfilePath}'.");
+            _deferredSessionLogService.WriteErrorOrConsole("profile", $"Profile Dockerfile not found: '{dockerfilePath}'.");
             return (false, emptyProfile);
         }
 
@@ -106,7 +109,7 @@ internal sealed partial class ProfileService : Singleton
         }
         catch(Exception ex)
         {
-            AppIO.WriteError($"Failed to enumerate profiles in '{profilesRoot}': {ex.Message}");
+            _deferredSessionLogService.WriteErrorOrConsole("profile", $"Failed to enumerate profiles in '{profilesRoot}': {ex.Message}");
             return profileDirectories;
         }
 
@@ -167,7 +170,7 @@ internal sealed partial class ProfileService : Singleton
         }
         catch(Exception ex)
         {
-            AppIO.WriteError($"Failed to create profiles directory '{profilesRoot}': {ex.Message}");
+            _deferredSessionLogService.WriteErrorOrConsole("profile", $"Failed to create profiles directory '{profilesRoot}': {ex.Message}");
             return false;
         }
     }
@@ -181,7 +184,7 @@ internal sealed partial class ProfileService : Singleton
         }
         catch(Exception ex)
         {
-            AppIO.WriteError($"Failed to enumerate legacy profiles in '{configRoot}': {ex.Message}");
+            _deferredSessionLogService.WriteErrorOrConsole("profile", $"Failed to enumerate legacy profiles in '{configRoot}': {ex.Message}");
             return false;
         }
 
@@ -209,7 +212,7 @@ internal sealed partial class ProfileService : Singleton
             }
             catch(Exception ex)
             {
-                AppIO.WriteError($"Failed to migrate profile '{directoryName}' into '{profilesRoot}': {ex.Message}");
+                _deferredSessionLogService.WriteErrorOrConsole("profile", $"Failed to migrate profile '{directoryName}' into '{profilesRoot}': {ex.Message}");
                 return false;
             }
         }
@@ -241,7 +244,7 @@ internal sealed partial class ProfileService : Singleton
             profile.Name.Equals(profileName, StringComparison.OrdinalIgnoreCase));
         if(builtInProfile is null)
         {
-            AppIO.WriteError($"Built-in profile template not found for '{profileName}'.");
+            _deferredSessionLogService.WriteErrorOrConsole("profile", $"Built-in profile template not found for '{profileName}'.");
             return (false, emptyProfile);
         }
 
@@ -251,7 +254,7 @@ internal sealed partial class ProfileService : Singleton
 
         if(!TryResolveProfileDirectoryPath(catalog.ProfilesRoot, relativeDirectoryPath, out string overrideDirectoryPath))
         {
-            AppIO.WriteError($"Profile '{profileName}' directory resolves outside '{catalog.ProfilesRoot}'.");
+            _deferredSessionLogService.WriteErrorOrConsole("profile", $"Profile '{profileName}' directory resolves outside '{catalog.ProfilesRoot}'.");
             return (false, emptyProfile);
         }
 
@@ -260,7 +263,7 @@ internal sealed partial class ProfileService : Singleton
             string overrideDockerfilePath = Path.Combine(overrideDirectoryPath, OpencodeWrapConstants.PROFILE_DOCKERFILE_NAME);
             if(!File.Exists(overrideDockerfilePath))
             {
-                AppIO.WriteError($"Profile Dockerfile not found: '{overrideDockerfilePath}'.");
+                _deferredSessionLogService.WriteErrorOrConsole("profile", $"Profile Dockerfile not found: '{overrideDockerfilePath}'.");
                 return (false, emptyProfile);
             }
 

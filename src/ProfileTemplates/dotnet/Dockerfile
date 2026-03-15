@@ -5,7 +5,9 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         bash \
+        binutils \
         ca-certificates \
+        clang \
         coreutils \
         curl \
         file \
@@ -19,6 +21,7 @@ RUN apt-get update \
         python3 \
         python-is-python3 \
         unzip \
+        zlib1g-dev \
         zip \
     && rm -rf /var/lib/apt/lists/*
 

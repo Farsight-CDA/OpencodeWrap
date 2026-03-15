@@ -1,5 +1,4 @@
 using Microsoft.Extensions.Logging;
-using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
 
@@ -42,13 +41,14 @@ internal sealed partial class OpencodeLauncherService : Singleton
         bool includeProfileConfig,
         WorkspaceMountMode workspaceMountMode = WorkspaceMountMode.ReadWrite,
         IReadOnlyList<string>? extraReadonlyMountDirs = null,
+        string? dockerNetworkMode = null,
+        IReadOnlyList<string>? dockerNetworks = null,
         bool verboseSessionLogs = false)
     {
         bool useInteractiveRelay = includeProfileConfig;
         DeferredSessionLogService.SessionScope? sessionLog = includeProfileConfig
             ? _deferredSessionLogService.BeginSession(verboseSessionLogs ? LogLevel.Debug : LogLevel.Information)
             : null;
-        var startupTimer = Stopwatch.StartNew();
         try
         {
             LogStartupPhase("starting ocw run startup", LogLevel.Debug);
@@ -71,7 +71,7 @@ internal sealed partial class OpencodeLauncherService : Singleton
                 hostWorkDir = Path.GetFullPath(Directory.GetCurrentDirectory());
                 if(!Directory.Exists(hostWorkDir))
                 {
-                    AppIO.WriteError($"Workspace directory not found: '{hostWorkDir}'.");
+                    _deferredSessionLogService.WriteErrorOrConsole("startup", $"Workspace directory not found: '{hostWorkDir}'.");
                     return 1;
                 }
 
@@ -80,6 +80,22 @@ internal sealed partial class OpencodeLauncherService : Singleton
 
             if(!TryResolveAdditionalReadonlyMounts(extraReadonlyMountDirs, out var additionalReadonlyMounts))
             {
+                return 1;
+            }
+
+            if(!TryNormalizeDockerNetworkMode(dockerNetworkMode, out string? selectedDockerNetworkMode))
+            {
+                return 1;
+            }
+
+            if(!TryNormalizeDockerNetworks(dockerNetworks, out var selectedDockerNetworks))
+            {
+                return 1;
+            }
+
+            if(selectedDockerNetworks.Count > 0 && !DockerNetworkModeSupportsAdditionalNetworks(selectedDockerNetworkMode))
+            {
+                _deferredSessionLogService.WriteErrorOrConsole("startup", $"Docker network mode '{selectedDockerNetworkMode}' does not support additional network attachments.");
                 return 1;
             }
 
@@ -127,16 +143,15 @@ internal sealed partial class OpencodeLauncherService : Singleton
                 : OpencodeWrapConstants.CONTAINER_XDG_CONFIG_HOME;
 
             string? userSpec = await _hostService.GetContainerUserSpecAsync();
-            var runArgs = new List<string> { "run" };
+            var containerArgs = new List<string>();
 
             if(userSpec is not null)
             {
-                runArgs.AddRange(["--user", userSpec]);
+                containerArgs.AddRange(["--user", userSpec]);
             }
 
-            runArgs.AddRange(
+            containerArgs.AddRange(
             [
-                "--rm",
                 "-it",
                 "--name", _containerName,
                 "-e", $"XDG_CONFIG_HOME={containerXdgConfigHome}",
@@ -147,35 +162,35 @@ internal sealed partial class OpencodeLauncherService : Singleton
 
             if(useInteractiveRelay)
             {
-                runArgs.AddRange(["-e", $"{InteractiveDockerRunnerService.STARTUP_READY_MARKER_ENV_VAR}={InteractiveDockerRunnerService.STARTUP_READY_MARKER}"]);
+                containerArgs.AddRange(["-e", $"{InteractiveDockerRunnerService.STARTUP_READY_MARKER_ENV_VAR}={InteractiveDockerRunnerService.STARTUP_READY_MARKER}"]);
             }
 
-            runArgs.AddRange(BuildTerminalEnvironmentArgs());
+            containerArgs.AddRange(BuildTerminalEnvironmentArgs());
+
+            if(!String.IsNullOrWhiteSpace(selectedDockerNetworkMode))
+            {
+                containerArgs.AddRange(["--network", selectedDockerNetworkMode]);
+            }
 
             if(workspaceMountMode != WorkspaceMountMode.None)
             {
                 string workspaceMount = _volumeService.BuildBindMount(hostWorkDir!, containerWorkDir);
-                if(workspaceMountMode == WorkspaceMountMode.ReadOnly)
-                {
-                    workspaceMount += ",readonly";
-                }
-
-                runArgs.AddRange(["--mount", workspaceMount]);
+                containerArgs.AddRange(["--mount", workspaceMount]);
             }
 
-            runArgs.AddRange(["--mount", $"{_volumeService.BuildBindMount(session.HostPasteDirectory, session.ContainerPasteDirectory)},readonly"]);
+            containerArgs.AddRange(["--mount", $"{_volumeService.BuildBindMount(session.HostPasteDirectory, session.ContainerPasteDirectory)},readonly"]);
 
             foreach(var (hostPath, containerPath) in additionalReadonlyMounts)
             {
-                runArgs.AddRange(["--mount", $"{_volumeService.BuildBindMount(hostPath, containerPath)},readonly"]);
+                containerArgs.AddRange(["--mount", $"{_volumeService.BuildBindMount(hostPath, containerPath)},readonly"]);
             }
 
             if(includeProfileConfig)
             {
-                runArgs.AddRange(["--mount", _volumeService.BuildBindMount(profile.DirectoryPath, OpencodeWrapConstants.CONTAINER_PROFILE_ROOT)]);
+                containerArgs.AddRange(["--mount", _volumeService.BuildBindMount(profile.DirectoryPath, OpencodeWrapConstants.CONTAINER_PROFILE_ROOT)]);
             }
 
-            runArgs.AddRange(
+            containerArgs.AddRange(
             [
                 "--mount", _volumeService.BuildVolumeMount(OpencodeWrapConstants.XDG_VOLUME_NAME, OpencodeWrapConstants.CONTAINER_XDG_ROOT),
                 "-w", containerWorkDir,
@@ -188,13 +203,14 @@ internal sealed partial class OpencodeLauncherService : Singleton
 
             foreach(string arg in opencodeArgs)
             {
-                runArgs.Add(arg);
+                containerArgs.Add(arg);
             }
 
-            LogStartupPhase(useInteractiveRelay ? "starting interactive docker relay" : "starting attached docker process", LogLevel.Debug);
-            int exitCode = useInteractiveRelay
-                ? await _interactiveDockerRunnerService.RunDockerAsync(runArgs, session, hostWorkDir)
-                : await _interactiveDockerRunnerService.RunAttachedAsync(runArgs);
+            bool requiresPrecreatedContainer = selectedDockerNetworks.Count > 0;
+            LogStartupPhase(requiresPrecreatedContainer ? "creating docker container with additional networks" : useInteractiveRelay ? "starting interactive docker relay" : "starting attached docker process", LogLevel.Debug);
+            int exitCode = requiresPrecreatedContainer
+                ? await CreateConnectAndStartContainerAsync(containerArgs, selectedDockerNetworks, useInteractiveRelay, session, hostWorkDir)
+                : await StartContainerAsync(containerArgs, useInteractiveRelay, session, hostWorkDir);
             CleanupContainer(force: false);
             return exitCode;
         }
@@ -211,7 +227,7 @@ internal sealed partial class OpencodeLauncherService : Singleton
         }
 
         void LogStartupPhase(string message, LogLevel level)
-            => _deferredSessionLogService.Write("startup", $"+{startupTimer.Elapsed.TotalMilliseconds:F0}ms {message}", level);
+            => _deferredSessionLogService.Write("startup", message, level);
     }
 
     private static string BuildContainerCommand()
@@ -231,6 +247,51 @@ internal sealed partial class OpencodeLauncherService : Singleton
         printf '[ocw] launching opencode...\n' >&2
         exec opencode "$@"
         """;
+    }
+
+    private async Task<int> StartContainerAsync(IReadOnlyList<string> containerArgs, bool useInteractiveRelay, InteractiveSessionContext session, string? hostWorkDir)
+    {
+        List<string> runArgs = ["run", "--rm", .. containerArgs];
+        return useInteractiveRelay
+            ? await _interactiveDockerRunnerService.RunDockerAsync(runArgs, session, hostWorkDir)
+            : await _interactiveDockerRunnerService.RunAttachedAsync(runArgs);
+    }
+
+    private async Task<int> CreateConnectAndStartContainerAsync(
+        IReadOnlyList<string> containerArgs,
+        IReadOnlyList<string> selectedDockerNetworks,
+        bool useInteractiveRelay,
+        InteractiveSessionContext session,
+        string? hostWorkDir)
+    {
+        List<string> createArgs = ["create", .. containerArgs];
+        var createResult = await ProcessRunner.RunAsync("docker", createArgs);
+        if(!createResult.Success)
+        {
+            WriteSessionError("docker", "Failed to create Docker container.");
+            WriteSessionErrorDetails("docker", createResult.StdErr);
+            return 1;
+        }
+
+        foreach(string networkName in selectedDockerNetworks)
+        {
+            var connectResult = await ProcessRunner.RunAsync("docker", ["network", "connect", networkName, _containerName!]);
+            if(connectResult.Success)
+            {
+                continue;
+            }
+
+            WriteSessionError("docker", $"Failed to attach container to Docker network '{networkName}'.");
+            WriteSessionErrorDetails("docker", connectResult.StdErr);
+
+            _ = ProcessRunner.CommandSucceedsBlocking("docker", ["rm", "-f", _containerName!]);
+            return 1;
+        }
+
+        List<string> startArgs = ["start", "-ai", _containerName!];
+        return useInteractiveRelay
+            ? await _interactiveDockerRunnerService.RunDockerAsync(startArgs, session, hostWorkDir)
+            : await _interactiveDockerRunnerService.RunAttachedAsync(startArgs);
     }
 
     private static string BuildRuntimeAgentInstructions(
@@ -276,7 +337,13 @@ internal sealed partial class OpencodeLauncherService : Singleton
         return builder.ToString().TrimEnd();
     }
 
-    private static bool TryPrepareSessionProfile(
+    private void WriteSessionError(string category, string message)
+        => _deferredSessionLogService.WriteErrorOrConsole(category, message);
+
+    private void WriteSessionErrorDetails(string category, string? detail)
+        => _deferredSessionLogService.WriteErrorDetailsOrConsole(category, detail);
+
+    private bool TryPrepareSessionProfile(
         ResolvedProfile profile,
         string sessionDirectoryPath,
         string runtimeAgentInstructions,
@@ -321,7 +388,7 @@ internal sealed partial class OpencodeLauncherService : Singleton
         }
         catch(Exception ex)
         {
-            AppIO.WriteError($"Failed to prepare session profile in '{sessionProfileDirectoryPath}': {ex.Message}");
+            _deferredSessionLogService.WriteErrorOrConsole("profile", $"Failed to prepare session profile in '{sessionProfileDirectoryPath}': {ex.Message}");
             if(!String.Equals(profile.DirectoryPath, sessionProfileDirectoryPath, StringComparison.Ordinal))
             {
                 AppIO.TryDeleteDirectory(sessionProfileDirectoryPath);
@@ -369,7 +436,7 @@ internal sealed partial class OpencodeLauncherService : Singleton
             : $"{OpencodeWrapConstants.CONTAINER_WORKSPACE}/{directoryName}";
     }
 
-    private static bool TryResolveAdditionalReadonlyMounts(
+    private bool TryResolveAdditionalReadonlyMounts(
         IReadOnlyList<string>? requestedDirectories,
         out List<(string HostPath, string ContainerPath)> mounts)
     {
@@ -386,14 +453,14 @@ internal sealed partial class OpencodeLauncherService : Singleton
         {
             if(String.IsNullOrWhiteSpace(requestedDirectory))
             {
-                AppIO.WriteError("--resource-dir cannot be empty.");
+                _deferredSessionLogService.WriteErrorOrConsole("startup", "Resource directory cannot be empty.");
                 return false;
             }
 
             string fullPath = Path.TrimEndingDirectorySeparator(Path.GetFullPath(requestedDirectory));
             if(!Directory.Exists(fullPath))
             {
-                AppIO.WriteError($"Resource directory not found: '{fullPath}'.");
+                _deferredSessionLogService.WriteErrorOrConsole("startup", $"Resource directory not found: '{fullPath}'.");
                 return false;
             }
 
@@ -408,6 +475,61 @@ internal sealed partial class OpencodeLauncherService : Singleton
 
         return true;
     }
+
+    private bool TryNormalizeDockerNetworks(IReadOnlyList<string>? requestedNetworks, out List<string> normalizedNetworks)
+    {
+        normalizedNetworks = [];
+        if(requestedNetworks is null || requestedNetworks.Count == 0)
+        {
+            return true;
+        }
+
+        var seenNetworkNames = new HashSet<string>(StringComparer.Ordinal);
+        foreach(string requestedNetwork in requestedNetworks)
+        {
+            if(String.IsNullOrWhiteSpace(requestedNetwork))
+            {
+                _deferredSessionLogService.WriteErrorOrConsole("startup", "Docker network names cannot be empty.");
+                return false;
+            }
+
+            string trimmedNetwork = requestedNetwork.Trim();
+            if(seenNetworkNames.Add(trimmedNetwork))
+            {
+                normalizedNetworks.Add(trimmedNetwork);
+            }
+        }
+
+        return true;
+    }
+
+    private bool TryNormalizeDockerNetworkMode(string? requestedNetworkMode, out string? normalizedNetworkMode)
+    {
+        if(String.IsNullOrWhiteSpace(requestedNetworkMode))
+        {
+            normalizedNetworkMode = null;
+            return true;
+        }
+
+        switch(requestedNetworkMode.Trim().ToLowerInvariant())
+        {
+            case "bridge":
+            case "default":
+                normalizedNetworkMode = null;
+                return true;
+            case "host":
+            case "none":
+                normalizedNetworkMode = requestedNetworkMode.Trim().ToLowerInvariant();
+                return true;
+            default:
+                _deferredSessionLogService.WriteErrorOrConsole("startup", $"Invalid Docker network mode '{requestedNetworkMode}'. Expected one of: bridge, host, none.");
+                normalizedNetworkMode = null;
+                return false;
+        }
+    }
+
+    private static bool DockerNetworkModeSupportsAdditionalNetworks(string? dockerNetworkMode)
+        => String.IsNullOrWhiteSpace(dockerNetworkMode) || String.Equals(dockerNetworkMode, "bridge", StringComparison.OrdinalIgnoreCase);
 
     private static string BuildUniqueContainerResourceDirectoryName(string hostPath, HashSet<string> seenContainerNames)
     {
@@ -521,12 +643,12 @@ internal sealed partial class OpencodeLauncherService : Singleton
         _signalRegistrations.Clear();
     }
 
-    private static async Task EnsureCleanupWatchdogAsync(string containerName, string sessionDirectoryPath)
+    private async Task EnsureCleanupWatchdogAsync(string containerName, string sessionDirectoryPath)
     {
         bool watchdogReady = await ContainerCleanupWatchdog.TryStartDetachedAndWaitReadyAsync(containerName, sessionDirectoryPath, _watchdogReadyTimeout);
         if(!watchdogReady)
         {
-            AppIO.WriteWarning("cleanup watchdog failed to initialize; terminal-close cleanup may be less reliable.");
+            _deferredSessionLogService.WriteWarningOrConsole("startup", "cleanup watchdog failed to initialize; terminal-close cleanup may be less reliable.");
         }
     }
 }

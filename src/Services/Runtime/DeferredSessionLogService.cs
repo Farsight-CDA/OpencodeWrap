@@ -21,14 +21,48 @@ internal sealed partial class DeferredSessionLogService : Singleton
 
     public void Write(string category, string message, LogLevel level = LogLevel.Information)
     {
-        SessionBuffer? session;
+        GetCurrentSession()?.Write(category, message, level);
+    }
 
-        lock(_sync)
+    public void WriteErrorOrConsole(string category, string message)
+        => WriteOrConsole(category, message, LogLevel.Error);
+
+    public void WriteWarningOrConsole(string category, string message)
+        => WriteOrConsole(category, message, LogLevel.Warning);
+
+    public void WriteErrorDetailsOrConsole(string category, string? detail)
+    {
+        if(String.IsNullOrWhiteSpace(detail))
         {
-            session = _currentSession;
+            return;
         }
 
-        session?.Write(category, message, level);
+        foreach(string line in detail
+            .Replace("\r\n", "\n", StringComparison.Ordinal)
+            .Replace('\r', '\n')
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            WriteErrorOrConsole(category, line);
+        }
+    }
+
+    private void WriteOrConsole(string category, string message, LogLevel level)
+    {
+        if(GetCurrentSession() is { } session)
+        {
+            session.Write(category, message, level);
+            return;
+        }
+
+        AppIO.WriteLog(level, message);
+    }
+
+    private SessionBuffer? GetCurrentSession()
+    {
+        lock(_sync)
+        {
+            return _currentSession;
+        }
     }
 
     internal sealed class SessionScope : IDisposable
@@ -81,7 +115,7 @@ internal sealed partial class DeferredSessionLogService : Singleton
             {
                 lock(_sync)
                 {
-                    _entries.Add(new SessionLogEntry(level, $"{DateTime.UtcNow:O} [{category}] {message}"));
+                    _entries.Add(new SessionLogEntry(level, DateTime.UtcNow, category, message));
                 }
             }
             catch
@@ -110,13 +144,13 @@ internal sealed partial class DeferredSessionLogService : Singleton
                 AnsiConsole.Clear();
             }
 
-            AppIO.WriteHeader("Session Log");
+            AppIO.WriteHeader("Session Log", includeTrailingBlankLine: false);
             foreach(var entry in entries)
             {
-                AppIO.WriteLog(entry.Level, entry.Text);
+                AppIO.WriteSessionLog(entry.Level, entry.TimestampUtc, entry.Category, entry.Message);
             }
         }
 
-        private readonly record struct SessionLogEntry(LogLevel Level, string Text);
+        private readonly record struct SessionLogEntry(LogLevel Level, DateTime TimestampUtc, string Category, string Message);
     }
 }

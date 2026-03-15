@@ -12,6 +12,9 @@ internal sealed partial class SessionStagingService : Singleton
     [Inject]
     private readonly DockerHostService _dockerHostService;
 
+    [Inject]
+    private readonly DeferredSessionLogService _deferredSessionLogService;
+
     public bool TryCreateSession(string containerName, out InteractiveSessionContext session)
     {
         session = new InteractiveSessionContext("", "", "", "", "", 0, 0, new ConcurrentDictionary<string, string>(StringComparer.OrdinalIgnoreCase));
@@ -20,7 +23,7 @@ internal sealed partial class SessionStagingService : Singleton
 
         if(String.IsNullOrWhiteSpace(containerName))
         {
-            AppIO.WriteError("Container name is required to create a runtime session.");
+            _deferredSessionLogService.WriteErrorOrConsole("session", "Container name is required to create a runtime session.");
             return false;
         }
 
@@ -31,7 +34,7 @@ internal sealed partial class SessionStagingService : Singleton
 
         if(!TryGetCurrentProcessIdentity(out int ownerProcessId, out long ownerProcessStartTicks))
         {
-            AppIO.WriteError("Failed to resolve the current process identity for runtime session cleanup.");
+            _deferredSessionLogService.WriteErrorOrConsole("session", "Failed to resolve the current process identity for runtime session cleanup.");
             return false;
         }
 
@@ -53,7 +56,7 @@ internal sealed partial class SessionStagingService : Singleton
         }
         catch(Exception ex)
         {
-            AppIO.WriteError($"Failed to prepare runtime session staging directory '{sessionDirectory}': {ex.Message}");
+            _deferredSessionLogService.WriteErrorOrConsole("session", $"Failed to prepare runtime session staging directory '{sessionDirectory}': {ex.Message}");
             AppIO.TryDeleteDirectory(sessionDirectory);
             return false;
         }

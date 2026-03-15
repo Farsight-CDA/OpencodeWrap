@@ -1,4 +1,5 @@
 using Spectre.Console;
+using Spectre.Console.Rendering;
 using System.CommandLine;
 
 namespace OpencodeWrap.Cli.Run;
@@ -8,69 +9,37 @@ internal sealed class RunCliCommand : Command
     private readonly OpencodeLauncherService _launcherService;
     private readonly ProfileService _profileService;
     private readonly BuiltInProfileTemplateService _builtInProfileTemplateService;
-    private readonly Option<string?> _profileOption;
-    private readonly Option<string?> _mountModeOption;
-    private readonly Option<string[]> _resourceDirOption;
+    private readonly DockerHostService _dockerHostService;
     private readonly Option<bool> _verboseOption;
 
-    public RunCliCommand(OpencodeLauncherService launcherService, ProfileService profileService, BuiltInProfileTemplateService builtInProfileTemplateService)
-        : base("run", "Run opencode with a selected profile, including its config and bin directory.")
+    public RunCliCommand(OpencodeLauncherService launcherService, ProfileService profileService, BuiltInProfileTemplateService builtInProfileTemplateService, DockerHostService dockerHostService)
+        : base("run", "Run opencode with a profile selected from the interactive setup menu.")
     {
         _launcherService = launcherService;
         _profileService = profileService;
         _builtInProfileTemplateService = builtInProfileTemplateService;
-        _profileOption = new Option<string?>("--profile", "-p")
-        {
-            Description = "Profile name from a directory under $HOME/.opencode-wrap/profiles."
-        };
-        _mountModeOption = new Option<string?>("--mount-mode")
-        {
-            Description = "Workspace mount mode: mount (default), readonly-mount, or no-mount (starts in /workspace)."
-        };
-        _resourceDirOption = new Option<string[]>("--resource-dir", "-r")
-        {
-            Description = "Additional host directory to mount read-only. Repeat the option to mount multiple directories."
-        };
+        _dockerHostService = dockerHostService;
         _verboseOption = new Option<bool>("--verbose", "-v")
         {
             Description = "Show deferred debug session logs after the interactive session exits."
         };
 
-        Add(_profileOption);
-        Add(_mountModeOption);
-        Add(_resourceDirOption);
         Add(_verboseOption);
 
         SetAction(async parseResult =>
         {
-            string? profile = parseResult.GetValue(_profileOption);
-            string mountModeInput = parseResult.GetValue(_mountModeOption) ?? "mount";
-            string[] resourceDirs = parseResult.GetValue(_resourceDirOption) ?? [];
             bool verbose = parseResult.GetValue(_verboseOption);
-            if(!TryParseMountMode(mountModeInput, out var mountMode))
+            var selection = await PromptForRunSelectionAsync();
+            if(selection is null)
             {
-                AppIO.WriteError($"Invalid --mount-mode value '{mountModeInput}'. Expected one of: mount, readonly-mount, no-mount.");
                 return 1;
             }
 
-            if(String.IsNullOrWhiteSpace(profile))
-            {
-                var selection = PromptForRunSelection(defaultMountMode: mountMode, initialResourceDirectories: resourceDirs);
-                if(selection is null)
-                {
-                    return 1;
-                }
-
-                profile = selection.ProfileName;
-                mountMode = selection.MountMode;
-                resourceDirs = [.. selection.ResourceDirectories];
-            }
-
-            return await _launcherService.ExecuteAsync([], requestedProfileName: profile, includeProfileConfig: true, workspaceMountMode: mountMode, extraReadonlyMountDirs: resourceDirs, verboseSessionLogs: verbose);
+            return await _launcherService.ExecuteAsync([], requestedProfileName: selection.ProfileName, includeProfileConfig: true, workspaceMountMode: selection.MountMode, extraReadonlyMountDirs: selection.ResourceDirectories, dockerNetworkMode: ResolveDockerNetworkModeArgument(selection.NetworkMode), dockerNetworks: selection.NetworkNames, verboseSessionLogs: verbose);
         });
     }
 
-    private RunSelection? PromptForRunSelection(WorkspaceMountMode defaultMountMode, IReadOnlyList<string> initialResourceDirectories)
+    private async Task<RunSelection?> PromptForRunSelectionAsync()
     {
         var (success, catalog) = _profileService.TryLoadProfileCatalog();
         if(!success)
@@ -92,7 +61,13 @@ internal sealed class RunCliCommand : Command
 
         if(!AnsiConsole.Profile.Capabilities.Interactive)
         {
-            AppIO.WriteError("No profile provided and interactive selection is unavailable. Pass --profile <name>.");
+            AppIO.WriteError("Interactive profile selection is unavailable in this terminal. Run `ocw run` from an interactive shell.");
+            return null;
+        }
+
+        var (networkListSuccess, availableNetworkNames) = await _dockerHostService.TryListNetworkNamesAsync();
+        if(!networkListSuccess)
+        {
             return null;
         }
 
@@ -108,35 +83,127 @@ internal sealed class RunCliCommand : Command
             selectedIndex = 0;
         }
 
-        var mountMode = defaultMountMode;
+        var mountMode = WorkspaceMountMode.ReadWrite;
         var selectedResourceDirectories = new List<string>();
         var seenResourceDirectories = new HashSet<string>(GetHostPathComparer());
-        if(!TryAddInitialResourceDirectories(initialResourceDirectories, selectedResourceDirectories, seenResourceDirectories))
-        {
-            return null;
-        }
+
+        var selectedTab = RunSelectionTab.Profile;
+        int selectedResourceIndex = selectedResourceDirectories.Count > 0 ? 1 : 0;
+        int selectedNetworkIndex = 0;
+        var selectedNetworkMode = DockerNetworkMode.Bridge;
+        var activeNetworkNames = new HashSet<string>(StringComparer.Ordinal);
+        bool showingControls = false;
 
         while(true)
         {
-            RenderRunSelectionScreen(profileChoices, selectedIndex, mountMode, currentWorkspacePath, selectedResourceDirectories);
+            RenderRunSelectionScreen(profileChoices, selectedIndex, selectedTab, mountMode, currentWorkspacePath, selectedResourceDirectories, selectedResourceIndex, availableNetworkNames, selectedNetworkIndex, selectedNetworkMode, activeNetworkNames, showingControls);
             var keyInfo = AnsiConsole.Console.Input.ReadKey(intercept: true);
             if(keyInfo is null)
             {
                 continue;
             }
 
+            if(showingControls)
+            {
+                if(!IsHelpKey(keyInfo.Value))
+                {
+                    showingControls = false;
+                }
+
+                continue;
+            }
+
+            if(IsHelpKey(keyInfo.Value))
+            {
+                showingControls = true;
+                continue;
+            }
+
             switch(keyInfo.Value.Key)
             {
                 case ConsoleKey.UpArrow:
-                    selectedIndex = selectedIndex <= 0 ? profileChoices.Count - 1 : selectedIndex - 1;
+                case ConsoleKey.W:
+                    switch(selectedTab)
+                    {
+                        case RunSelectionTab.Profile:
+                            selectedIndex = selectedIndex <= 0 ? profileChoices.Count - 1 : selectedIndex - 1;
+                            break;
+                        case RunSelectionTab.Resources:
+                            int resourceEntryCount = selectedResourceDirectories.Count + 1;
+                            selectedResourceIndex = selectedResourceIndex <= 0 ? resourceEntryCount - 1 : selectedResourceIndex - 1;
+                            break;
+                        case RunSelectionTab.Networks:
+                            int networkEntryCount = GetNetworkEntryCount(availableNetworkNames, selectedNetworkMode);
+                            selectedNetworkIndex = selectedNetworkIndex <= 0 ? networkEntryCount - 1 : selectedNetworkIndex - 1;
+                            break;
+                    }
+
                     break;
                 case ConsoleKey.DownArrow:
-                    selectedIndex = selectedIndex >= profileChoices.Count - 1 ? 0 : selectedIndex + 1;
+                case ConsoleKey.S:
+                    switch(selectedTab)
+                    {
+                        case RunSelectionTab.Profile:
+                            selectedIndex = selectedIndex >= profileChoices.Count - 1 ? 0 : selectedIndex + 1;
+                            break;
+                        case RunSelectionTab.Resources:
+                            int resourceEntryCount = selectedResourceDirectories.Count + 1;
+                            selectedResourceIndex = selectedResourceIndex >= resourceEntryCount - 1 ? 0 : selectedResourceIndex + 1;
+                            break;
+                        case RunSelectionTab.Networks:
+                            int networkEntryCount = GetNetworkEntryCount(availableNetworkNames, selectedNetworkMode);
+                            selectedNetworkIndex = selectedNetworkIndex >= networkEntryCount - 1 ? 0 : selectedNetworkIndex + 1;
+                            break;
+                    }
+
+                    break;
+                case ConsoleKey.LeftArrow:
+                case ConsoleKey.A:
+                    selectedTab = CycleInteractiveTab(selectedTab, movingRight: false);
+                    break;
+                case ConsoleKey.RightArrow:
+                case ConsoleKey.D:
+                    selectedTab = CycleInteractiveTab(selectedTab, movingRight: true);
+                    break;
+                case ConsoleKey.M:
+                    mountMode = CycleInteractiveMountMode(mountMode);
                     break;
                 case ConsoleKey.Spacebar:
-                    mountMode = CycleMountMode(mountMode);
-                    break;
+                    if(selectedTab is RunSelectionTab.Networks)
+                    {
+                        if(selectedNetworkIndex == 0)
+                        {
+                            selectedNetworkMode = CycleDockerNetworkMode(selectedNetworkMode);
+                            if(!DoesNetworkModeSupportAdditionalNetworks(selectedNetworkMode))
+                            {
+                                activeNetworkNames.Clear();
+                                selectedNetworkIndex = 0;
+                            }
+
+                            break;
+                        }
+
+                        if(!DoesNetworkModeSupportAdditionalNetworks(selectedNetworkMode) || availableNetworkNames.Count == 0)
+                        {
+                            break;
+                        }
+
+                        string selectedNetwork = availableNetworkNames[selectedNetworkIndex - 1];
+                        if(!activeNetworkNames.Add(selectedNetwork))
+                        {
+                            activeNetworkNames.Remove(selectedNetwork);
+                        }
+
+                        break;
+                    }
+
+                    goto case ConsoleKey.R;
                 case ConsoleKey.R:
+                    if(selectedTab is not RunSelectionTab.Resources || selectedResourceIndex != 0)
+                    {
+                        break;
+                    }
+
                     string? inputPath = PromptForResourceDirectory(currentWorkspacePath, selectedResourceDirectories);
                     if(inputPath is null)
                     {
@@ -154,21 +221,33 @@ internal sealed class RunCliCommand : Command
                     }
 
                     selectedResourceDirectories.Add(normalizedPath);
+                    selectedResourceIndex = selectedResourceDirectories.Count;
                     break;
                 case ConsoleKey.Backspace:
-                case ConsoleKey.D:
-                    if(selectedResourceDirectories.Count == 0)
+                case ConsoleKey.Delete:
+                    if(selectedTab is not RunSelectionTab.Resources || selectedResourceIndex == 0)
                     {
                         break;
                     }
 
-                    string removedDirectory = selectedResourceDirectories[^1];
-                    selectedResourceDirectories.RemoveAt(selectedResourceDirectories.Count - 1);
+                    int resourceDirectoryIndex = selectedResourceIndex - 1;
+                    string removedDirectory = selectedResourceDirectories[resourceDirectoryIndex];
+                    selectedResourceDirectories.RemoveAt(resourceDirectoryIndex);
                     seenResourceDirectories.Remove(removedDirectory);
+                    if(selectedResourceIndex > selectedResourceDirectories.Count)
+                    {
+                        selectedResourceIndex = selectedResourceDirectories.Count;
+                    }
+
                     break;
                 case ConsoleKey.Enter:
                     AnsiConsole.Clear();
-                    return new RunSelection(profileChoices[selectedIndex].Name, mountMode, selectedResourceDirectories);
+                    return new RunSelection(
+                        profileChoices[selectedIndex].Name,
+                        mountMode,
+                        selectedResourceDirectories,
+                        selectedNetworkMode,
+                        [.. availableNetworkNames.Where(activeNetworkNames.Contains)]);
                 case ConsoleKey.Escape:
                     AnsiConsole.Clear();
                     return null;
@@ -176,53 +255,107 @@ internal sealed class RunCliCommand : Command
         }
     }
 
-    private static WorkspaceMountMode CycleMountMode(WorkspaceMountMode mountMode) => mountMode switch
+    private static WorkspaceMountMode CycleInteractiveMountMode(WorkspaceMountMode mountMode) => mountMode switch
     {
-        WorkspaceMountMode.ReadWrite => WorkspaceMountMode.ReadOnly,
-        WorkspaceMountMode.ReadOnly => WorkspaceMountMode.None,
+        WorkspaceMountMode.ReadWrite => WorkspaceMountMode.None,
         _ => WorkspaceMountMode.ReadWrite
     };
-
-    private static bool TryParseMountMode(string value, out WorkspaceMountMode mountMode)
-    {
-        switch(value.Trim().ToLowerInvariant())
-        {
-            case "mount":
-                mountMode = WorkspaceMountMode.ReadWrite;
-                return true;
-            case "readonly-mount":
-                mountMode = WorkspaceMountMode.ReadOnly;
-                return true;
-            case "no-mount":
-                mountMode = WorkspaceMountMode.None;
-                return true;
-            default:
-                mountMode = WorkspaceMountMode.ReadWrite;
-                return false;
-        }
-    }
 
     private static void RenderRunSelectionScreen(
         IReadOnlyList<ProfileChoice> profileChoices,
         int selectedIndex,
+        RunSelectionTab selectedTab,
         WorkspaceMountMode mountMode,
         string currentWorkspacePath,
-        List<string> selectedResourceDirectories)
+        List<string> selectedResourceDirectories,
+        int selectedResourceIndex,
+        IReadOnlyList<string> availableNetworkNames,
+        int selectedNetworkIndex,
+        DockerNetworkMode selectedNetworkMode,
+        IReadOnlySet<string> activeNetworkNames,
+        bool showingControls)
     {
+        if(showingControls)
+        {
+            RenderControlsScreen(
+                "Run Setup Controls",
+                "Press any key to return.",
+                ("Left / Right", "Switch tabs"),
+                ("A / D", "Switch tabs"),
+                ("Up / Down", "Move selection"),
+                ("W / S", "Move selection"),
+                ("M", "Toggle workspace mount"),
+                ("R / Space", "Add resource (resource tab)"),
+                ("Space", "Cycle mode / toggle network"),
+                ("Backspace / Delete", "Remove selected resource"),
+                ("Enter", "Start session"),
+                ("Esc", "Cancel"),
+                ("?", "Show controls"));
+            return;
+        }
+
         AnsiConsole.Clear();
-        AppIO.WriteHeader("Run Setup", "Choose profile, mount mode, and optional resource directories.");
+        AppIO.WriteHeader("Run Setup", "Press ? for controls.");
 
         string mountModeLabel = mountMode switch
         {
-            WorkspaceMountMode.ReadOnly => "[gold1]Read-only mount[/]",
             WorkspaceMountMode.None => "[yellow]Mount disabled[/]",
             _ => "[deepskyblue1]Read-write mount[/]"
         };
 
+        var mountGrid = new Grid();
+        mountGrid.AddColumn(new GridColumn().Width(12));
+        mountGrid.AddColumn();
+        mountGrid.AddRow("[grey]Mode[/]", mountModeLabel);
+        mountGrid.AddRow("[grey]Workspace[/]", $"[deepskyblue1]{Markup.Escape(currentWorkspacePath)}[/]");
+        AnsiConsole.Write(new Panel(mountGrid)
+        {
+            Border = BoxBorder.Rounded,
+            Header = new PanelHeader("[bold]Primary Mount[/] [grey](press M to toggle)[/]", Justify.Left),
+            Padding = new Padding(1, 0, 1, 0)
+        });
+
+        AnsiConsole.Write(CreateTabStrip(selectedTab, selectedResourceDirectories.Count, activeNetworkNames.Count));
+        AnsiConsole.WriteLine();
+
+        IRenderable activeContent = selectedTab switch
+        {
+            RunSelectionTab.Resources => CreateResourceSelectionContent(selectedResourceDirectories, selectedResourceIndex),
+            RunSelectionTab.Networks => CreateNetworkSelectionContent(availableNetworkNames, selectedNetworkIndex, selectedNetworkMode, activeNetworkNames),
+            _ => CreateProfileSelectionContent(profileChoices, selectedIndex)
+        };
+
+        AnsiConsole.Write(activeContent);
+    }
+
+    private static IRenderable CreateTabStrip(RunSelectionTab selectedTab, int resourceCount, int activeNetworkCount)
+    {
+        string profileTab = selectedTab is RunSelectionTab.Profile
+            ? "[black on deepskyblue1] Profile Selection [/]"
+            : "[grey on grey11] Profile Selection [/]";
+        string resourceLabel = resourceCount == 0
+            ? "Resource Directories"
+            : $"Resource Directories ({resourceCount})";
+        string resourceTab = selectedTab is RunSelectionTab.Resources
+            ? $"[black on deepskyblue1] {Markup.Escape(resourceLabel)} [/]"
+            : $"[grey on grey11] {Markup.Escape(resourceLabel)} [/]";
+        string networkLabel = activeNetworkCount == 0
+            ? "Docker Networks"
+            : $"Docker Networks ({activeNetworkCount})";
+        string networkTab = selectedTab is RunSelectionTab.Networks
+            ? $"[black on deepskyblue1] {Markup.Escape(networkLabel)} [/]"
+            : $"[grey on grey11] {Markup.Escape(networkLabel)} [/]";
+
+        return new Markup($"{profileTab} {resourceTab} {networkTab}");
+    }
+
+    private static IRenderable CreateProfileSelectionContent(IReadOnlyList<ProfileChoice> profileChoices, int selectedIndex)
+    {
         var profileTable = new Table()
             .Border(TableBorder.None)
             .Expand();
         profileTable.AddColumn(new TableColumn(""));
+
         for(int i = 0; i < profileChoices.Count; i++)
         {
             var choice = profileChoices[i];
@@ -237,85 +370,113 @@ internal sealed class RunCliCommand : Command
             profileTable.AddRow($"{cursor} {label}");
         }
 
-        var profilePanel = new Panel(profileTable)
-        {
-            Border = BoxBorder.Rounded,
-            Header = new PanelHeader("[bold]Profile[/]", Justify.Left),
-            Padding = new Padding(1, 0, 1, 0)
-        };
+        return profileTable;
+    }
 
-        var runtimeGrid = new Grid();
-        runtimeGrid.AddColumn(new GridColumn().Width(12));
-        runtimeGrid.AddColumn();
-        runtimeGrid.AddRow("[grey]Mode[/]", mountModeLabel);
-        runtimeGrid.AddRow("[grey]Workspace[/]", $"[deepskyblue1]{Markup.Escape(currentWorkspacePath)}[/]");
-
-        var runtimePanel = new Panel(runtimeGrid)
-        {
-            Border = BoxBorder.Rounded,
-            Header = new PanelHeader("[bold]Runtime[/]", Justify.Left),
-            Padding = new Padding(1, 0, 1, 0)
-        };
-
+    private static IRenderable CreateResourceSelectionContent(IReadOnlyList<string> selectedResourceDirectories, int selectedResourceIndex)
+    {
         var resourceTable = new Table()
             .Border(TableBorder.None)
             .Expand();
         resourceTable.AddColumn(new TableColumn(""));
+
+        resourceTable.AddRow(FormatSelectableRow("+ Add resource directory", selectedResourceIndex == 0, "[deepskyblue1]+[/]"));
+
         if(selectedResourceDirectories.Count == 0)
         {
-            resourceTable.AddRow("[grey](none selected)[/]");
+            resourceTable.AddRow("[grey]  (none selected)[/]");
         }
         else
         {
-            foreach(string resourceDirectory in selectedResourceDirectories)
+            for(int i = 0; i < selectedResourceDirectories.Count; i++)
             {
-                resourceTable.AddRow($"[deepskyblue1]+[/] {Markup.Escape(resourceDirectory)}");
+                resourceTable.AddRow(FormatSelectableRow(Markup.Escape(selectedResourceDirectories[i]), selectedResourceIndex == i + 1, "[deepskyblue1]-[/]"));
             }
         }
 
-        var resourcesPanel = new Panel(resourceTable)
-        {
-            Border = BoxBorder.Rounded,
-            Header = new PanelHeader("[bold]Read-only Resource Dirs[/]", Justify.Left),
-            Padding = new Padding(1, 0, 1, 0)
-        };
-
-        var rightColumn = new Rows(runtimePanel, resourcesPanel);
-        AnsiConsole.Write(new Columns(profilePanel, rightColumn)
-        {
-            Expand = true
-        });
-
-        AnsiConsole.Write(CreateKeyHelpPanel(
-            ("Up/Down", "Select profile"),
-            ("Space", "Toggle mount mode"),
-            ("R", "Add resource directory"),
-            ("Backspace / D", "Remove last directory"),
-            ("Enter", "Continue"),
-            ("Esc", "Cancel")));
+        return resourceTable;
     }
 
-    private static bool TryAddInitialResourceDirectories(
-        IReadOnlyList<string> initialResourceDirectories,
-        List<string> selectedResourceDirectories,
-        HashSet<string> seenResourceDirectories)
+    private static IRenderable CreateNetworkSelectionContent(IReadOnlyList<string> availableNetworkNames, int selectedNetworkIndex, DockerNetworkMode selectedNetworkMode, IReadOnlySet<string> activeNetworkNames)
     {
-        foreach(string initialResourceDirectory in initialResourceDirectories)
-        {
-            if(!TryNormalizeResourceDirectory(initialResourceDirectory, out string normalizedPath, out string errorMessage))
-            {
-                AppIO.WriteError(errorMessage);
-                return false;
-            }
+        var networkTable = new Table()
+            .Border(TableBorder.None)
+            .Expand();
+        networkTable.AddColumn(new TableColumn(""));
 
-            if(seenResourceDirectories.Add(normalizedPath))
-            {
-                selectedResourceDirectories.Add(normalizedPath);
-            }
+        networkTable.AddRow(FormatSelectableRow($"Networking mode: {Markup.Escape(GetDockerNetworkModeLabel(selectedNetworkMode))}", selectedNetworkIndex == 0, "[deepskyblue1]~[/]"));
+
+        if(!DoesNetworkModeSupportAdditionalNetworks(selectedNetworkMode))
+        {
+            networkTable.AddRow($"[grey]  Additional networks are disabled in {Markup.Escape(GetDockerNetworkModeLabel(selectedNetworkMode))} mode.[/]");
+            return networkTable;
         }
 
-        return true;
+        if(availableNetworkNames.Count == 0)
+        {
+            networkTable.AddRow("[grey]  (no additional Docker networks found)[/]");
+            return networkTable;
+        }
+
+        for(int i = 0; i < availableNetworkNames.Count; i++)
+        {
+            string networkName = availableNetworkNames[i];
+            bool isActive = activeNetworkNames.Contains(networkName);
+            string checkbox = isActive ? "[deepskyblue1][[x]][/]" : "[grey][[ ]][/]";
+            networkTable.AddRow(FormatSelectableRow(Markup.Escape(networkName), selectedNetworkIndex == i + 1, checkbox));
+        }
+
+        return networkTable;
     }
+
+    private static string FormatSelectableRow(string label, bool isSelected, string iconMarkup)
+    {
+        string cursor = isSelected ? "[deepskyblue1]>[/]" : " ";
+        string formattedLabel = isSelected
+            ? $"[bold deepskyblue1]{label}[/]"
+            : label;
+        return $"{cursor} {iconMarkup} {formattedLabel}";
+    }
+
+    private static RunSelectionTab CycleInteractiveTab(RunSelectionTab selectedTab, bool movingRight) => (selectedTab, movingRight) switch
+    {
+        (RunSelectionTab.Profile, true) => RunSelectionTab.Resources,
+        (RunSelectionTab.Resources, true) => RunSelectionTab.Networks,
+        (RunSelectionTab.Networks, true) => RunSelectionTab.Profile,
+        (RunSelectionTab.Profile, false) => RunSelectionTab.Networks,
+        (RunSelectionTab.Resources, false) => RunSelectionTab.Profile,
+        _ => RunSelectionTab.Resources
+    };
+
+    private static DockerNetworkMode CycleDockerNetworkMode(DockerNetworkMode networkMode) => networkMode switch
+    {
+        DockerNetworkMode.Bridge => DockerNetworkMode.Host,
+        DockerNetworkMode.Host => DockerNetworkMode.None,
+        _ => DockerNetworkMode.Bridge
+    };
+
+    private static bool DoesNetworkModeSupportAdditionalNetworks(DockerNetworkMode networkMode) => networkMode is DockerNetworkMode.Bridge;
+
+    private static string GetDockerNetworkModeLabel(DockerNetworkMode networkMode) => networkMode switch
+    {
+        DockerNetworkMode.Host => "host",
+        DockerNetworkMode.None => "none",
+        _ => "bridge"
+    };
+
+    private static string? ResolveDockerNetworkModeArgument(DockerNetworkMode networkMode) => networkMode switch
+    {
+        DockerNetworkMode.Host => "host",
+        DockerNetworkMode.None => "none",
+        _ => null
+    };
+
+    private static int GetNetworkEntryCount(IReadOnlyList<string> availableNetworkNames, DockerNetworkMode networkMode)
+        => !DoesNetworkModeSupportAdditionalNetworks(networkMode)
+            ? 1
+            : availableNetworkNames.Count + 1;
+
+    private static bool IsHelpKey(ConsoleKeyInfo keyInfo) => keyInfo.KeyChar == '?';
 
     private static string? PromptForResourceDirectory(string workspacePath, List<string> selectedResourceDirectories)
     {
@@ -345,6 +506,7 @@ internal sealed class RunCliCommand : Command
 
         int selectedIndex = 0;
         bool selectingDrive = false;
+        bool showingControls = false;
 
         while(true)
         {
@@ -385,7 +547,7 @@ internal sealed class RunCliCommand : Command
                 selectedIndex = 0;
             }
 
-            RenderResourceDirectoryExplorer(currentDirectory, selectingDrive, entries, selectedIndex);
+            RenderResourceDirectoryExplorer(currentDirectory, selectingDrive, entries, selectedIndex, showingControls);
 
             var keyInfo = AnsiConsole.Console.Input.ReadKey(intercept: true);
             if(keyInfo is null)
@@ -393,9 +555,26 @@ internal sealed class RunCliCommand : Command
                 continue;
             }
 
+            if(showingControls)
+            {
+                if(!IsHelpKey(keyInfo.Value))
+                {
+                    showingControls = false;
+                }
+
+                continue;
+            }
+
+            if(IsHelpKey(keyInfo.Value))
+            {
+                showingControls = true;
+                continue;
+            }
+
             switch(keyInfo.Value.Key)
             {
                 case ConsoleKey.UpArrow:
+                case ConsoleKey.W:
                     if(entries.Count > 0)
                     {
                         selectedIndex = selectedIndex <= 0 ? entries.Count - 1 : selectedIndex - 1;
@@ -403,6 +582,7 @@ internal sealed class RunCliCommand : Command
 
                     break;
                 case ConsoleKey.DownArrow:
+                case ConsoleKey.S:
                     if(entries.Count > 0)
                     {
                         selectedIndex = selectedIndex >= entries.Count - 1 ? 0 : selectedIndex + 1;
@@ -428,7 +608,7 @@ internal sealed class RunCliCommand : Command
                     }
 
                     break;
-                case ConsoleKey.Enter:
+                case ConsoleKey.Spacebar:
                 case ConsoleKey.RightArrow:
                     if(selectingDrive)
                     {
@@ -450,7 +630,7 @@ internal sealed class RunCliCommand : Command
 
                     if(entries.Count == 0)
                     {
-                        return currentDirectory;
+                        break;
                     }
 
                     var selectedEntry = entries[selectedIndex];
@@ -474,6 +654,7 @@ internal sealed class RunCliCommand : Command
                     }
 
                     break;
+                case ConsoleKey.Enter:
                 case ConsoleKey.A:
                     if(selectingDrive)
                     {
@@ -492,8 +673,24 @@ internal sealed class RunCliCommand : Command
         string currentDirectory,
         bool selectingDrive,
         IReadOnlyList<ExplorerEntry> entries,
-        int selectedIndex)
+        int selectedIndex,
+        bool showingControls)
     {
+        if(showingControls)
+        {
+            RenderControlsScreen(
+                "Resource Browser Controls",
+                "Press any key to return.",
+                ("Up / Down", "Navigate"),
+                ("W / S", "Navigate"),
+                ("Space / Right", "Open selected"),
+                ("Left / Backspace", "Go up"),
+                ("Enter", "Add current directory"),
+                ("Esc", "Cancel"),
+                ("?", "Show controls"));
+            return;
+        }
+
         AnsiConsole.Clear();
         AppIO.WriteHeader("Resource Browser", "Pick additional read-only mounts.");
 
@@ -509,7 +706,7 @@ internal sealed class RunCliCommand : Command
 
         if(selectingDrive)
         {
-            AnsiConsole.MarkupLine("[grey]Choose a drive, then browse and press A to add the current folder.[/]");
+            AnsiConsole.MarkupLine("[grey]Choose a drive, then browse and press Enter to add the current folder.[/]");
         }
 
         var entryTable = new Table()
@@ -548,13 +745,13 @@ internal sealed class RunCliCommand : Command
             Header = new PanelHeader("[bold]Directories[/]", Justify.Left),
             Padding = new Padding(1, 0, 1, 0)
         });
+    }
 
-        AnsiConsole.Write(CreateKeyHelpPanel(
-            ("Up/Down", "Navigate"),
-            ("Enter / Right", "Open selected"),
-            ("Left / Backspace", "Go up"),
-            ("A", "Add current directory"),
-            ("Esc", "Cancel")));
+    private static void RenderControlsScreen(string title, string subtitle, params (string Key, string Action)[] shortcuts)
+    {
+        AnsiConsole.Clear();
+        AppIO.WriteHeader(title, subtitle);
+        AnsiConsole.Write(CreateKeyHelpPanel(shortcuts));
     }
 
     private static Panel CreateKeyHelpPanel(params (string Key, string Action)[] shortcuts)
@@ -641,7 +838,7 @@ internal sealed class RunCliCommand : Command
         if(String.IsNullOrWhiteSpace(requestedDirectory))
         {
             normalizedPath = "";
-            errorMessage = "--resource-dir cannot be empty.";
+            errorMessage = "Resource directory cannot be empty.";
             return false;
         }
 
@@ -660,9 +857,23 @@ internal sealed class RunCliCommand : Command
         ? StringComparer.OrdinalIgnoreCase
         : StringComparer.Ordinal;
 
-    private sealed record RunSelection(string ProfileName, WorkspaceMountMode MountMode, IReadOnlyList<string> ResourceDirectories);
+    private sealed record RunSelection(string ProfileName, WorkspaceMountMode MountMode, IReadOnlyList<string> ResourceDirectories, DockerNetworkMode NetworkMode, IReadOnlyList<string> NetworkNames);
     private sealed record ProfileChoice(string Name, bool IsDefault);
     private sealed record ExplorerEntry(string Label, ExplorerEntryType EntryType, string? Path = null);
+
+    private enum RunSelectionTab
+    {
+        Profile,
+        Resources,
+        Networks
+    }
+
+    private enum DockerNetworkMode
+    {
+        Bridge,
+        Host,
+        None
+    }
 
     private enum ExplorerEntryType
     {

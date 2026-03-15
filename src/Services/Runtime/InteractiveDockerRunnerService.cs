@@ -13,17 +13,20 @@ internal sealed partial class InteractiveDockerRunnerService : Singleton
     [Inject]
     private readonly PastedImagePathService _pastedImagePathService;
 
+    [Inject]
+    private readonly DeferredSessionLogService _deferredSessionLogService;
+
     public async Task<int> RunDockerAsync(IReadOnlyList<string> dockerArgs, InteractiveSessionContext? session, string? hostWorkingDirectory)
     {
         if(session is null)
         {
-            AppIO.WriteError("Interactive terminal relay could not start because no runtime session was created.");
+            WriteRelayError("Interactive terminal relay could not start because no runtime session was created.");
             return 1;
         }
 
         if(TryGetRelayUnavailableReason(out string? relayUnavailableReason))
         {
-            AppIO.WriteError($"Interactive terminal relay unavailable: {relayUnavailableReason}.");
+            WriteRelayError($"Interactive terminal relay unavailable: {relayUnavailableReason}.");
             return 1;
         }
 
@@ -34,38 +37,14 @@ internal sealed partial class InteractiveDockerRunnerService : Singleton
 
     public async Task<int> RunAttachedAsync(IReadOnlyList<string> dockerArgs)
     {
-        try
+        var result = await ProcessRunner.RunAttachedAsync("docker", dockerArgs);
+        if(!result.Started)
         {
-            using var process = new Process
-            {
-                StartInfo = new ProcessStartInfo("docker")
-                {
-                    UseShellExecute = false,
-                    RedirectStandardInput = false,
-                    RedirectStandardOutput = false,
-                    RedirectStandardError = false
-                }
-            };
-
-            foreach(string arg in dockerArgs)
-            {
-                process.StartInfo.ArgumentList.Add(arg);
-            }
-
-            if(!process.Start())
-            {
-                AppIO.WriteError("Failed to start attached Docker process.");
-                return 1;
-            }
-
-            await process.WaitForExitAsync();
-            return process.ExitCode;
-        }
-        catch(Exception ex)
-        {
-            AppIO.WriteError($"Failed to start attached Docker process: {ex.Message}");
+            WriteRelayError($"Failed to start attached Docker process: {result.StdErr}");
             return 1;
         }
+
+        return result.ExitCode;
     }
 
     public void RestoreTerminalStateIfNeeded()
@@ -78,7 +57,7 @@ internal sealed partial class InteractiveDockerRunnerService : Singleton
     {
         if(!UnixTerminalModeScope.TryEnter(out var terminalModeScope, out string? terminalFailureReason) || terminalModeScope is null)
         {
-            AppIO.WriteError(BuildRelayStartupError(
+            WriteRelayError(BuildRelayStartupError(
                 "Interactive terminal relay failed to initialize the Unix terminal state",
                 terminalFailureReason,
                 "Run OCW from a real terminal with stdin/stdout attached."));
@@ -91,7 +70,7 @@ internal sealed partial class InteractiveDockerRunnerService : Singleton
         if(relayProcess is null)
         {
             terminalModeScope.Dispose();
-            AppIO.WriteError(BuildRelayStartupError(
+            WriteRelayError(BuildRelayStartupError(
                 "Interactive terminal relay failed to start the Unix relay process",
                 relayProcessFailureReason,
                 "Make sure the `script` utility is installed and available on PATH."));
@@ -108,35 +87,39 @@ internal sealed partial class InteractiveDockerRunnerService : Singleton
             using var inputCancellationSource = new CancellationTokenSource();
             var startupInputGate = new StartupInputGate();
             var startupProgress = new StartupProgressTracker();
+            var startupFailureTranscript = new StartupFailureTranscript();
             var pasteRelay = new BracketedPasteRelay(session, hostWorkingDirectory, _pastedImagePathService);
             var startupProgressTask = ReportStartupProgressAsync(startupProgress, standardError, () => relayProcess.HasExited, inputCancellationSource.Token);
 
-            var stdoutTask = PumpStreamAsync(relayProcess.StandardOutput.BaseStream, standardOutput, startupInputGate.CreateOutputFilter(startupProgress), CancellationToken.None);
-            var stderrTask = PumpStreamAsync(relayProcess.StandardError.BaseStream, standardError, startupInputGate.CreateOutputFilter(startupProgress), CancellationToken.None);
+            var stdoutTask = PumpStreamAsync(relayProcess.StandardOutput.BaseStream, standardOutput, startupInputGate.CreateOutputFilter(startupProgress), startupFailureTranscript, CancellationToken.None);
+            var stderrTask = PumpStreamAsync(relayProcess.StandardError.BaseStream, standardError, startupInputGate.CreateOutputFilter(startupProgress), startupFailureTranscript, CancellationToken.None);
             var inputTask = Task.Run(() => RelayInputLoop(
                 relayProcess.StandardInput.BaseStream,
                 pasteRelay,
                 startupInputGate.CanForwardInput,
+                startupFailureTranscript.MarkInputObserved,
                 () => relayProcess.HasExited,
                 inputCancellationSource.Token));
 
             await relayProcess.WaitForExitAsync();
+            int exitCode = relayProcess.ExitCode;
             inputCancellationSource.Cancel();
             TryCloseRelayInput(relayProcess.StandardInput.BaseStream);
 
             await Task.WhenAll(stdoutTask, stderrTask);
+            startupFailureTranscript.WriteToDeferredLogIfRelevant(exitCode, _deferredSessionLogService);
             await Task.WhenAny(startupProgressTask, Task.Delay(100));
             await Task.WhenAny(inputTask, Task.Delay(100));
-        }
 
-        return relayProcess.ExitCode;
+            return exitCode;
+        }
     }
 
     private async Task<int> RunWindowsAsync(IReadOnlyList<string> dockerArgs, InteractiveSessionContext session, string? hostWorkingDirectory)
     {
         if(!WindowsConsoleModeScope.TryEnter(out var terminalModeScope, out string? consoleFailureReason) || terminalModeScope is null)
         {
-            AppIO.WriteError(BuildRelayStartupError(
+            WriteRelayError(BuildRelayStartupError(
                 "Interactive terminal relay failed to initialize the Windows console state",
                 consoleFailureReason,
                 "Run OCW from a supported Windows terminal with an attached console."));
@@ -148,7 +131,7 @@ internal sealed partial class InteractiveDockerRunnerService : Singleton
         if(!WindowsPseudoConsoleSession.TryStart("docker", dockerArgs, out var pseudoConsoleSession, out string? pseudoConsoleFailureReason) || pseudoConsoleSession is null)
         {
             terminalModeScope.Dispose();
-            AppIO.WriteError(BuildRelayStartupError(
+            WriteRelayError(BuildRelayStartupError(
                 "Interactive terminal relay failed to start the Windows ConPTY session",
                 pseudoConsoleFailureReason,
                 "Check that ConPTY is available and that Docker can be launched from this console session."));
@@ -166,15 +149,17 @@ internal sealed partial class InteractiveDockerRunnerService : Singleton
             using var resizeCancellationSource = new CancellationTokenSource();
             var startupInputGate = new StartupInputGate();
             var startupProgress = new StartupProgressTracker();
+            var startupFailureTranscript = new StartupFailureTranscript();
             var plainTextInterceptor = new WindowsPlainTextPasteInterceptor(session, hostWorkingDirectory, _pastedImagePathService);
             var pasteRelay = new BracketedPasteRelay(session, hostWorkingDirectory, _pastedImagePathService, plainTextInterceptor);
             var startupProgressTask = ReportStartupProgressAsync(startupProgress, standardOutput, () => pseudoConsoleSession.HasExited, inputCancellationSource.Token);
 
-            var outputTask = PumpStreamAsync(pseudoConsoleSession.OutputStream, standardOutput, startupInputGate.CreateOutputFilter(startupProgress), CancellationToken.None);
+            var outputTask = PumpStreamAsync(pseudoConsoleSession.OutputStream, standardOutput, startupInputGate.CreateOutputFilter(startupProgress), startupFailureTranscript, CancellationToken.None);
             var inputTask = Task.Run(() => RelayWindowsRawInputLoop(
                 pseudoConsoleSession.InputStream,
                 pasteRelay,
                 startupInputGate.CanForwardInput,
+                startupFailureTranscript.MarkInputObserved,
                 () => pseudoConsoleSession.HasExited,
                 inputCancellationSource.Token));
             var resizeTask = Task.Run(() => PollConsoleResizeAsync(pseudoConsoleSession, resizeCancellationSource.Token));
@@ -186,11 +171,18 @@ internal sealed partial class InteractiveDockerRunnerService : Singleton
             pseudoConsoleSession.ClosePseudoConsole();
 
             await outputTask;
+            startupFailureTranscript.WriteToDeferredLogIfRelevant(exitCode, _deferredSessionLogService);
             await Task.WhenAny(startupProgressTask, Task.Delay(100));
             await Task.WhenAny(inputTask, Task.Delay(100));
             await Task.WhenAny(resizeTask, Task.Delay(100));
             return exitCode;
         }
+    }
+
+    private void WriteRelayError(string message)
+    {
+        _deferredSessionLogService.Write("relay", message, Microsoft.Extensions.Logging.LogLevel.Error);
+        AppIO.WriteError(message);
     }
 
     private static bool TryGetRelayUnavailableReason(out string? reason)
@@ -343,7 +335,7 @@ internal sealed partial class InteractiveDockerRunnerService : Singleton
         return psi;
     }
 
-    private static async Task PumpStreamAsync(Stream source, Stream destination, StartupOutputFilter? outputFilter, CancellationToken cancellationToken)
+    private static async Task PumpStreamAsync(Stream source, Stream destination, StartupOutputFilter? outputFilter, StartupFailureTranscript? startupFailureTranscript, CancellationToken cancellationToken)
     {
         try
         {
@@ -363,6 +355,7 @@ internal sealed partial class InteractiveDockerRunnerService : Singleton
                     continue;
                 }
 
+                startupFailureTranscript?.Capture(bytesToWrite.Span);
                 await destination.WriteAsync(bytesToWrite, cancellationToken);
                 await destination.FlushAsync(cancellationToken);
             }
@@ -372,6 +365,7 @@ internal sealed partial class InteractiveDockerRunnerService : Singleton
                 var trailingBytes = outputFilter.Flush();
                 if(trailingBytes.Length > 0)
                 {
+                    startupFailureTranscript?.Capture(trailingBytes.Span);
                     await destination.WriteAsync(trailingBytes, cancellationToken);
                     await destination.FlushAsync(cancellationToken);
                 }
@@ -424,7 +418,7 @@ internal sealed partial class InteractiveDockerRunnerService : Singleton
         await destination.FlushAsync(cancellationToken);
     }
 
-    private static void RelayInputLoop(Stream relayInput, BracketedPasteRelay pasteRelay, Func<bool> canForwardInput, Func<bool> hasExited, CancellationToken cancellationToken)
+    private static void RelayInputLoop(Stream relayInput, BracketedPasteRelay pasteRelay, Func<bool> canForwardInput, Action onForwardedInput, Func<bool> hasExited, CancellationToken cancellationToken)
     {
         byte[] buffer = new byte[4096];
 
@@ -445,6 +439,7 @@ internal sealed partial class InteractiveDockerRunnerService : Singleton
                     continue;
                 }
 
+                onForwardedInput();
                 pasteRelay.Forward(buffer.AsSpan(0, bytesRead), relayInput);
             }
 
@@ -456,7 +451,7 @@ internal sealed partial class InteractiveDockerRunnerService : Singleton
         }
     }
 
-    private void RelayWindowsRawInputLoop(Stream relayInput, BracketedPasteRelay pasteRelay, Func<bool> canForwardInput, Func<bool> hasExited, CancellationToken cancellationToken)
+    private void RelayWindowsRawInputLoop(Stream relayInput, BracketedPasteRelay pasteRelay, Func<bool> canForwardInput, Action onForwardedInput, Func<bool> hasExited, CancellationToken cancellationToken)
     {
         byte[] buffer = new byte[4096];
 
@@ -480,6 +475,7 @@ internal sealed partial class InteractiveDockerRunnerService : Singleton
                     continue;
                 }
 
+                onForwardedInput();
                 pasteRelay.Forward(buffer.AsSpan(0, bytesRead), relayInput);
             }
 
@@ -678,6 +674,160 @@ internal sealed partial class InteractiveDockerRunnerService : Singleton
             long currentElapsedTicks = _stopwatch.ElapsedTicks;
             long deltaTicks = Math.Max(0, currentElapsedTicks - readyElapsedTicks);
             return TimeSpan.FromSeconds(deltaTicks / (double) Stopwatch.Frequency);
+        }
+    }
+
+    private sealed class StartupFailureTranscript
+    {
+        private const int MAX_CAPTURED_BYTES = 32 * 1024;
+
+        private readonly Lock _sync = new();
+        private readonly List<byte> _capturedBytes = [];
+        private bool _truncated;
+        private int _inputObserved;
+
+        public void Capture(ReadOnlySpan<byte> bytes)
+        {
+            if(bytes.Length == 0 || Volatile.Read(ref _inputObserved) != 0)
+            {
+                return;
+            }
+
+            lock(_sync)
+            {
+                if(Volatile.Read(ref _inputObserved) != 0)
+                {
+                    return;
+                }
+
+                _capturedBytes.AddRange(bytes.ToArray());
+                int overflow = _capturedBytes.Count - MAX_CAPTURED_BYTES;
+                if(overflow > 0)
+                {
+                    _capturedBytes.RemoveRange(0, overflow);
+                    _truncated = true;
+                }
+            }
+        }
+
+        public void MarkInputObserved()
+            => Interlocked.Exchange(ref _inputObserved, 1);
+
+        public void WriteToDeferredLogIfRelevant(int exitCode, DeferredSessionLogService deferredSessionLogService)
+        {
+            if(exitCode == 0 || Volatile.Read(ref _inputObserved) != 0)
+            {
+                return;
+            }
+
+            byte[] capturedBytes;
+            bool truncated;
+            lock(_sync)
+            {
+                if(_capturedBytes.Count == 0)
+                {
+                    return;
+                }
+
+                capturedBytes = [.. _capturedBytes];
+                truncated = _truncated;
+            }
+
+            if(truncated)
+            {
+                deferredSessionLogService.Write("container", $"captured container output was truncated to the most recent {MAX_CAPTURED_BYTES} bytes", Microsoft.Extensions.Logging.LogLevel.Warning);
+            }
+
+            foreach(string line in EnumerateCapturedLines(capturedBytes))
+            {
+                deferredSessionLogService.Write("container", line, Microsoft.Extensions.Logging.LogLevel.Error);
+            }
+        }
+
+        private static IEnumerable<string> EnumerateCapturedLines(byte[] bytes)
+        {
+            string text = Encoding.UTF8.GetString(bytes)
+                .Replace(STARTUP_READY_MARKER, String.Empty, StringComparison.Ordinal)
+                .Replace("\r\n", "\n", StringComparison.Ordinal)
+                .Replace('\r', '\n');
+
+            string cleaned = StripAnsiSequences(text);
+            foreach(string line in cleaned.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                if(!String.IsNullOrWhiteSpace(line))
+                {
+                    yield return line;
+                }
+            }
+        }
+
+        private static string StripAnsiSequences(string value)
+        {
+            if(String.IsNullOrEmpty(value))
+            {
+                return String.Empty;
+            }
+
+            var builder = new StringBuilder(value.Length);
+
+            for(int index = 0; index < value.Length; index++)
+            {
+                char current = value[index];
+                if(current != '\u001b')
+                {
+                    builder.Append(current);
+                    continue;
+                }
+
+                if(index + 1 >= value.Length)
+                {
+                    break;
+                }
+
+                char next = value[index + 1];
+                if(next == '[')
+                {
+                    index += 2;
+                    while(index < value.Length)
+                    {
+                        char terminator = value[index];
+                        if(terminator >= '@' && terminator <= '~')
+                        {
+                            break;
+                        }
+
+                        index++;
+                    }
+
+                    continue;
+                }
+
+                if(next == ']')
+                {
+                    index += 2;
+                    while(index < value.Length)
+                    {
+                        if(value[index] == '\u0007')
+                        {
+                            break;
+                        }
+
+                        if(value[index] == '\u001b' && index + 1 < value.Length && value[index + 1] == '\\')
+                        {
+                            index++;
+                            break;
+                        }
+
+                        index++;
+                    }
+
+                    continue;
+                }
+
+                index++;
+            }
+
+            return builder.ToString();
         }
     }
 

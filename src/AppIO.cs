@@ -17,31 +17,19 @@ internal static class AppIO
         => WriteMessage("[yellow]⚠[/]", message);
     public static void WriteLog(LogLevel level, string message)
     {
-        switch(level)
-        {
-            case LogLevel.Trace:
-            case LogLevel.Debug:
-                WriteMessage("[grey]·[/]", message);
-                break;
-            case LogLevel.Information:
-                WriteInfo(message);
-                break;
-            case LogLevel.Warning:
-                WriteWarning(message);
-                break;
-            case LogLevel.Error:
-                WriteError(message);
-                break;
-            case LogLevel.Critical:
-                WriteMessage("[bold red]‼[/]", message);
-                break;
-            default:
-                WriteInfo(message);
-                break;
-        }
+        LogVisual visual = GetLogVisual(level);
+        WriteMessage(visual.IconMarkup, message);
     }
 
-    public static void WriteHeader(string title, string? subtitle = null)
+    public static void WriteSessionLog(LogLevel level, DateTime timestampUtc, string category, string message)
+    {
+        LogVisual visual = GetLogVisual(level);
+        string timestamp = Markup.Escape($"{timestampUtc:HH:mm:ss.fffffff'Z'}");
+        string scope = Markup.Escape($"[{category}]");
+        AnsiConsole.MarkupLine($"{visual.IconMarkup} [{visual.AccentStyle}]{timestamp}[/] [{visual.AccentStyle}]{scope}[/] {Markup.Escape(message)}");
+    }
+
+    public static void WriteHeader(string title, string? subtitle = null, bool includeTrailingBlankLine = true)
     {
         AnsiConsole.MarkupLine($"{BRAND_LABEL} [grey]-[/] [bold]{Markup.Escape(title)}[/]");
         if(!String.IsNullOrWhiteSpace(subtitle))
@@ -49,7 +37,10 @@ internal static class AppIO
             AnsiConsole.MarkupLine($"[grey]{Markup.Escape(subtitle)}[/]");
         }
 
-        AnsiConsole.WriteLine();
+        if(includeTrailingBlankLine)
+        {
+            AnsiConsole.WriteLine();
+        }
     }
 
     public static bool Confirm(string message)
@@ -89,6 +80,17 @@ internal static class AppIO
     private static void WriteMessage(string iconMarkup, string message)
         => AnsiConsole.MarkupLine($"{iconMarkup} {BRAND_LABEL} {Markup.Escape(message)}");
 
+    private static LogVisual GetLogVisual(LogLevel level)
+        => level switch
+        {
+            LogLevel.Trace or LogLevel.Debug => new("[grey]⚙[/]", "grey"),
+            LogLevel.Information => new("[deepskyblue1]ℹ[/]", "deepskyblue1"),
+            LogLevel.Warning => new("[yellow]⚠[/]", "yellow"),
+            LogLevel.Error => new("[red]✖[/]", "red"),
+            LogLevel.Critical => new("[bold red]‼[/]", "bold red"),
+            _ => new("[deepskyblue1]ℹ[/]", "deepskyblue1")
+        };
+
     private static T RunNonInteractiveStatus<T>(string statusMessage, Func<T> action)
     {
         WriteInfo(statusMessage);
@@ -100,4 +102,6 @@ internal static class AppIO
         WriteInfo(statusMessage);
         return await action();
     }
+
+    private readonly record struct LogVisual(string IconMarkup, string AccentStyle);
 }

@@ -1,4 +1,6 @@
-using System.Diagnostics;
+using CliWrap;
+using CliWrap.Buffered;
+using CliCommand = CliWrap.Command;
 
 namespace OpencodeWrap;
 
@@ -23,11 +25,17 @@ internal static class ProcessRunner
 
     public static async Task<ProcessRunResult> RunAsync(string fileName, IReadOnlyList<string> args, bool captureOutput = true, string? workDir = null)
     {
-        var psi = CreateProcessStartInfo(fileName, args, captureOutput: captureOutput, workDir: workDir);
-
         try
         {
-            return await RunProcessAsync(psi, captureOutput: captureOutput);
+            var command = CreateCommand(fileName, args, workDir);
+
+            if(!captureOutput)
+            {
+                return await RunAttachedAsync(fileName, args, workDir);
+            }
+
+            var bufferedResult = await command.ExecuteBufferedAsync();
+            return new ProcessRunResult(true, bufferedResult.ExitCode, bufferedResult.StandardOutput, bufferedResult.StandardError);
         }
         catch(Exception ex)
         {
@@ -35,49 +43,35 @@ internal static class ProcessRunner
         }
     }
 
-    private static ProcessStartInfo CreateProcessStartInfo(string fileName, IReadOnlyList<string> args, bool captureOutput, string? workDir = null)
+    public static async Task<ProcessRunResult> RunAttachedAsync(string fileName, IReadOnlyList<string> args, string? workDir = null)
     {
-        var psi = new ProcessStartInfo(fileName)
+        try
         {
-            UseShellExecute = false,
-            RedirectStandardOutput = captureOutput,
-            RedirectStandardError = captureOutput,
-            RedirectStandardInput = false
-        };
+            var result = await CreateCommand(fileName, args, workDir)
+                .WithStandardInputPipe(PipeSource.FromStream(Console.OpenStandardInput()))
+                .WithStandardOutputPipe(PipeTarget.ToStream(Console.OpenStandardOutput()))
+                .WithStandardErrorPipe(PipeTarget.ToStream(Console.OpenStandardError()))
+                .ExecuteAsync();
 
-        if(!String.IsNullOrWhiteSpace(workDir))
-        {
-            psi.WorkingDirectory = workDir;
+            return new ProcessRunResult(true, result.ExitCode, "", "");
         }
-
-        foreach(string arg in args)
+        catch(Exception ex)
         {
-            psi.ArgumentList.Add(arg);
+            return new ProcessRunResult(false, 1, "", ex.Message);
         }
-
-        return psi;
     }
 
-    private static async Task<ProcessRunResult> RunProcessAsync(ProcessStartInfo psi, bool captureOutput)
+    private static CliCommand CreateCommand(string fileName, IReadOnlyList<string> args, string? workDir)
     {
-        using var process = Process.Start(psi);
-        if(process is null)
+        var command = CliWrap.Cli.Wrap(fileName)
+            .WithArguments(args)
+            .WithValidation(CommandResultValidation.None);
+
+        if(String.IsNullOrWhiteSpace(workDir))
         {
-            return new ProcessRunResult(false, 1, "", "Unable to start process.");
+            return command;
         }
 
-        if(!captureOutput)
-        {
-            await process.WaitForExitAsync();
-            return new ProcessRunResult(true, process.ExitCode, "", "");
-        }
-
-        var stdOutTask = process.StandardOutput.ReadToEndAsync();
-        var stdErrTask = process.StandardError.ReadToEndAsync();
-        await Task.WhenAll(stdOutTask, stdErrTask, process.WaitForExitAsync());
-
-        string stdOut = await stdOutTask;
-        string stdErr = await stdErrTask;
-        return new ProcessRunResult(true, process.ExitCode, stdOut, stdErr);
+        return command.WithWorkingDirectory(workDir);
     }
 }

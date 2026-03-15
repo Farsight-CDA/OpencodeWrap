@@ -4,6 +4,9 @@ internal sealed partial class BuiltInProfileTemplateService : Singleton
 {
     private const string DEFAULT_ENTRYPOINT_RESOURCE_NAME = "ProfileTemplates.entrypoint.sh";
 
+    [Inject]
+    private readonly DeferredSessionLogService _deferredSessionLogService;
+
     private static readonly BuiltInProfileTemplate[] _builtInProfiles = [
         new BuiltInProfileTemplate(
             "default",
@@ -58,7 +61,7 @@ internal sealed partial class BuiltInProfileTemplateService : Singleton
         catch(Exception ex)
         {
             AppIO.TryDeleteDirectory(temporaryDirectoryPath);
-            AppIO.WriteError($"Failed to prepare built-in profile '{builtInProfile.Name}': {ex.Message}");
+            _deferredSessionLogService.WriteErrorOrConsole("profile", $"Failed to prepare built-in profile '{builtInProfile.Name}': {ex.Message}");
             return (false, "");
         }
     }
