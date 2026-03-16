@@ -108,7 +108,13 @@ internal sealed partial class OpencodeLauncherService : Singleton
 
             LogStartupPhase($"resolved profile '{profile.Name}' from '{profile.DirectoryPath}'", LogLevel.Debug);
 
-            if(!TryPrepareSessionProfile(profile, session.HostSessionDirectory, runtimeAgentInstructions, out profile))
+            string? globalAgentInstructions = null;
+            if(includeProfileConfig && !TryReadGlobalAgentInstructions(out globalAgentInstructions))
+            {
+                return 1;
+            }
+
+            if(!TryPrepareSessionProfile(profile, session.HostSessionDirectory, includeProfileConfig, globalAgentInstructions, runtimeAgentInstructions, out profile))
             {
                 return 1;
             }
@@ -332,9 +338,37 @@ internal sealed partial class OpencodeLauncherService : Singleton
     private void WriteSessionErrorDetails(string category, string? detail)
         => _deferredSessionLogService.WriteErrorDetailsOrConsole(category, detail);
 
+    private bool TryReadGlobalAgentInstructions(out string? globalAgentInstructions)
+    {
+        globalAgentInstructions = null;
+        if(!_hostService.TryEnsureGlobalConfigDirectory(out string configDirectoryPath))
+        {
+            return false;
+        }
+
+        string agentsPath = Path.Combine(configDirectoryPath, OpencodeWrapConstants.HOST_GLOBAL_AGENTS_FILE_NAME);
+        if(!File.Exists(agentsPath))
+        {
+            return true;
+        }
+
+        try
+        {
+            globalAgentInstructions = File.ReadAllText(agentsPath);
+            return true;
+        }
+        catch(Exception ex)
+        {
+            _deferredSessionLogService.WriteErrorOrConsole("profile", $"Failed to read global AGENTS file '{agentsPath}': {ex.Message}");
+            return false;
+        }
+    }
+
     private bool TryPrepareSessionProfile(
         ResolvedProfile profile,
         string sessionDirectoryPath,
+        bool includeProfileConfig,
+        string? globalAgentInstructions,
         string runtimeAgentInstructions,
         out ResolvedProfile sessionProfile)
     {
@@ -352,19 +386,8 @@ internal sealed partial class OpencodeLauncherService : Singleton
 
             Directory.CreateDirectory(sessionConfigDirectoryPath);
 
-            string agentsPath = Path.Combine(sessionConfigDirectoryPath, "AGENTS.md");
-            if(File.Exists(agentsPath))
-            {
-                string existingContent = File.ReadAllText(agentsPath);
-                string combinedContent = String.IsNullOrWhiteSpace(existingContent)
-                    ? runtimeAgentInstructions
-                    : existingContent.TrimEnd() + Environment.NewLine + Environment.NewLine + runtimeAgentInstructions;
-                File.WriteAllText(agentsPath, combinedContent);
-            }
-            else
-            {
-                File.WriteAllText(agentsPath, runtimeAgentInstructions);
-            }
+            string agentsPath = Path.Combine(sessionConfigDirectoryPath, OpencodeWrapConstants.HOST_GLOBAL_AGENTS_FILE_NAME);
+            SessionProfileAgentsFile.EnsureForLaunch(agentsPath, includeProfileConfig, globalAgentInstructions, runtimeAgentInstructions);
 
             sessionProfile = new ResolvedProfile(
                 profile.Name,

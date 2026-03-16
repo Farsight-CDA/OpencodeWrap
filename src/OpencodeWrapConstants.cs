@@ -10,6 +10,7 @@ internal static class OpencodeWrapConstants
     public const string CONTAINER_SESSION_ROOT = $"{CONTAINER_OCW_ROOT}/session";
     public const string CONTAINER_TOOL_BIN_ROOT = $"{CONTAINER_SESSION_ROOT}/bin";
     public const string HOST_GLOBAL_CONFIG_DIRECTORY_NAME = ".opencode-wrap";
+    public const string HOST_GLOBAL_AGENTS_FILE_NAME = "AGENTS.md";
     public const string HOST_PROFILE_ROOT_DIRECTORY_NAME = "profiles";
     public const string HOST_SESSION_ROOT_DIRECTORY_NAME = "sessions";
     public const string HOST_SESSION_PASTE_DIRECTORY_NAME = "pastes";
