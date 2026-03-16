@@ -88,11 +88,6 @@ internal static class ProcessRunner
             .WithArguments(args)
             .WithValidation(CommandResultValidation.None);
 
-        if(String.IsNullOrWhiteSpace(workDir))
-        {
-            return command;
-        }
-
-        return command.WithWorkingDirectory(workDir);
+        return String.IsNullOrWhiteSpace(workDir) ? command : command.WithWorkingDirectory(workDir);
     }
 }

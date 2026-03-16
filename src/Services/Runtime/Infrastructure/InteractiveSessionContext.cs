@@ -1,6 +1,6 @@
 using System.Collections.Concurrent;
 
-namespace OpencodeWrap.Services.Runtime;
+namespace OpencodeWrap.Services.Runtime.Infrastructure;
 
 internal sealed record InteractiveSessionContext(
     string SessionId,

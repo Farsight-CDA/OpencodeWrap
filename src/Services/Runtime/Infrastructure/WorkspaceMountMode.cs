@@ -1,4 +1,4 @@
-namespace OpencodeWrap.Services.Runtime;
+namespace OpencodeWrap.Services.Runtime.Infrastructure;
 
 internal enum WorkspaceMountMode
 {

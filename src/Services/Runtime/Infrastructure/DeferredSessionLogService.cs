@@ -19,10 +19,7 @@ internal sealed partial class DeferredSessionLogService : Singleton
         }
     }
 
-    public void Write(string category, string message, LogLevel level = LogLevel.Information)
-    {
-        GetCurrentSession()?.Write(category, message, level);
-    }
+    public void Write(string category, string message, LogLevel level = LogLevel.Information) => GetCurrentSession()?.Write(category, message, level);
 
     public void WriteErrorOrConsole(string category, string message)
         => WriteOrConsole(category, message, LogLevel.Error);

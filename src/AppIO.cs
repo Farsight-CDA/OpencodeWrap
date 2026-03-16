@@ -17,13 +17,13 @@ internal static class AppIO
         => WriteMessage("[yellow]⚠[/]", message);
     public static void WriteLog(LogLevel level, string message)
     {
-        LogVisual visual = GetLogVisual(level);
+        var visual = GetLogVisual(level);
         WriteMessage(visual.IconMarkup, message);
     }
 
     public static void WriteSessionLog(LogLevel level, DateTime timestampUtc, string category, string message)
     {
-        LogVisual visual = GetLogVisual(level);
+        var visual = GetLogVisual(level);
         string timestamp = Markup.Escape($"{timestampUtc:HH:mm:ss.fffffff'Z'}");
         string scope = Markup.Escape($"[{category}]");
         AnsiConsole.MarkupLine($"{visual.IconMarkup} [{visual.AccentStyle}]{timestamp}[/] [{visual.AccentStyle}]{scope}[/] {Markup.Escape(message)}");

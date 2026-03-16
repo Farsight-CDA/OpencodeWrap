@@ -1,3 +1,4 @@
+using OpencodeWrap.Services.Runtime.Infrastructure;
 using System.CommandLine;
 
 namespace OpencodeWrap.Cli;

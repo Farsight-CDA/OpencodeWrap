@@ -1,4 +1,6 @@
 using Microsoft.Extensions.Logging;
+using OpencodeWrap.Services.Runtime.Infrastructure;
+using OpencodeWrap.Services.Runtime.Launcher;
 using System.Runtime.InteropServices;
 using System.Text;
 
@@ -9,26 +11,13 @@ internal sealed partial class OpencodeLauncherService : Singleton
     private static readonly TimeSpan _watchdogReadyTimeout = TimeSpan.FromSeconds(2);
     private static readonly string _containerCommand = BuildContainerCommand();
 
-    [Inject]
-    private readonly DockerHostService _hostService;
-
-    [Inject]
-    private readonly VolumeStateService _volumeService;
-
-    [Inject]
-    private readonly ProfileService _profileService;
-
-    [Inject]
-    private readonly DockerImageService _dockerImageService;
-
-    [Inject]
-    private readonly SessionStagingService _sessionStagingService;
-
-    [Inject]
-    private readonly InteractiveDockerRunnerService _interactiveDockerRunnerService;
-
-    [Inject]
-    private readonly DeferredSessionLogService _deferredSessionLogService;
+    [Inject] private readonly DockerHostService _hostService;
+    [Inject] private readonly VolumeStateService _volumeService;
+    [Inject] private readonly ProfileService _profileService;
+    [Inject] private readonly DockerImageService _dockerImageService;
+    [Inject] private readonly SessionStagingService _sessionStagingService;
+    [Inject] private readonly InteractiveDockerRunnerService _interactiveDockerRunnerService;
+    [Inject] private readonly DeferredSessionLogService _deferredSessionLogService;
 
     private int _cleanupStarted;
     private string? _containerName;
@@ -46,7 +35,7 @@ internal sealed partial class OpencodeLauncherService : Singleton
         bool verboseSessionLogs = false)
     {
         bool useInteractiveRelay = includeProfileConfig;
-        DeferredSessionLogService.SessionScope? sessionLog = includeProfileConfig
+        var sessionLog = includeProfileConfig
             ? _deferredSessionLogService.BeginSession(verboseSessionLogs ? LogLevel.Debug : LogLevel.Information)
             : null;
         try
@@ -297,7 +286,7 @@ internal sealed partial class OpencodeLauncherService : Singleton
     private static string BuildRuntimeAgentInstructions(
         string containerWorkDir,
         WorkspaceMountMode workspaceMountMode,
-        IReadOnlyList<(string HostPath, string ContainerPath)> additionalReadonlyMounts)
+        List<(string HostPath, string ContainerPath)> additionalReadonlyMounts)
     {
         var builder = new StringBuilder();
         builder.AppendLine("# OCW Runtime Environment");

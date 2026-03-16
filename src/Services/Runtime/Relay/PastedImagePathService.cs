@@ -1,3 +1,5 @@
+using OpencodeWrap.Services.Runtime.Infrastructure;
+
 namespace OpencodeWrap.Services.Runtime;
 
 internal sealed record PasteRewriteResult(string Text, bool Rewritten);
@@ -162,7 +164,7 @@ internal sealed partial class PastedImagePathService : Singleton
     private static string NormalizeImageExtension(string extension)
         => String.IsNullOrWhiteSpace(extension)
             ? ""
-            : extension.StartsWith(".", StringComparison.Ordinal)
+            : extension.StartsWith('.')
                 ? extension.ToLowerInvariant()
                 : $".{extension.ToLowerInvariant()}";
 

@@ -1,3 +1,4 @@
+using OpencodeWrap.Services.Runtime.Infrastructure;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Globalization;
@@ -9,11 +10,8 @@ internal sealed partial class SessionStagingService : Singleton
     private const string SESSION_METADATA_FILE_NAME = ".owner";
     private static readonly TimeSpan _missingMetadataGracePeriod = TimeSpan.FromMinutes(10);
 
-    [Inject]
-    private readonly DockerHostService _dockerHostService;
-
-    [Inject]
-    private readonly DeferredSessionLogService _deferredSessionLogService;
+    [Inject] private readonly DockerHostService _dockerHostService;
+    [Inject] private readonly DeferredSessionLogService _deferredSessionLogService;
 
     public bool TryCreateSession(string containerName, out InteractiveSessionContext session)
     {

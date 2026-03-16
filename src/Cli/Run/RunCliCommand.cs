@@ -1,3 +1,4 @@
+using OpencodeWrap.Services.Runtime.Infrastructure;
 using Spectre.Console;
 using Spectre.Console.Rendering;
 using System.CommandLine;
@@ -31,12 +32,9 @@ internal sealed class RunCliCommand : Command
         {
             bool verbose = parseResult.GetValue(_verboseOption);
             var selection = await PromptForRunSelectionAsync();
-            if(selection is null)
-            {
-                return 1;
-            }
-
-            return await _launcherService.ExecuteAsync([], requestedProfileName: selection.ProfileName, includeProfileConfig: true, workspaceMountMode: selection.MountMode, extraReadonlyMountDirs: selection.ResourceDirectories, dockerNetworkMode: ResolveDockerNetworkModeArgument(selection.NetworkMode), dockerNetworks: selection.NetworkNames, verboseSessionLogs: verbose);
+            return selection is null
+                ? 1
+                : await _launcherService.ExecuteAsync([], requestedProfileName: selection.ProfileName, includeProfileConfig: true, workspaceMountMode: selection.MountMode, extraReadonlyMountDirs: selection.ResourceDirectories, dockerNetworkMode: ResolveDockerNetworkModeArgument(selection.NetworkMode), dockerNetworks: selection.NetworkNames, verboseSessionLogs: verbose);
         });
     }
 
@@ -270,7 +268,7 @@ internal sealed class RunCliCommand : Command
         IReadOnlyList<string> availableNetworkNames,
         int selectedNetworkIndex,
         DockerNetworkMode selectedNetworkMode,
-        IReadOnlySet<string> activeNetworkNames,
+        HashSet<string> activeNetworkNames,
         bool showingControls)
     {
         if(showingControls)
@@ -319,7 +317,7 @@ internal sealed class RunCliCommand : Command
         AnsiConsole.Write(CreateTabStrip(selectedTab, selectedResourceDirectories.Count, activeNetworkNames.Count));
         AnsiConsole.WriteLine();
 
-        IRenderable activeContent = selectedTab switch
+        var activeContent = selectedTab switch
         {
             RunSelectionTab.Resources => CreateResourceSelectionContent(selectedResourceDirectories, selectedResourceIndex),
             RunSelectionTab.Networks => CreateNetworkSelectionContent(availableNetworkNames, selectedNetworkIndex, selectedNetworkMode, activeNetworkNames),
@@ -368,7 +366,7 @@ internal sealed class RunCliCommand : Command
         AnsiConsole.Write(footerPanel);
     }
 
-    private static IRenderable CreateTabStrip(RunSelectionTab selectedTab, int resourceCount, int activeNetworkCount)
+    private static Panel CreateTabStrip(RunSelectionTab selectedTab, int resourceCount, int activeNetworkCount)
     {
         var tabGrid = new Grid();
         tabGrid.AddColumn();
@@ -402,7 +400,7 @@ internal sealed class RunCliCommand : Command
         };
     }
 
-    private static IRenderable CreateProfileSelectionContent(IReadOnlyList<ProfileChoice> profileChoices, int selectedIndex)
+    private static Markup CreateProfileSelectionContent(IReadOnlyList<ProfileChoice> profileChoices, int selectedIndex)
     {
         var content = new StringBuilder();
 
@@ -435,7 +433,7 @@ internal sealed class RunCliCommand : Command
         return new Markup(content.ToString());
     }
 
-    private static IRenderable CreateResourceSelectionContent(IReadOnlyList<string> selectedResourceDirectories, int selectedResourceIndex)
+    private static Markup CreateResourceSelectionContent(List<string> selectedResourceDirectories, int selectedResourceIndex)
     {
         var content = new StringBuilder();
         content.AppendLine("[grey58]Add read-only resource directories to mount in the container:[/]");
@@ -480,7 +478,7 @@ internal sealed class RunCliCommand : Command
         return new Markup(content.ToString());
     }
 
-    private static IRenderable CreateNetworkSelectionContent(IReadOnlyList<string> availableNetworkNames, int selectedNetworkIndex, DockerNetworkMode selectedNetworkMode, IReadOnlySet<string> activeNetworkNames)
+    private static Markup CreateNetworkSelectionContent(IReadOnlyList<string> availableNetworkNames, int selectedNetworkIndex, DockerNetworkMode selectedNetworkMode, HashSet<string> activeNetworkNames)
     {
         var content = new StringBuilder();
         content.AppendLine("[grey58]Configure Docker networking for the container:[/]");
@@ -939,12 +937,7 @@ internal sealed class RunCliCommand : Command
         }
 
         normalizedPath = Path.TrimEndingDirectorySeparator(Path.GetFullPath(requestedDirectory));
-        if(!Directory.Exists(normalizedPath))
-        {
-            return false;
-        }
-
-        return true;
+        return Directory.Exists(normalizedPath);
     }
 
     private static StringComparer GetHostPathComparer() => OperatingSystem.IsWindows()
