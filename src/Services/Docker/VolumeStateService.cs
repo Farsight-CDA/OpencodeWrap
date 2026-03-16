@@ -36,18 +36,18 @@ internal sealed partial class VolumeStateService : Singleton
             return true;
         }
 
-        var (success, hasState) = await TryVolumeHasImportedStateAsync(OpencodeWrapConstants.XDG_VOLUME_NAME);
+        var (success, hasContent) = await TryVolumeHasAnyContentAsync(OpencodeWrapConstants.XDG_VOLUME_NAME);
         if (!success)
         {
             return false;
         }
 
-        if (!hasState)
+        if (!hasContent)
         {
             return true;
         }
 
-        _deferredSessionLogService.WriteErrorOrConsole("docker", $"Docker volume '{OpencodeWrapConstants.XDG_VOLUME_NAME}' already contains imported state. Use -f or --force to overwrite it.");
+        _deferredSessionLogService.WriteErrorOrConsole("docker", $"Docker volume '{OpencodeWrapConstants.XDG_VOLUME_NAME}' already contains data. Use -f or --force to replace it.");
         return false;
     }
 
@@ -58,6 +58,12 @@ internal sealed partial class VolumeStateService : Singleton
         if (!Directory.Exists(sourceShare) && !Directory.Exists(sourceState))
         {
             _deferredSessionLogService.WriteErrorOrConsole("docker", $"Import source must contain at least one of '{sourceShare}' or '{sourceState}'.");
+            return false;
+        }
+
+        var (resetSuccess, _) = await ResetNamedVolumeAsync();
+        if (!resetSuccess)
+        {
             return false;
         }
 
@@ -205,8 +211,8 @@ internal sealed partial class VolumeStateService : Singleton
                     done
                 }
 
+                rm -rf /target/* /target/.[!.]* /target/..?* 2>/dev/null || true
                 mkdir -p /target/.local/share /target/.local/state
-                rm -rf /target/.local/share/opencode /target/.local/state/opencode
                 copy_filtered_dir /source/.local/share/opencode /target/.local/share/opencode bin messages
                 copy_filtered_dir /source/.local/state/opencode /target/.local/state/opencode
                 rm -f /target/.local/share/opencode/debug.log
@@ -402,7 +408,7 @@ internal sealed partial class VolumeStateService : Singleton
         return true;
     }
 
-    private async Task<(bool Success, bool HasState)> TryVolumeHasImportedStateAsync(string volumeName)
+    private async Task<(bool Success, bool HasContent)> TryVolumeHasAnyContentAsync(string volumeName)
     {
         var result = await ProcessRunner.RunAsync(
             "docker",
@@ -416,14 +422,7 @@ internal sealed partial class VolumeStateService : Singleton
                 "-lc",
                 """
                 set -e
-                has_data=0
-                for dir in /target/.local/share/opencode /target/.local/state/opencode; do
-                    if [ -d "$dir" ] && [ "$(find "$dir" -mindepth 1 -print -quit 2>/dev/null)" ]; then
-                        has_data=1
-                        break
-                    fi
-                done
-                if [ "$has_data" -eq 1 ]; then printf 'has-data'; else printf 'empty'; fi
+                if [ "$(find /target -mindepth 1 -print -quit 2>/dev/null)" ]; then printf 'has-data'; else printf 'empty'; fi
                 """
             ]);
 
@@ -435,7 +434,7 @@ internal sealed partial class VolumeStateService : Singleton
             return (false, false);
         }
 
-        bool hasState = String.Equals(result.StdOut.Trim(), "has-data", StringComparison.Ordinal);
-        return (true, hasState);
+        bool hasContent = String.Equals(result.StdOut.Trim(), "has-data", StringComparison.Ordinal);
+        return (true, hasContent);
     }
 }

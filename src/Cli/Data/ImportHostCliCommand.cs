@@ -13,7 +13,7 @@ internal sealed class ImportHostCliCommand : Command
 
         var importHostForceOption = new Option<bool>("--force", ["-f"])
         {
-            Description = "Overwrite existing imported state in the Docker volume."
+            Description = "Replace any existing data in the Docker volume."
         };
 
         Add(importHostForceOption);

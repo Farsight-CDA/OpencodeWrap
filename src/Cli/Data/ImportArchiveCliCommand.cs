@@ -18,7 +18,7 @@ internal sealed class ImportArchiveCliCommand : Command
         };
         var importForceOption = new Option<bool>("--force", ["-f"])
         {
-            Description = "Overwrite existing imported state in the Docker volume."
+            Description = "Replace any existing data in the Docker volume."
         };
 
         Add(importArchiveArgument);
