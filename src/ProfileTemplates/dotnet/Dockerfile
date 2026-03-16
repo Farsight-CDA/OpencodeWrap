@@ -33,15 +33,10 @@ RUN mkdir -p /etc/apt/keyrings \
     && apt-get install -y --no-install-recommends dotnet-sdk-10.0 \
     && rm -rf /var/lib/apt/lists/*
 
-RUN mkdir -p /opt/opencode /ocw \
-    && chmod 755 /opt/opencode \
+RUN mkdir -p /ocw \
     && chmod 777 /ocw
-
-RUN HOME=/opt/opencode bash -lc "curl -fsSL https://opencode.ai/install | bash -s -- --no-modify-path"
 
 WORKDIR /workspace
 
 ENV BaseIntermediateOutputPath="obj/opencode-wrap/"
 ENV DefaultItemExcludesInProjectFolder="$(DefaultItemExcludesInProjectFolder);obj/**"
-
-ENV PATH="/opt/opencode/.opencode/bin:/opt/opencode/.local/share/opencode/bin:/opt/opencode/.local/bin:${PATH}"

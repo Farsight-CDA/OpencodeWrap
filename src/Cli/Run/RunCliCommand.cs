@@ -15,7 +15,7 @@ internal sealed class RunCliCommand : Command
     private readonly Option<bool> _verboseOption;
 
     public RunCliCommand(OpencodeLauncherService launcherService, ProfileService profileService, BuiltInProfileTemplateService builtInProfileTemplateService, DockerHostService dockerHostService)
-        : base("run", "Run opencode with a profile selected from the interactive setup menu.")
+        : base("run", "Resolve the latest OpenCode release, run `opencode serve` in Docker, then attach the OCW-managed host TUI after interactive setup.")
     {
         _launcherService = launcherService;
         _profileService = profileService;
@@ -34,7 +34,7 @@ internal sealed class RunCliCommand : Command
             var selection = await PromptForRunSelectionAsync();
             return selection is null
                 ? 1
-                : await _launcherService.ExecuteAsync([], requestedProfileName: selection.ProfileName, includeProfileConfig: true, workspaceMountMode: selection.MountMode, extraReadonlyMountDirs: selection.ResourceDirectories, dockerNetworkMode: ResolveDockerNetworkModeArgument(selection.NetworkMode), dockerNetworks: selection.NetworkNames, verboseSessionLogs: verbose);
+                : await _launcherService.ExecuteAsync([], requestedProfileName: selection.ProfileName, includeProfileConfig: true, runtimeMode: OpencodeRuntimeMode.HostAttachToServe, workspaceMountMode: selection.MountMode, extraReadonlyMountDirs: selection.ResourceDirectories, dockerNetworkMode: ResolveDockerNetworkModeArgument(selection.NetworkMode), dockerNetworks: selection.NetworkNames, verboseSessionLogs: verbose);
         });
     }
 

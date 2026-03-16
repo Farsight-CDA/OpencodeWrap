@@ -1,6 +1,9 @@
 using System.Security.Cryptography;
+using System.Text;
 
 namespace OpencodeWrap.Services.Docker;
+
+internal sealed record DockerImageInfo(string Tag, string Id, string Os, string Architecture);
 
 internal sealed partial class DockerImageService : Singleton
 {
@@ -11,7 +14,7 @@ internal sealed partial class DockerImageService : Singleton
     {
         string imageTag = "opencode-wrap:unavailable";
 
-        if(!File.Exists(dockerfilePath))
+        if (!File.Exists(dockerfilePath))
         {
             _deferredSessionLogService.WriteErrorOrConsole("docker", $"Dockerfile not found: '{dockerfilePath}'.");
             return (false, imageTag);
@@ -19,8 +22,7 @@ internal sealed partial class DockerImageService : Singleton
 
         imageTag = await BuildImageTagAsync(dockerfilePath);
 
-        var inspect = await ProcessRunner.RunAsync("docker", ["image", "inspect", imageTag]);
-        if(inspect.Success)
+        if (await ImageExistsAsync(imageTag))
         {
             return (true, imageTag);
         }
@@ -33,7 +35,7 @@ internal sealed partial class DockerImageService : Singleton
     {
         string imageTag = "opencode-wrap:unavailable";
 
-        if(!File.Exists(dockerfilePath))
+        if (!File.Exists(dockerfilePath))
         {
             _deferredSessionLogService.WriteErrorOrConsole("docker", $"Dockerfile not found: '{dockerfilePath}'.");
             return (false, imageTag);
@@ -51,7 +53,7 @@ internal sealed partial class DockerImageService : Singleton
             "build"
         };
 
-        if(noCache)
+        if (noCache)
         {
             buildArgs.Add("--no-cache");
         }
@@ -64,7 +66,7 @@ internal sealed partial class DockerImageService : Singleton
         ]);
 
         bool built = (await ProcessRunner.RunAsync("docker", buildArgs, captureOutput: false, workDir: buildContextDirectory)).Success;
-        if(!built)
+        if (!built)
         {
             deferredSessionLogService.WriteErrorOrConsole("docker", $"Failed to build Docker image '{imageTag}'.");
             return (false, imageTag);
@@ -73,11 +75,63 @@ internal sealed partial class DockerImageService : Singleton
         return (true, imageTag);
     }
 
+    public async Task<bool> ImageExistsAsync(string imageTag)
+        => (await ProcessRunner.RunAsync("docker", ["image", "inspect", imageTag])).Success;
+
+    public async Task<(bool Success, DockerImageInfo Image)> TryInspectImageAsync(string imageTag)
+    {
+        var emptyImage = new DockerImageInfo(imageTag, "", "", "");
+        if(String.IsNullOrWhiteSpace(imageTag))
+        {
+            return (false, emptyImage);
+        }
+
+        var inspect = await ProcessRunner.RunAsync("docker", ["image", "inspect", "--format", "{{.Id}}|{{.Os}}|{{.Architecture}}", imageTag]);
+        if(!inspect.Success)
+        {
+            return (false, emptyImage);
+        }
+
+        string[] parts = inspect.StdOut
+            .Trim()
+            .Split('|', StringSplitOptions.TrimEntries);
+        if(parts.Length != 3)
+        {
+            return (false, emptyImage);
+        }
+
+        return (true, new DockerImageInfo(imageTag, parts[0], parts[1], parts[2]));
+    }
+
     private static async Task<string> BuildImageTagAsync(string dockerfilePath)
     {
-        byte[] bytes = await File.ReadAllBytesAsync(dockerfilePath);
-        byte[] hashBytes = SHA256.HashData(bytes);
-        string hash = Convert.ToHexString(hashBytes).ToLowerInvariant();
+        string buildContextDirectory = Path.GetDirectoryName(dockerfilePath) ?? AppContext.BaseDirectory;
+        string hash = await ComputeDirectoryHashAsync(buildContextDirectory);
         return $"opencode-wrap:{hash[..12]}";
+    }
+
+    private static async Task<string> ComputeDirectoryHashAsync(string directoryPath)
+    {
+        string[] filePaths = [.. Directory.EnumerateFiles(directoryPath, "*", SearchOption.AllDirectories)
+            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
+
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        foreach(string filePath in filePaths)
+        {
+            string relativePath = Path.GetRelativePath(directoryPath, filePath).Replace('\\', '/');
+            AppendString(hash, relativePath);
+            byte[] fileBytes = await File.ReadAllBytesAsync(filePath);
+            hash.AppendData(fileBytes);
+        }
+
+        byte[] hashBytes = hash.GetHashAndReset();
+        return Convert.ToHexString(hashBytes).ToLowerInvariant();
+    }
+
+    private static void AppendString(IncrementalHash hash, string value)
+    {
+        byte[] bytes = Encoding.UTF8.GetBytes(value);
+        hash.AppendData(bytes);
+        hash.AppendData([(byte)'\n']);
     }
 }

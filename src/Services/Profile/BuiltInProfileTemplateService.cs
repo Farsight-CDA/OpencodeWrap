@@ -40,6 +40,9 @@ internal sealed partial class BuiltInProfileTemplateService : Singleton
         OCW mounts this directory inside the container at `{{OpencodeWrapConstants.CONTAINER_PROFILE_ROOT}}/{{OpencodeWrapConstants.PROFILE_BIN_DIRECTORY_NAME}}`
         and adds it to `PATH` for profile runs.
 
+        Profile Dockerfiles should provide the environment and toolchain only.
+        OCW installs the latest OpenCode runtime separately at launch time.
+
         On Unix-like hosts, remember to mark scripts or binaries as executable.
         """;
 
@@ -61,7 +64,7 @@ internal sealed partial class BuiltInProfileTemplateService : Singleton
         catch(Exception ex)
         {
             AppIO.TryDeleteDirectory(temporaryDirectoryPath);
-            _deferredSessionLogService.WriteErrorOrConsole("profile", $"Failed to prepare built-in profile '{builtInProfile.Name}': {ex.Message}");
+            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.Profile, $"Failed to prepare built-in profile '{builtInProfile.Name}': {ex.Message}");
             return (false, "");
         }
     }
@@ -71,7 +74,7 @@ internal sealed partial class BuiltInProfileTemplateService : Singleton
         string entrypointPath = Path.Combine(profileDirectoryPath, OpencodeWrapConstants.PROFILE_ENTRYPOINT_FILE_NAME);
         await File.WriteAllTextAsync(entrypointPath, DefaultEntrypointScript);
 
-        if(OperatingSystem.IsWindows())
+        if (OperatingSystem.IsWindows())
         {
             return;
         }
@@ -98,7 +101,7 @@ internal sealed partial class BuiltInProfileTemplateService : Singleton
         Directory.CreateDirectory(opencodeDirectoryPath);
         Directory.CreateDirectory(binDirectoryPath);
 
-        if(!File.Exists(binReadmePath))
+        if (!File.Exists(binReadmePath))
         {
             await File.WriteAllTextAsync(binReadmePath, ProfileBinReadme);
         }

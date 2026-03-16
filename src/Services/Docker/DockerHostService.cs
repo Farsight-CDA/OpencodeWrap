@@ -20,7 +20,7 @@ internal sealed partial class DockerHostService : Singleton
     {
         if(!IsWindows && !IsLinux && !IsMacOS)
         {
-            _deferredSessionLogService.WriteErrorOrConsole("docker", "Unsupported host OS. Only Windows, Linux, and macOS are supported.");
+            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.Docker, "Unsupported host OS. Only Windows, Linux, and macOS are supported.");
             return false;
         }
 
@@ -30,7 +30,7 @@ internal sealed partial class DockerHostService : Singleton
             return true;
         }
 
-        _deferredSessionLogService.WriteErrorOrConsole("docker", "Docker is required but is not functional on this host.");
+            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.Docker, "Docker is required but is not functional on this host.");
         WriteDockerErrorDetails(dockerCheck.StdErr);
         return false;
     }
@@ -46,8 +46,8 @@ internal sealed partial class DockerHostService : Singleton
         var uidResult = await ProcessRunner.RunAsync("id", ["-u"]);
         if(!uidResult.Success)
         {
-            _deferredSessionLogService.WriteErrorOrConsole("docker", "Failed to resolve current Unix user ID.");
-            _deferredSessionLogService.WriteErrorDetailsOrConsole("docker", uidResult.StdErr);
+            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.Docker, "Failed to resolve current Unix user ID.");
+            _deferredSessionLogService.WriteErrorDetailsOrConsole(LogCategories.Docker, uidResult.StdErr);
 
             return (false, "");
         }
@@ -55,8 +55,8 @@ internal sealed partial class DockerHostService : Singleton
         var gidResult = await ProcessRunner.RunAsync("id", ["-g"]);
         if(!gidResult.Success)
         {
-            _deferredSessionLogService.WriteErrorOrConsole("docker", "Failed to resolve current Unix group ID.");
-            _deferredSessionLogService.WriteErrorDetailsOrConsole("docker", gidResult.StdErr);
+            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.Docker, "Failed to resolve current Unix group ID.");
+            _deferredSessionLogService.WriteErrorDetailsOrConsole(LogCategories.Docker, gidResult.StdErr);
 
             return (false, "");
         }
@@ -65,7 +65,7 @@ internal sealed partial class DockerHostService : Singleton
         string gid = gidResult.StdOut.Trim();
         if(uid.Length == 0 || gid.Length == 0)
         {
-            _deferredSessionLogService.WriteErrorOrConsole("docker", "Unix user ID/group ID cannot be empty.");
+            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.Docker, "Unix user ID/group ID cannot be empty.");
             return (false, "");
         }
 
@@ -82,7 +82,7 @@ internal sealed partial class DockerHostService : Singleton
         var networkList = await ProcessRunner.RunAsync("docker", ["network", "ls", "--format", "{{.Name}}"]);
         if(!networkList.Success)
         {
-            _deferredSessionLogService.WriteErrorOrConsole("docker", "Failed to list Docker networks.");
+            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.Docker, "Failed to list Docker networks.");
             WriteDockerErrorDetails(networkList.StdErr);
             return (false, []);
         }
@@ -102,7 +102,7 @@ internal sealed partial class DockerHostService : Singleton
         string homeDirectory = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         if(String.IsNullOrWhiteSpace(homeDirectory))
         {
-            _deferredSessionLogService.WriteErrorOrConsole("docker", "Unable to resolve host home directory.");
+            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.Docker, "Unable to resolve host home directory.");
             return false;
         }
 
@@ -121,7 +121,7 @@ internal sealed partial class DockerHostService : Singleton
         }
         catch(Exception ex)
         {
-            _deferredSessionLogService.WriteErrorOrConsole("docker", $"Failed to create host config directory '{configDirectory}': {ex.Message}");
+            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.Docker, $"Failed to create host config directory '{configDirectory}': {ex.Message}");
             return false;
         }
     }
@@ -130,31 +130,31 @@ internal sealed partial class DockerHostService : Singleton
     {
         if(String.IsNullOrWhiteSpace(dockerError))
         {
-            _deferredSessionLogService.WriteWarningOrConsole("docker", "install Docker and ensure the daemon is running.");
+            _deferredSessionLogService.WriteWarningOrConsole(LogCategories.Docker, "install Docker and ensure the daemon is running.");
             return;
         }
 
         string details = dockerError.Trim();
-        _deferredSessionLogService.WriteErrorOrConsole("docker", details);
+        _deferredSessionLogService.WriteErrorOrConsole(LogCategories.Docker, details);
 
-        if(IsUnixLike && (details.Contains("permission denied", StringComparison.OrdinalIgnoreCase) || details.Contains("got permission denied", StringComparison.OrdinalIgnoreCase)))
+        if (IsUnixLike && (details.Contains("permission denied", StringComparison.OrdinalIgnoreCase) || details.Contains("got permission denied", StringComparison.OrdinalIgnoreCase)))
         {
-            if(IsLinux)
+            if (IsLinux)
             {
-                _deferredSessionLogService.WriteWarningOrConsole("docker", "your user may not have access to /var/run/docker.sock.");
-                _deferredSessionLogService.WriteWarningOrConsole("docker", "add your user to the docker group or run with appropriate privileges.");
+                _deferredSessionLogService.WriteWarningOrConsole(LogCategories.Docker, "your user may not have access to /var/run/docker.sock.");
+                _deferredSessionLogService.WriteWarningOrConsole(LogCategories.Docker, "add your user to the docker group or run with appropriate privileges.");
             }
-            else if(IsMacOS)
+            else if (IsMacOS)
             {
-                _deferredSessionLogService.WriteWarningOrConsole("docker", "ensure Docker Desktop is running and your shell has access to the Docker socket.");
+                _deferredSessionLogService.WriteWarningOrConsole(LogCategories.Docker, "ensure Docker Desktop is running and your shell has access to the Docker socket.");
             }
 
             return;
         }
 
-        if(details.Contains("Cannot connect to the Docker daemon", StringComparison.OrdinalIgnoreCase))
+        if (details.Contains("Cannot connect to the Docker daemon", StringComparison.OrdinalIgnoreCase))
         {
-            _deferredSessionLogService.WriteWarningOrConsole("docker", "start the Docker daemon and try again.");
+            _deferredSessionLogService.WriteWarningOrConsole(LogCategories.Docker, "start the Docker daemon and try again.");
         }
     }
 }

@@ -29,14 +29,14 @@ internal sealed class ExportCliCommand : Command
 
     private async Task<int> ExecuteAsync(string archivePath)
     {
-        if(!await AppIO.RunWithLoadingStateAsync("Checking Docker volume...", _volumeService.EnsureVolumeReadyAsync))
+        if (!await AppIO.RunWithLoadingStateAsync("Checking Docker volume...", _volumeService.EnsureVolumeReadyAsync))
         {
             return 1;
         }
 
         string destinationArchive = ResolveDestinationArchivePath(archivePath);
         string? destinationDirectory = Path.GetDirectoryName(destinationArchive);
-        if(!String.IsNullOrWhiteSpace(destinationDirectory))
+        if (!String.IsNullOrWhiteSpace(destinationDirectory))
         {
             Directory.CreateDirectory(destinationDirectory);
         }
@@ -50,17 +50,17 @@ internal sealed class ExportCliCommand : Command
             Directory.CreateDirectory(destinationShare);
             Directory.CreateDirectory(destinationState);
 
-            if(!await AppIO.RunWithLoadingStateAsync("Exporting state from volume...", () => ExportStateToDirectoryAsync(destinationShare, destinationState)))
+            if (!await AppIO.RunWithLoadingStateAsync("Exporting state from volume...", () => ExportStateToDirectoryAsync(destinationShare, destinationState)))
             {
                 return 1;
             }
 
-            if(File.Exists(destinationArchive))
+            if (File.Exists(destinationArchive))
             {
                 File.Delete(destinationArchive);
             }
 
-            if(!AppIO.RunWithLoadingState("Writing archive...", () => CreateArchive(tempRoot, destinationArchive)))
+            if (!AppIO.RunWithLoadingState("Writing archive...", () => CreateArchive(tempRoot, destinationArchive)))
             {
                 return 1;
             }

@@ -10,17 +10,17 @@ internal sealed partial class VolumeStateService : Singleton
 
     public async Task<bool> EnsureVolumeReadyAsync()
     {
-        if(!await _hostService.EnsureHostAndDockerAsync())
+        if (!await _hostService.EnsureHostAndDockerAsync())
         {
             return false;
         }
 
-        if(!await EnsureVolumeAsync(OpencodeWrapConstants.XDG_VOLUME_NAME))
+        if (!await EnsureVolumeAsync(OpencodeWrapConstants.XDG_VOLUME_NAME))
         {
             return false;
         }
 
-        if(!_hostService.IsUnixLike)
+        if (!_hostService.IsUnixLike)
         {
             return true;
         }
@@ -31,18 +31,18 @@ internal sealed partial class VolumeStateService : Singleton
 
     public async Task<bool> ValidateImportTargetStateAsync(bool force)
     {
-        if(force)
+        if (force)
         {
             return true;
         }
 
         var (success, hasState) = await TryVolumeHasImportedStateAsync(OpencodeWrapConstants.XDG_VOLUME_NAME);
-        if(!success)
+        if (!success)
         {
             return false;
         }
 
-        if(!hasState)
+        if (!hasState)
         {
             return true;
         }
@@ -55,18 +55,18 @@ internal sealed partial class VolumeStateService : Singleton
     {
         string sourceShare = Path.Combine(sourceRoot, ".local", "share", "opencode");
         string sourceState = Path.Combine(sourceRoot, ".local", "state", "opencode");
-        if(!Directory.Exists(sourceShare) && !Directory.Exists(sourceState))
+        if (!Directory.Exists(sourceShare) && !Directory.Exists(sourceState))
         {
             _deferredSessionLogService.WriteErrorOrConsole("docker", $"Import source must contain at least one of '{sourceShare}' or '{sourceState}'.");
             return false;
         }
 
-        if(!await CopyHostXdgDirectoryToVolumeAsync(sourceRoot, OpencodeWrapConstants.XDG_VOLUME_NAME))
+        if (!await CopyHostXdgDirectoryToVolumeAsync(sourceRoot, OpencodeWrapConstants.XDG_VOLUME_NAME))
         {
             return false;
         }
 
-        if(!_hostService.IsUnixLike)
+        if (!_hostService.IsUnixLike)
         {
             return true;
         }
@@ -79,20 +79,20 @@ internal sealed partial class VolumeStateService : Singleton
 
     public async Task<(bool Success, bool Removed)> ResetNamedVolumeAsync()
     {
-        if(!await _hostService.EnsureHostAndDockerAsync())
+        if (!await _hostService.EnsureHostAndDockerAsync())
         {
             return (false, false);
         }
 
         string volumeName = OpencodeWrapConstants.XDG_VOLUME_NAME;
         var inspect = await ProcessRunner.RunAsync("docker", ["volume", "inspect", volumeName]);
-        if(!inspect.Success)
+        if (!inspect.Success)
         {
             return (true, false);
         }
 
         var remove = await ProcessRunner.RunAsync("docker", ["volume", "rm", "-f", volumeName]);
-        if(!remove.Success)
+        if (!remove.Success)
         {
             _deferredSessionLogService.WriteErrorOrConsole("docker", $"Failed to remove Docker volume '{volumeName}'.");
             _deferredSessionLogService.WriteErrorDetailsOrConsole("docker", remove.StdErr);
@@ -110,13 +110,13 @@ internal sealed partial class VolumeStateService : Singleton
     private async Task<bool> EnsureVolumeAsync(string volumeName)
     {
         var inspect = await ProcessRunner.RunAsync("docker", ["volume", "inspect", volumeName]);
-        if(inspect.Success)
+        if (inspect.Success)
         {
             return true;
         }
 
         var create = await ProcessRunner.RunAsync("docker", ["volume", "create", volumeName]);
-        if(!create.Success)
+        if (!create.Success)
         {
             _deferredSessionLogService.WriteErrorOrConsole("docker", $"Failed to create Docker volume '{volumeName}'.");
             _deferredSessionLogService.WriteErrorDetailsOrConsole("docker", create.StdErr);
@@ -147,7 +147,7 @@ internal sealed partial class VolumeStateService : Singleton
                 """
             ]);
 
-        if(!result.Success)
+        if (!result.Success)
         {
             _deferredSessionLogService.WriteErrorOrConsole("docker", $"Failed to set permissions on Docker volume '{volumeName}'.");
             _deferredSessionLogService.WriteErrorDetailsOrConsole("docker", result.StdErr);
@@ -172,7 +172,7 @@ internal sealed partial class VolumeStateService : Singleton
                 """
                 set -e
                 mkdir -p /target/.local/share /target/.local/state
-                rm -rf /target/.local/share/opencode /target/.local/state/opencode /target/share/opencode /target/state/opencode
+                rm -rf /target/.local/share/opencode /target/.local/state/opencode
                 if [ -d /source/.local/share/opencode ]; then cp -a /source/.local/share/opencode /target/.local/share/opencode; fi
                 if [ -d /source/.local/state/opencode ]; then cp -a /source/.local/state/opencode /target/.local/state/opencode; fi
                 find /target/.local/share/opencode /target/.local/state/opencode -type f -name '*-shm' -delete 2>/dev/null || true
@@ -180,7 +180,7 @@ internal sealed partial class VolumeStateService : Singleton
                 """
             ]);
 
-        if(!result.Success)
+        if (!result.Success)
         {
             _deferredSessionLogService.WriteErrorOrConsole("docker", $"Failed to import state from '{sourceRootDirectory}' into volume '{volumeName}'.");
             _deferredSessionLogService.WriteErrorDetailsOrConsole("docker", result.StdErr);
@@ -194,7 +194,7 @@ internal sealed partial class VolumeStateService : Singleton
         var runArgs = new List<string> { "run", "--rm" };
 
         string? userSpec = await _hostService.GetContainerUserSpecAsync();
-        if(userSpec is not null)
+        if (userSpec is not null)
         {
             runArgs.AddRange(["--user", userSpec]);
         }
@@ -211,8 +211,7 @@ internal sealed partial class VolumeStateService : Singleton
             rm -rf /target/* /target/.[!.]* /target/..?* 2>/dev/null || true
             mkdir -p /target
             source_dir=/source/{sourceSubdirectory}
-            legacy_dir=/source/{GetLegacyVolumeSubdirectory(sourceSubdirectory)}
-            if [ -d "$source_dir" ]; then cp -a "$source_dir"/. /target/; elif [ -d "$legacy_dir" ]; then cp -a "$legacy_dir"/. /target/; fi
+            if [ -d "$source_dir" ]; then cp -a "$source_dir"/. /target/; fi
             find /target -type f -name '*-shm' -delete 2>/dev/null || true
             find /target -type f -name '*-wal' -delete 2>/dev/null || true
             """
@@ -222,7 +221,7 @@ internal sealed partial class VolumeStateService : Singleton
             "docker",
             runArgs);
 
-        if(!result.Success)
+        if (!result.Success)
         {
             _deferredSessionLogService.WriteErrorOrConsole("docker", $"Failed to export state from volume '{volumeName}/{sourceSubdirectory}' to '{destinationDirectory}'.");
             _deferredSessionLogService.WriteErrorDetailsOrConsole("docker", result.StdErr);
@@ -230,14 +229,6 @@ internal sealed partial class VolumeStateService : Singleton
 
         return result.Success;
     }
-
-    private static string GetLegacyVolumeSubdirectory(string sourceSubdirectory) => sourceSubdirectory switch
-    {
-        OpencodeWrapConstants.VOLUME_SHARE_SUBDIRECTORY => "share/opencode",
-        OpencodeWrapConstants.VOLUME_STATE_SUBDIRECTORY => "state/opencode",
-        _ => sourceSubdirectory
-    };
-
     private async Task<(bool Success, bool HasState)> TryVolumeHasImportedStateAsync(string volumeName)
     {
         var result = await ProcessRunner.RunAsync(
@@ -253,7 +244,7 @@ internal sealed partial class VolumeStateService : Singleton
                 """
                 set -e
                 has_data=0
-                for dir in /target/.local/share/opencode /target/.local/state/opencode /target/share/opencode /target/state/opencode; do
+                for dir in /target/.local/share/opencode /target/.local/state/opencode; do
                     if [ -d "$dir" ] && [ "$(find "$dir" -mindepth 1 -print -quit 2>/dev/null)" ]; then
                         has_data=1
                         break
@@ -263,7 +254,7 @@ internal sealed partial class VolumeStateService : Singleton
                 """
             ]);
 
-        if(!result.Success)
+        if (!result.Success)
         {
             _deferredSessionLogService.WriteErrorOrConsole("docker", $"Failed to inspect Docker volume '{volumeName}' before import.");
             _deferredSessionLogService.WriteErrorDetailsOrConsole("docker", result.StdErr);

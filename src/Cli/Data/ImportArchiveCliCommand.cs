@@ -34,18 +34,18 @@ internal sealed class ImportArchiveCliCommand : Command
 
     private async Task<int> ExecuteAsync(string archivePath, bool force)
     {
-        if(!await AppIO.RunWithLoadingStateAsync("Checking Docker volume...", _volumeService.EnsureVolumeReadyAsync))
+        if (!await AppIO.RunWithLoadingStateAsync("Checking Docker volume...", _volumeService.EnsureVolumeReadyAsync))
         {
             return 1;
         }
 
-        if(!await _volumeService.ValidateImportTargetStateAsync(force))
+        if (!await _volumeService.ValidateImportTargetStateAsync(force))
         {
             return 1;
         }
 
         string sourceArchive = Path.GetFullPath(archivePath);
-        if(!File.Exists(sourceArchive))
+        if (!File.Exists(sourceArchive))
         {
             AppIO.WriteError($"Import archive not found: '{sourceArchive}'.");
             return 1;
@@ -55,12 +55,12 @@ internal sealed class ImportArchiveCliCommand : Command
 
         try
         {
-            if(!AppIO.RunWithLoadingState("Extracting archive...", () => ExtractArchive(sourceArchive, extractRoot)))
+            if (!AppIO.RunWithLoadingState("Extracting archive...", () => ExtractArchive(sourceArchive, extractRoot)))
             {
                 return 1;
             }
 
-            if(!await AppIO.RunWithLoadingStateAsync("Importing state into volume...", () => _volumeService.ImportStateFromRootDirectoryAsync(extractRoot)))
+            if (!await AppIO.RunWithLoadingStateAsync("Importing state into volume...", () => _volumeService.ImportStateFromRootDirectoryAsync(extractRoot)))
             {
                 return 1;
             }

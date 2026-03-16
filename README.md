@@ -8,7 +8,9 @@ Run [OpenCode](https://opencode.ai) in Docker with persistent state and lightwei
 - Persists OpenCode data across runs using a named Docker volume.
 - Keeps OCW-managed persistent runtime state under `/ocw/state` and session-scoped config, pasted files, and ad hoc tool installs under `/ocw/session` inside the container.
 - Uses profile-based Dockerfiles from `~/.opencode-wrap/profiles/<profile>/Dockerfile`, profile entrypoints from `~/.opencode-wrap/profiles/<profile>/entrypoint.sh`, OpenCode config files from `~/.opencode-wrap/profiles/<profile>/opencode/`, and profile-local helper binaries from `~/.opencode-wrap/profiles/<profile>/bin/`.
+- Resolves and manages the latest upstream OpenCode release on both the host and Docker runtime automatically.
 - Includes built-in starter profiles: `default`, `frontend`, `dotnet`, `data-science`, and `solidity`.
+- `ocw run` starts `opencode serve` in Docker and attaches the OCW-managed host `opencode` TUI over localhost.
 
 ## Quick Start
 
@@ -31,7 +33,8 @@ Requirement: Docker (daemon running).
    ```
 
 2. Open a new shell and run `ocw --help` to verify it resolves from `PATH`.
-3. Optional: import existing host OpenCode state into the Docker volume:
+3. Run `ocw run` or `ocw --help`. OCW downloads and manages the latest OpenCode release automatically when needed.
+4. Optional: import existing host OpenCode state into the Docker volume:
 
 ```bash
 ocw data import-host
@@ -67,6 +70,8 @@ ocw run
 # - Space: toggle the selected Docker network on the network tab
 # - Enter: run, Esc: cancel
 # Mounted in container under /workspace/.ocw-resources/<directory-name>
+# `ocw run` publishes the backend to localhost only and launches
+# the OCW-managed host `opencode attach http://127.0.0.1:<port>` client.
 # OCW also appends runtime AGENTS instructions in the session profile's opencode directory so OpenCode
 # knows these mounts are read-only reference material, and that it is running inside a Docker container
 # where /tmp and /ocw/session/bin are safe for scratch clones and ad hoc session tools.
@@ -78,6 +83,8 @@ ocw run --verbose
 ocw profile list
 ocw profile add myprofile
 ocw profile build myprofile
+# Profile Dockerfiles provide the environment/tooling layer only.
+# OCW adds the latest OpenCode runtime on top automatically.
 # New profiles include ~/.opencode-wrap/profiles/myprofile/bin/
 # Files placed there are mounted at /ocw/session/profile/bin and added to PATH
 # Built-in profiles materialized for a run also include that bin/ directory

@@ -9,7 +9,7 @@ internal sealed class BuildProfileCliCommand : Command
     private readonly DockerImageService _dockerImageService;
 
     public BuildProfileCliCommand(ProfileService profileService, DockerImageService dockerImageService)
-        : base("build", "Rebuild a profile Docker image without using Docker cache.")
+        : base("build", "Rebuild a profile base Docker image without using Docker cache.")
     {
         _profileService = profileService;
         _dockerImageService = dockerImageService;
@@ -31,7 +31,7 @@ internal sealed class BuildProfileCliCommand : Command
 
             try
             {
-                AppIO.WriteInfo($"Rebuilding Docker image for profile '{profile.Name}' without cache...");
+                AppIO.WriteInfo($"Rebuilding base Docker image for profile '{profile.Name}' without cache...");
 
                 var (buildSuccess, imageTag) = await _dockerImageService.TryBuildImageAsync(profile.DockerfilePath, noCache: true);
                 if(!buildSuccess)
@@ -39,7 +39,7 @@ internal sealed class BuildProfileCliCommand : Command
                     return 1;
                 }
 
-                AppIO.WriteSuccess($"Rebuilt Docker image '{imageTag}' for profile '{profile.Name}'.");
+                AppIO.WriteSuccess($"Rebuilt base Docker image '{imageTag}' for profile '{profile.Name}'.");
                 return 0;
             }
             finally

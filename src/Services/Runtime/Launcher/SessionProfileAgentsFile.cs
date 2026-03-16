@@ -13,26 +13,11 @@ internal static class SessionProfileAgentsFile
             ? File.ReadAllText(agentsPath)
             : null;
 
-        string mergedContent = BuildMergedContent(globalAgentInstructions, profileAgentInstructions, runtimeAgentInstructions);
+        string mergedContent = String.Join(
+            Environment.NewLine + Environment.NewLine,
+            new[] { globalAgentInstructions, profileAgentInstructions, runtimeAgentInstructions }
+                .Where(content => !String.IsNullOrWhiteSpace(content))
+                .Select(content => content!.TrimEnd()));
         File.WriteAllText(agentsPath, mergedContent);
-    }
-
-    internal static string BuildMergedContent(string? globalAgentInstructions, string? profileAgentInstructions, string? runtimeAgentInstructions)
-    {
-        List<string> sections = [];
-        AppendSection(sections, globalAgentInstructions);
-        AppendSection(sections, profileAgentInstructions);
-        AppendSection(sections, runtimeAgentInstructions);
-        return String.Join(Environment.NewLine + Environment.NewLine, sections);
-    }
-
-    private static void AppendSection(List<string> sections, string? content)
-    {
-        if(String.IsNullOrWhiteSpace(content))
-        {
-            return;
-        }
-
-        sections.Add(content.TrimEnd());
     }
 }

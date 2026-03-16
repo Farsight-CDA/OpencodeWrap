@@ -6,5 +6,6 @@ global using OpencodeWrap.Cli.Profile;
 global using OpencodeWrap.Cli.Run;
 global using OpencodeWrap.Cli.Update;
 global using OpencodeWrap.Services.Docker;
+global using OpencodeWrap.Services.Opencode;
 global using OpencodeWrap.Services.Profile;
 global using OpencodeWrap.Services.Runtime;

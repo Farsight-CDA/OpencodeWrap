@@ -30,18 +30,19 @@ internal sealed class AddProfileCliCommand : Command
     private async Task<int> ExecuteAsync(string profileName)
     {
         string normalizedName = profileName.Trim();
-        if(!_profileService.IsValidProfileName(normalizedName))
+        if(_profileService.TryGetProfileNameValidationError(normalizedName) is { } validationError)
         {
-            AppIO.WriteError(ProfileService.INVALID_PROFILE_NAME_MESSAGE);
+            AppIO.WriteError(validationError);
             return 1;
         }
 
         var (success, catalog) = _profileService.TryLoadProfileCatalog();
-        if(!success)
+        if (!success)
         {
             return 1;
         }
-        if(catalog.ProfileDirectories.ContainsKey(normalizedName))
+
+        if (catalog.ProfileDirectories.ContainsKey(normalizedName))
         {
             AppIO.WriteError($"Profile '{normalizedName}' already exists.");
             return 1;

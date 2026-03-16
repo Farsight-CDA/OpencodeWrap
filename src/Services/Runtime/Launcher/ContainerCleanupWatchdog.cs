@@ -16,38 +16,43 @@ internal static class ContainerCleanupWatchdog
     private static readonly TimeSpan _removalRetryInterval = TimeSpan.FromMilliseconds(250);
     private static readonly Lock _signalRegistrationLock = new();
     private static List<PosixSignalRegistration>? _ignoreSignalRegistrations;
-    private readonly record struct WatchdogRunConfig(int ParentPid, long ParentStartTicks, string ContainerName, string SessionDirectoryPath, string ReadyFilePath);
+    private readonly record struct WatchdogRunConfig(
+        int ParentPid,
+        long ParentStartTicks,
+        string ContainerName,
+        string SessionDirectoryPath,
+        string ReadyFilePath);
 
     public static bool IsWatchdogInvocation(IReadOnlyList<string> args) => args.Count > 0
-            && String.Equals(args[0], WATCHDOG_MODE, StringComparison.Ordinal)
-            && String.Equals(Environment.GetEnvironmentVariable(WATCHDOG_ENVIRONMENT_VARIABLE), "1", StringComparison.Ordinal);
+        && String.Equals(args[0], WATCHDOG_MODE, StringComparison.Ordinal)
+        && String.Equals(Environment.GetEnvironmentVariable(WATCHDOG_ENVIRONMENT_VARIABLE), "1", StringComparison.Ordinal);
 
-    public static async Task<int> RunWatchdogAsync(IReadOnlyList<string> args)
-        => !TryParseWatchdogRunConfig(args, out var config) ? 1 : await WaitForParentAndCleanupAsync(config);
+    public static async Task<int> RunWatchdogAsync(IReadOnlyList<string> args) =>
+        !TryParseWatchdogRunConfig(args, out var config) ? 1 : await WaitForParentAndCleanupAsync(config);
 
     public static async Task<bool> TryStartDetachedAndWaitReadyAsync(string containerName, string sessionDirectoryPath, TimeSpan timeout)
     {
-        if(String.IsNullOrWhiteSpace(containerName) || timeout <= TimeSpan.Zero)
+        if (String.IsNullOrWhiteSpace(containerName) || timeout <= TimeSpan.Zero)
         {
             return false;
         }
 
-        if(!TryGetParentIdentity(out string? executablePath, out int parentPid, out long parentStartTicks))
+        if (!ProcessIdentity.TryGetParentProcessIdentity(out string? executablePath, out int parentPid, out long parentStartTicks))
         {
             return false;
         }
 
         string[] watchdogArgs = BuildWatchdogArgs(parentPid, parentStartTicks, containerName, sessionDirectoryPath, out string readyFilePath);
 
-        if(OperatingSystem.IsLinux() || OperatingSystem.IsMacOS())
+        if (OperatingSystem.IsLinux() || OperatingSystem.IsMacOS())
         {
-            if(TryStartWatchdog("setsid", [executablePath!, .. watchdogArgs]))
+            if (TryStartWatchdog("setsid", [executablePath!, .. watchdogArgs]))
             {
                 return await WaitForReadyAsync(readyFilePath, timeout);
             }
         }
 
-        if(TryStartWatchdog(executablePath!, watchdogArgs))
+        if (TryStartWatchdog(executablePath!, watchdogArgs))
         {
             return await WaitForReadyAsync(readyFilePath, timeout);
         }
@@ -90,13 +95,13 @@ internal static class ContainerCleanupWatchdog
         RegisterIgnoreTerminationHandlers();
         WriteReadyFile(config.ReadyFilePath);
 
-        while(IsParentAlive(config.ParentPid, config.ParentStartTicks))
+        while (ProcessIdentity.IsProcessAlive(config.ParentPid, config.ParentStartTicks))
         {
             await Task.Delay(_parentPollInterval);
         }
 
         await RetryCleanupContainerAsync(config.ContainerName);
-        if(!String.IsNullOrWhiteSpace(config.SessionDirectoryPath))
+        if (!String.IsNullOrWhiteSpace(config.SessionDirectoryPath))
         {
             AppIO.TryDeleteDirectory(config.SessionDirectoryPath);
         }
@@ -111,17 +116,17 @@ internal static class ContainerCleanupWatchdog
 
         while(DateTime.UtcNow < deadlineUtc)
         {
-            if(ProcessRunner.CommandSucceedsBlocking("docker", ["rm", "-f", containerName]))
+            if (ProcessRunner.CommandSucceedsBlocking("docker", ["rm", "-f", containerName]))
             {
                 return;
             }
 
             bool containerExists = ContainerExists(containerName);
-            if(containerExists)
+            if (containerExists)
             {
                 sawContainer = true;
             }
-            else if(sawContainer)
+            else if (sawContainer)
             {
                 return;
             }
@@ -135,7 +140,7 @@ internal static class ContainerCleanupWatchdog
         var deadlineUtc = DateTime.UtcNow + timeout;
         while(DateTime.UtcNow < deadlineUtc)
         {
-            if(File.Exists(readyFilePath))
+            if (File.Exists(readyFilePath))
             {
                 TryDeleteFile(readyFilePath);
                 return true;
@@ -153,7 +158,7 @@ internal static class ContainerCleanupWatchdog
         try
         {
             string? directoryPath = Path.GetDirectoryName(readyFilePath);
-            if(!String.IsNullOrWhiteSpace(directoryPath))
+            if (!String.IsNullOrWhiteSpace(directoryPath))
             {
                 Directory.CreateDirectory(directoryPath);
             }
@@ -170,7 +175,7 @@ internal static class ContainerCleanupWatchdog
     {
         try
         {
-            if(File.Exists(filePath))
+            if (File.Exists(filePath))
             {
                 File.Delete(filePath);
             }
@@ -178,44 +183,6 @@ internal static class ContainerCleanupWatchdog
         catch
         {
             // Best effort cleanup only.
-        }
-    }
-
-    private static bool IsParentAlive(int parentPid, long parentStartTicks)
-    {
-        try
-        {
-            using var process = Process.GetProcessById(parentPid);
-            return !process.HasExited && process.StartTime.ToUniversalTime().Ticks == parentStartTicks;
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    private static bool TryGetParentIdentity(out string? executablePath, out int parentPid, out long parentStartTicks)
-    {
-        executablePath = Environment.ProcessPath;
-        if(String.IsNullOrWhiteSpace(executablePath))
-        {
-            parentPid = 0;
-            parentStartTicks = 0;
-            return false;
-        }
-
-        parentPid = Environment.ProcessId;
-
-        try
-        {
-            using var currentProcess = Process.GetCurrentProcess();
-            parentStartTicks = currentProcess.StartTime.ToUniversalTime().Ticks;
-            return parentStartTicks > 0;
-        }
-        catch
-        {
-            parentStartTicks = 0;
-            return false;
         }
     }
 
@@ -237,30 +204,30 @@ internal static class ContainerCleanupWatchdog
     {
         config = default;
 
-        if(args.Count != 6)
+        if (args.Count != 6)
         {
             return false;
         }
 
-        if(!Int32.TryParse(args[1], NumberStyles.None, CultureInfo.InvariantCulture, out int parentPid) || parentPid <= 0)
+        if (!Int32.TryParse(args[1], NumberStyles.None, CultureInfo.InvariantCulture, out int parentPid) || parentPid <= 0)
         {
             return false;
         }
 
-        if(!Int64.TryParse(args[2], NumberStyles.None, CultureInfo.InvariantCulture, out long parentStartTicks) || parentStartTicks <= 0)
+        if (!Int64.TryParse(args[2], NumberStyles.None, CultureInfo.InvariantCulture, out long parentStartTicks) || parentStartTicks <= 0)
         {
             return false;
         }
 
         string containerName = args[3];
-        if(String.IsNullOrWhiteSpace(containerName))
+        if (String.IsNullOrWhiteSpace(containerName))
         {
             return false;
         }
 
         string sessionDirectoryPath = args[4];
         string readyFilePath = args[5];
-        if(String.IsNullOrWhiteSpace(readyFilePath))
+        if (String.IsNullOrWhiteSpace(readyFilePath))
         {
             return false;
         }
@@ -273,14 +240,14 @@ internal static class ContainerCleanupWatchdog
 
     private static void RegisterIgnoreTerminationHandlers()
     {
-        if(!(OperatingSystem.IsLinux() || OperatingSystem.IsMacOS()))
+        if (!(OperatingSystem.IsLinux() || OperatingSystem.IsMacOS()))
         {
             return;
         }
 
         lock(_signalRegistrationLock)
         {
-            if(_ignoreSignalRegistrations is not null)
+            if (_ignoreSignalRegistrations is not null)
             {
                 return;
             }
