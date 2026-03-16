@@ -1,5 +1,4 @@
 using System.CommandLine;
-using System.IO.Compression;
 
 namespace OpencodeWrap.Cli.Data;
 
@@ -35,32 +34,19 @@ internal sealed class ExportCliCommand : Command
         }
 
         string destinationArchive = ResolveDestinationArchivePath(archivePath);
-        string? destinationDirectory = Path.GetDirectoryName(destinationArchive);
-        if (!String.IsNullOrWhiteSpace(destinationDirectory))
-        {
-            Directory.CreateDirectory(destinationDirectory);
-        }
-
         string tempRoot = Path.Combine(Path.GetTempPath(), $"opencode-wrap-export-{Guid.NewGuid():N}");
+        string temporaryArchive = Path.Combine(tempRoot, DEFAULT_EXPORT_ARCHIVE_NAME);
 
         try
         {
-            string destinationShare = Path.Combine(tempRoot, ".local", "share", "opencode");
-            string destinationState = Path.Combine(tempRoot, ".local", "state", "opencode");
-            Directory.CreateDirectory(destinationShare);
-            Directory.CreateDirectory(destinationState);
+            Directory.CreateDirectory(tempRoot);
 
-            if (!await AppIO.RunWithLoadingStateAsync("Exporting state from volume...", () => ExportStateToDirectoryAsync(destinationShare, destinationState)))
+            if (!await AppIO.RunWithLoadingStateAsync("Creating archive from volume...", () => _volumeService.ExportVolumeToHostArchiveAsync(temporaryArchive)))
             {
                 return 1;
             }
 
-            if (File.Exists(destinationArchive))
-            {
-                File.Delete(destinationArchive);
-            }
-
-            if (!AppIO.RunWithLoadingState("Writing archive...", () => CreateArchive(tempRoot, destinationArchive)))
+            if (!AppIO.RunWithLoadingState("Writing archive...", () => PersistArchive(temporaryArchive, destinationArchive)))
             {
                 return 1;
             }
@@ -82,20 +68,40 @@ internal sealed class ExportCliCommand : Command
             : resolvedPath;
     }
 
-    private async Task<bool> ExportStateToDirectoryAsync(string destinationShare, string destinationState)
-        => await _volumeService.ExportVolumeSubdirectoryToHostDirectoryAsync(OpencodeWrapConstants.VOLUME_SHARE_SUBDIRECTORY, destinationShare)
-            && await _volumeService.ExportVolumeSubdirectoryToHostDirectoryAsync(OpencodeWrapConstants.VOLUME_STATE_SUBDIRECTORY, destinationState);
-
-    private static bool CreateArchive(string sourceDirectory, string destinationArchive)
+    private static bool PersistArchive(string sourceArchive, string destinationArchive)
     {
+        string destinationDirectory = Path.GetDirectoryName(destinationArchive) ?? "";
+        if (String.IsNullOrWhiteSpace(destinationDirectory))
+        {
+            AppIO.WriteError($"Invalid export destination '{destinationArchive}'.");
+            return false;
+        }
+
+        if (!File.Exists(sourceArchive))
+        {
+            AppIO.WriteError($"Export archive was not created at '{sourceArchive}'.");
+            return false;
+        }
+
         try
         {
-            ZipFile.CreateFromDirectory(sourceDirectory, destinationArchive, CompressionLevel.Optimal, includeBaseDirectory: false);
+            Directory.CreateDirectory(destinationDirectory);
+            File.Copy(sourceArchive, destinationArchive, overwrite: true);
             return true;
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            AppIO.WriteError($"Access denied while writing archive '{destinationArchive}': {ex.Message}");
+            return false;
+        }
+        catch (IOException ex)
+        {
+            AppIO.WriteError($"Failed to write archive '{destinationArchive}': {ex.Message}");
+            return false;
         }
         catch(Exception ex)
         {
-            AppIO.WriteError($"Failed to create archive '{destinationArchive}': {ex.Message}");
+            AppIO.WriteError($"Failed to finalize archive '{destinationArchive}': {ex.Message}");
             return false;
         }
     }
