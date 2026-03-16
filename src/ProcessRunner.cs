@@ -47,13 +47,34 @@ internal static class ProcessRunner
     {
         try
         {
-            var result = await CreateCommand(fileName, args, workDir)
-                .WithStandardInputPipe(PipeSource.FromStream(Console.OpenStandardInput()))
-                .WithStandardOutputPipe(PipeTarget.ToStream(Console.OpenStandardOutput()))
-                .WithStandardErrorPipe(PipeTarget.ToStream(Console.OpenStandardError()))
-                .ExecuteAsync();
+            using var process = new System.Diagnostics.Process
+            {
+                StartInfo = new System.Diagnostics.ProcessStartInfo(fileName)
+                {
+                    UseShellExecute = false,
+                    RedirectStandardInput = false,
+                    RedirectStandardOutput = false,
+                    RedirectStandardError = false
+                }
+            };
 
-            return new ProcessRunResult(true, result.ExitCode, "", "");
+            if(!String.IsNullOrWhiteSpace(workDir))
+            {
+                process.StartInfo.WorkingDirectory = workDir;
+            }
+
+            foreach(string arg in args)
+            {
+                process.StartInfo.ArgumentList.Add(arg);
+            }
+
+            if(!process.Start())
+            {
+                return new ProcessRunResult(false, 1, "", "Unable to start process.");
+            }
+
+            await process.WaitForExitAsync();
+            return new ProcessRunResult(true, process.ExitCode, "", "");
         }
         catch(Exception ex)
         {
