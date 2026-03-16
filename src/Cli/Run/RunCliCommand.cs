@@ -95,7 +95,7 @@ internal sealed class RunCliCommand : Command
 
         while(true)
         {
-            RenderRunSelectionScreen(profileChoices, selectedIndex, selectedTab, mountMode, currentWorkspacePath, selectedResourceDirectories, selectedResourceIndex, availableNetworkNames, selectedNetworkIndex, selectedNetworkMode, activeNetworkNames, showingControls);
+            RenderRunSelectionScreen(profileChoices, selectedIndex, selectedTab, mountMode, currentWorkspacePath, selectedResourceDirectories, selectedResourceIndex, availableNetworkNames, selectedNetworkIndex, selectedNetworkMode, activeNetworkNames, showingControls, hostNetworkAvailable: true, showWindowsHostNetworkingHint: _dockerHostService.IsWindows);
             var keyInfo = AnsiConsole.Console.Input.ReadKey(intercept: true);
             if(keyInfo is null)
             {
@@ -172,7 +172,7 @@ internal sealed class RunCliCommand : Command
                     {
                         if(selectedNetworkIndex == 0)
                         {
-                            selectedNetworkMode = CycleDockerNetworkMode(selectedNetworkMode);
+                            selectedNetworkMode = CycleDockerNetworkMode(selectedNetworkMode, hostNetworkAvailable: true);
                             if(!DoesNetworkModeSupportAdditionalNetworks(selectedNetworkMode))
                             {
                                 activeNetworkNames.Clear();
@@ -269,7 +269,9 @@ internal sealed class RunCliCommand : Command
         int selectedNetworkIndex,
         DockerNetworkMode selectedNetworkMode,
         HashSet<string> activeNetworkNames,
-        bool showingControls)
+        bool showingControls,
+        bool hostNetworkAvailable,
+        bool showWindowsHostNetworkingHint)
     {
         if(showingControls)
         {
@@ -320,7 +322,7 @@ internal sealed class RunCliCommand : Command
         var activeContent = selectedTab switch
         {
             RunSelectionTab.Resources => CreateResourceSelectionContent(selectedResourceDirectories, selectedResourceIndex),
-            RunSelectionTab.Networks => CreateNetworkSelectionContent(availableNetworkNames, selectedNetworkIndex, selectedNetworkMode, activeNetworkNames),
+            RunSelectionTab.Networks => CreateNetworkSelectionContent(availableNetworkNames, selectedNetworkIndex, selectedNetworkMode, activeNetworkNames, hostNetworkAvailable, showWindowsHostNetworkingHint),
             _ => CreateProfileSelectionContent(profileChoices, selectedIndex)
         };
 
@@ -478,7 +480,7 @@ internal sealed class RunCliCommand : Command
         return new Markup(content.ToString());
     }
 
-    private static Markup CreateNetworkSelectionContent(IReadOnlyList<string> availableNetworkNames, int selectedNetworkIndex, DockerNetworkMode selectedNetworkMode, HashSet<string> activeNetworkNames)
+    private static Markup CreateNetworkSelectionContent(IReadOnlyList<string> availableNetworkNames, int selectedNetworkIndex, DockerNetworkMode selectedNetworkMode, HashSet<string> activeNetworkNames, bool hostNetworkAvailable, bool showWindowsHostNetworkingHint)
     {
         var content = new StringBuilder();
         content.AppendLine("[grey58]Configure Docker networking for the container:[/]");
@@ -499,6 +501,15 @@ internal sealed class RunCliCommand : Command
         else
         {
             content.AppendLine($"  [grey70]Mode:[/] {modeDisplay}");
+        }
+
+        if(!hostNetworkAvailable)
+        {
+            content.AppendLine("[grey]  Host mode is unavailable on this host.[/]");
+        }
+        else if(showWindowsHostNetworkingHint)
+        {
+            content.AppendLine("[grey]  Windows host mode requires Docker Desktop host networking to be enabled.[/]");
         }
 
         content.AppendLine();
@@ -546,11 +557,14 @@ internal sealed class RunCliCommand : Command
         _ => RunSelectionTab.Resources
     };
 
-    private static DockerNetworkMode CycleDockerNetworkMode(DockerNetworkMode networkMode) => networkMode switch
-    {
-        DockerNetworkMode.Bridge => DockerNetworkMode.Host,
-        _ => DockerNetworkMode.Bridge
-    };
+    private static DockerNetworkMode CycleDockerNetworkMode(DockerNetworkMode networkMode, bool hostNetworkAvailable)
+        => !hostNetworkAvailable
+            ? DockerNetworkMode.Bridge
+            : networkMode switch
+            {
+                DockerNetworkMode.Bridge => DockerNetworkMode.Host,
+                _ => DockerNetworkMode.Bridge
+            };
 
     private static bool DoesNetworkModeSupportAdditionalNetworks(DockerNetworkMode networkMode) => networkMode is DockerNetworkMode.Bridge;
 

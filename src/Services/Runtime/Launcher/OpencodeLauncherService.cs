@@ -148,7 +148,26 @@ internal sealed partial class OpencodeLauncherService : Singleton
 
             if(useHostAttachToServe)
             {
-                if(!_localPortReservationService.TryReserveLoopbackPort(out var allocatedPort))
+                bool useWindowsHostNetworking = _hostService.IsWindows
+                    && String.Equals(selectedDockerNetworkMode, "host", StringComparison.OrdinalIgnoreCase);
+                if(useWindowsHostNetworking)
+                {
+                    switch(_hostService.GetDockerDesktopHostNetworkingState())
+                    {
+                        case DockerDesktopHostNetworkingState.Disabled:
+                            _deferredSessionLogService.WriteErrorOrConsole("startup", "Docker network mode 'host' on Windows requires Docker Desktop host networking to be enabled.");
+                            _deferredSessionLogService.WriteWarningOrConsole("startup", "Enable Docker Desktop Settings > Resources > Network > Enable host networking, then restart Docker Desktop and try again.");
+                            return 1;
+                        case DockerDesktopHostNetworkingState.Unknown:
+                            _deferredSessionLogService.WriteWarningOrConsole("startup", "Could not confirm whether Docker Desktop host networking is enabled on Windows. If startup fails, enable Docker Desktop host networking and restart Docker Desktop.");
+                            break;
+                    }
+                }
+
+                bool portPrepared = useWindowsHostNetworking
+                    ? _localPortReservationService.TrySelectUnusedTcpPort(out var allocatedPort)
+                    : _localPortReservationService.TryReserveLoopbackPort(out allocatedPort);
+                if(!portPrepared)
                 {
                     return 1;
                 }
@@ -159,9 +178,9 @@ internal sealed partial class OpencodeLauncherService : Singleton
                 {
                     HostPort = port,
                     ContainerPort = port,
-                    AttachUrl = $"http://127.0.0.1:{port.ToString(CultureInfo.InvariantCulture)}"
+                    AttachUrl = $"http://{ResolveAttachHostname(selectedDockerNetworkMode, _hostService.IsWindows)}:{port.ToString(CultureInfo.InvariantCulture)}"
                 };
-                LogStartupPhase($"reserved localhost attach port {port} at '{session.AttachUrl}'", LogLevel.Debug);
+                LogStartupPhase($"prepared attach port {port} at '{session.AttachUrl}'", LogLevel.Debug);
 
                 var (leaseAcquired, lease) = await _managedHostOpencodeService.TryAcquireLeaseAsync(session.SessionId, latestRelease);
                 if(!leaseAcquired || lease is null)
@@ -259,7 +278,7 @@ internal sealed partial class OpencodeLauncherService : Singleton
             {
                 containerArgs.Add("serve");
                 containerArgs.Add("--hostname");
-                containerArgs.Add(ResolveServeHostname(selectedDockerNetworkMode));
+                containerArgs.Add(ResolveServeHostname(selectedDockerNetworkMode, _hostService.IsWindows));
                 containerArgs.Add("--port");
                 containerArgs.Add(session.ContainerPort!.Value.ToString(CultureInfo.InvariantCulture));
             }
@@ -291,11 +310,20 @@ internal sealed partial class OpencodeLauncherService : Singleton
                     return 1;
                 }
 
-                if(!await _opencodeServeHealthcheckService.WaitUntilReadyAsync(session.AttachUrl!))
+                string? readyAttachUrl = await _opencodeServeHealthcheckService.WaitUntilReadyAsync(session.AttachUrl!, selectedDockerNetworkMode, _hostService.IsWindows);
+                if(readyAttachUrl is null)
                 {
                     await WriteContainerLogsAsync(_containerName!);
                     CleanupContainer(force: true);
                     return 1;
+                }
+
+                if(!String.Equals(readyAttachUrl, session.AttachUrl, StringComparison.OrdinalIgnoreCase))
+                {
+                    session = session with
+                    {
+                        AttachUrl = readyAttachUrl
+                    };
                 }
 
                 int attachExitCode = await _hostOpencodeAttachService.RunAttachAsync(managedHostExecutablePath!, session.AttachUrl!);
@@ -729,10 +757,15 @@ internal sealed partial class OpencodeLauncherService : Singleton
         }
     }
 
-    private static string ResolveServeHostname(string? dockerNetworkMode)
-        => String.Equals(dockerNetworkMode, "host", StringComparison.OrdinalIgnoreCase)
+    private static string ResolveServeHostname(string? dockerNetworkMode, bool isWindows)
+        => String.Equals(dockerNetworkMode, "host", StringComparison.OrdinalIgnoreCase) && !isWindows
             ? "127.0.0.1"
             : "0.0.0.0";
+
+    private static string ResolveAttachHostname(string? dockerNetworkMode, bool isWindows)
+        => String.Equals(dockerNetworkMode, "host", StringComparison.OrdinalIgnoreCase) && isWindows
+            ? "localhost"
+            : "127.0.0.1";
 
     private void RegisterCleanupHandlers()
     {

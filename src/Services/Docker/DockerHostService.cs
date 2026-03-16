@@ -1,5 +1,6 @@
 using System.Collections.Frozen;
 using System.Runtime.InteropServices;
+using System.Text.Json;
 
 namespace OpencodeWrap.Services.Docker;
 
@@ -7,6 +8,8 @@ internal sealed partial class DockerHostService : Singleton
 {
     private static readonly FrozenSet<string> _reservedNetworkModeNames =
         new[] { "bridge", "host", "none" }.ToFrozenSet(StringComparer.Ordinal);
+    private const string _dockerDesktopHostNetworkingSettingsKey = "HostNetworkingEnabled";
+    private const string _dockerDesktopLegacyHostNetworkingSettingsKey = "hostNetworkingEnabled";
 
     [Inject]
     private readonly DeferredSessionLogService _deferredSessionLogService;
@@ -15,6 +18,49 @@ internal sealed partial class DockerHostService : Singleton
     public bool IsLinux { get; } = RuntimeInformation.IsOSPlatform(OSPlatform.Linux);
     public bool IsMacOS { get; } = RuntimeInformation.IsOSPlatform(OSPlatform.OSX);
     public bool IsUnixLike => IsLinux || IsMacOS;
+
+    public DockerDesktopHostNetworkingState GetDockerDesktopHostNetworkingState()
+    {
+        if(!IsWindows)
+        {
+            return DockerDesktopHostNetworkingState.NotApplicable;
+        }
+
+        string appDataDirectory = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+        if(String.IsNullOrWhiteSpace(appDataDirectory))
+        {
+            return DockerDesktopHostNetworkingState.Unknown;
+        }
+
+        string settingsStorePath = Path.Combine(appDataDirectory, "Docker", "settings-store.json");
+        if(!File.Exists(settingsStorePath))
+        {
+            return DockerDesktopHostNetworkingState.Unknown;
+        }
+
+        try
+        {
+            using var stream = File.OpenRead(settingsStorePath);
+            using var document = JsonDocument.Parse(stream);
+            if(document.RootElement.ValueKind is not JsonValueKind.Object)
+            {
+                return DockerDesktopHostNetworkingState.Unknown;
+            }
+
+            if(TryReadHostNetworkingSetting(document.RootElement, out bool enabled))
+            {
+                return enabled
+                    ? DockerDesktopHostNetworkingState.Enabled
+                    : DockerDesktopHostNetworkingState.Disabled;
+            }
+        }
+        catch(Exception ex)
+        {
+            _deferredSessionLogService.WriteWarningOrConsole(LogCategories.Docker, $"Failed to read Docker Desktop settings from '{settingsStorePath}': {ex.Message}");
+        }
+
+        return DockerDesktopHostNetworkingState.Unknown;
+    }
 
     public async Task<bool> EnsureHostAndDockerAsync()
     {
@@ -157,4 +203,33 @@ internal sealed partial class DockerHostService : Singleton
             _deferredSessionLogService.WriteWarningOrConsole(LogCategories.Docker, "start the Docker daemon and try again.");
         }
     }
+
+    private static bool TryReadHostNetworkingSetting(JsonElement rootElement, out bool enabled)
+    {
+        enabled = false;
+
+        if(rootElement.TryGetProperty(_dockerDesktopHostNetworkingSettingsKey, out JsonElement currentValue)
+            && currentValue.ValueKind is JsonValueKind.True or JsonValueKind.False)
+        {
+            enabled = currentValue.GetBoolean();
+            return true;
+        }
+
+        if(rootElement.TryGetProperty(_dockerDesktopLegacyHostNetworkingSettingsKey, out JsonElement legacyValue)
+            && legacyValue.ValueKind is JsonValueKind.True or JsonValueKind.False)
+        {
+            enabled = legacyValue.GetBoolean();
+            return true;
+        }
+
+        return false;
+    }
+}
+
+internal enum DockerDesktopHostNetworkingState
+{
+    NotApplicable,
+    Unknown,
+    Disabled,
+    Enabled
 }
