@@ -1,3 +1,4 @@
+using OpencodeWrap.Services.Runtime.Infrastructure;
 using System.Text.Json;
 
 namespace OpencodeWrap.Services.Runtime;
@@ -64,6 +65,11 @@ internal sealed partial class RunMenuDefaultsService : Singleton
                 writer.WriteString("defaultProfileName", normalizedDefaults.DefaultProfileName);
             }
 
+            if(normalizedDefaults.DefaultUiMode is { } defaultUiMode)
+            {
+                writer.WriteString("defaultUiMode", GetPersistedRunUiModeValue(defaultUiMode));
+            }
+
             writer.WritePropertyName("resourceDirectories");
             writer.WriteStartArray();
             foreach(string directoryPath in normalizedDefaults.ResourceDirectories)
@@ -106,8 +112,17 @@ internal sealed partial class RunMenuDefaultsService : Singleton
             defaultProfileName = defaultProfileElement.GetString();
         }
 
+        RunUiMode? defaultUiMode = null;
+        if(rootElement.TryGetProperty("defaultUiMode", out JsonElement defaultUiModeElement)
+            && defaultUiModeElement.ValueKind is JsonValueKind.String
+            && TryParseRunUiMode(defaultUiModeElement.GetString(), out RunUiMode parsedDefaultUiMode))
+        {
+            defaultUiMode = parsedDefaultUiMode;
+        }
+
         return NormalizeDefaults(new RunMenuDefaults(
             defaultProfileName,
+            defaultUiMode,
             ReadStringArray(rootElement, "resourceDirectories"),
             ReadStringArray(rootElement, "dockerNetworks")));
     }
@@ -150,7 +165,33 @@ internal sealed partial class RunMenuDefaultsService : Singleton
             .Select(name => name.Trim())
             .Where(seenNetworkNames.Add)];
 
-        return new RunMenuDefaults(defaultProfileName, resourceDirectories, dockerNetworks);
+        return new RunMenuDefaults(defaultProfileName, defaults.DefaultUiMode, resourceDirectories, dockerNetworks);
+    }
+
+    private static string GetPersistedRunUiModeValue(RunUiMode runUiMode) => runUiMode switch
+    {
+        RunUiMode.Web => "web",
+        RunUiMode.Desktop => "desktop",
+        _ => "tui"
+    };
+
+    private static bool TryParseRunUiMode(string? persistedValue, out RunUiMode runUiMode)
+    {
+        switch(persistedValue?.Trim().ToLowerInvariant())
+        {
+            case "tui":
+                runUiMode = RunUiMode.Tui;
+                return true;
+            case "web":
+                runUiMode = RunUiMode.Web;
+                return true;
+            case "desktop":
+                runUiMode = RunUiMode.Desktop;
+                return true;
+            default:
+                runUiMode = default;
+                return false;
+        }
     }
 
     private static string GetDefaultsPath(string configRoot)
@@ -161,7 +202,7 @@ internal sealed partial class RunMenuDefaultsService : Singleton
         : StringComparer.Ordinal;
 }
 
-internal sealed record RunMenuDefaults(string? DefaultProfileName, IReadOnlyList<string> ResourceDirectories, IReadOnlyList<string> DockerNetworks)
+internal sealed record RunMenuDefaults(string? DefaultProfileName, RunUiMode? DefaultUiMode, IReadOnlyList<string> ResourceDirectories, IReadOnlyList<string> DockerNetworks)
 {
-    public static RunMenuDefaults Empty { get; } = new(null, [], []);
+    public static RunMenuDefaults Empty { get; } = new(null, null, [], []);
 }

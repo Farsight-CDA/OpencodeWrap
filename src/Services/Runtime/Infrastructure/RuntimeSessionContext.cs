@@ -5,5 +5,6 @@ internal sealed record RuntimeSessionContext(
     string HostSessionDirectory,
     int? HostPort = null,
     int? ContainerPort = null,
-    string? AttachUrl = null
+    string? AttachUrl = null,
+    RunUiMode UiMode = RunUiMode.Tui
 );

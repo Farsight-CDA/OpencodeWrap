@@ -9,12 +9,16 @@ internal static class AppIO
 
     public static void WriteError(string message)
         => WriteMessage("[red]✖[/]", message);
+
     public static void WriteInfo(string message)
         => WriteMessage("[deepskyblue1]ℹ[/]", message);
+
     public static void WriteSuccess(string message)
         => WriteMessage("[green]✔[/]", message);
+
     public static void WriteWarning(string message)
         => WriteMessage("[yellow]⚠[/]", message);
+
     public static void WriteLog(LogLevel level, string message)
     {
         var visual = GetLogVisual(level);

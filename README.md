@@ -24,6 +24,7 @@ Think of it as a wrapper that handles all the Docker complexity for you—so you
 - **🎨 Profile System** — Pre-configured setups for different workflows
 - **🚀 Zero Configuration** — Works out of the box
 - **🔄 Auto-Updates** — Always runs the latest OpenCode release
+- **🌐 Local UI Choices** — Launch the TUI or local web UI from `ocw run`
 - **🖥️ Cross-Platform** — Linux, macOS, and Windows support
 
 ### Built-in Profiles
@@ -62,11 +63,17 @@ ocw --help
 ocw run
 ```
 
-This starts OpenCode in Docker and launches the TUI.
+This starts OpenCode in Docker, prompts for a UI mode, and then launches the selected local client.
 
-### 2. Choose Your Profile
+### 2. Choose Your Profile and UI
 
-Use arrow keys to select a profile, press **Enter** to start, or press **+** to star the current profile, resource directory, or bridge network as a default for future `ocw run` sessions.
+Use arrow keys to select a profile and UI mode, press **Enter** to start, or press **+** to star the current profile, resource directory, or bridge network as a default for future `ocw run` sessions.
+
+Available UI modes:
+
+- `TUI` — current OCW-managed terminal client
+- `Web` — opens the local browser UI and always prints the local URL
+- `Desktop` — shown in the menu, but currently fails with guidance until OpenCode exposes a supported attach-to-existing-server desktop handoff
 
 ### 3. Start Coding
 
@@ -95,6 +102,17 @@ ocw data export backup.ocw
 # Update to the latest version
 ocw update
 ```
+
+---
+
+## UI Modes
+
+- `ocw run` asks for a UI mode on every run; there is no `--ui` flag yet.
+- Backends stay bound to loopback only for the interactive `run` flow.
+- Web mode auto-opens the browser and also prints the URL for manual recovery.
+- If browser launch fails after the backend is healthy, OCW prints guidance and stops the session.
+- If desktop mode is selected and the app is missing or cannot attach to the OCW-managed backend, OCW fails with guidance instead of falling back.
+- `ocw run` requires an interactive shell because UI mode selection is prompt-only for now.
 
 ---
 

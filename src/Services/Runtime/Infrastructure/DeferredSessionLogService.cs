@@ -79,6 +79,9 @@ internal sealed partial class DeferredSessionLogService : Singleton
         public void FlushToConsole()
             => _session.FlushToConsole();
 
+        internal IReadOnlyList<SessionBuffer.SessionLogEntry> GetEntriesSnapshot()
+            => _session.GetEntriesSnapshot();
+
         public void Dispose()
         {
             if(_disposed)
@@ -148,6 +151,14 @@ internal sealed partial class DeferredSessionLogService : Singleton
             }
         }
 
-        private readonly record struct SessionLogEntry(LogLevel Level, DateTime TimestampUtc, string Category, string Message);
+        public IReadOnlyList<SessionLogEntry> GetEntriesSnapshot()
+        {
+            lock(_sync)
+            {
+                return [.. _entries];
+            }
+        }
+
+        internal readonly record struct SessionLogEntry(LogLevel Level, DateTime TimestampUtc, string Category, string Message);
     }
 }

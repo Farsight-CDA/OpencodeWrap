@@ -16,7 +16,7 @@ internal sealed class RunCliCommand : Command
     private readonly Option<bool> _verboseOption;
 
     public RunCliCommand(OpencodeLauncherService launcherService, ProfileService profileService, BuiltInProfileTemplateService builtInProfileTemplateService, DockerHostService dockerHostService, RunMenuDefaultsService runMenuDefaultsService)
-        : base("run", "Resolve the latest OpenCode release, run `opencode serve` in Docker, then attach the OCW-managed host TUI after interactive setup.")
+        : base("run", "Resolve the latest OpenCode release, run `opencode serve` in Docker, then launch the selected TUI, web, or desktop client after interactive setup.")
     {
         _launcherService = launcherService;
         _profileService = profileService;
@@ -36,7 +36,7 @@ internal sealed class RunCliCommand : Command
             var selection = await PromptForRunSelectionAsync();
             return selection is null
                 ? 1
-                : await _launcherService.ExecuteAsync([], requestedProfileName: selection.ProfileName, includeProfileConfig: true, runtimeMode: OpencodeRuntimeMode.HostAttachToServe, workspaceMountMode: selection.MountMode, extraReadonlyMountDirs: selection.ResourceDirectories, dockerNetworkMode: ResolveDockerNetworkModeArgument(selection.NetworkMode), dockerNetworks: selection.NetworkNames, verboseSessionLogs: verbose);
+                : await _launcherService.ExecuteAsync([], requestedProfileName: selection.ProfileName, includeProfileConfig: true, runtimeMode: OpencodeRuntimeMode.HostAttachToServe, runUiMode: selection.UiMode, workspaceMountMode: selection.MountMode, extraReadonlyMountDirs: selection.ResourceDirectories, dockerNetworkMode: ResolveDockerNetworkModeArgument(selection.NetworkMode), dockerNetworks: selection.NetworkNames, verboseSessionLogs: verbose);
         });
     }
 
@@ -62,7 +62,7 @@ internal sealed class RunCliCommand : Command
 
         if(!AnsiConsole.Profile.Capabilities.Interactive)
         {
-            AppIO.WriteError("Interactive profile selection is unavailable in this terminal. Run `ocw run` from an interactive shell.");
+            AppIO.WriteError("`ocw run` now asks for a UI mode on every run. Launch it from an interactive shell; scripted UI selection is not available yet.");
             return null;
         }
 
@@ -76,6 +76,8 @@ internal sealed class RunCliCommand : Command
         {
             return null;
         }
+
+        OpenCodeDesktopAppStatus desktopAppStatus = await _dockerHostService.GetOpenCodeDesktopAppStatusAsync();
 
         string defaultProfileName = profileNames.Contains(runMenuDefaults.DefaultProfileName ?? "")
             ? runMenuDefaults.DefaultProfileName!
@@ -110,6 +112,9 @@ internal sealed class RunCliCommand : Command
         }
 
         var selectedTab = RunSelectionTab.Profile;
+        RunUiMode? defaultUiMode = runMenuDefaults.DefaultUiMode;
+        List<UiChoice> uiChoices = BuildUiChoices(desktopAppStatus, defaultUiMode);
+        int selectedUiIndex = GetInitialSelectableUiIndex(uiChoices);
         int selectedResourceIndex = selectedResourceDirectories.Count > 0 ? 1 : 0;
         int selectedNetworkIndex = 0;
         var selectedNetworkMode = DockerNetworkMode.Bridge;
@@ -125,7 +130,7 @@ internal sealed class RunCliCommand : Command
 
         while(true)
         {
-            RenderRunSelectionScreen(profileChoices, selectedIndex, selectedTab, mountMode, currentWorkspacePath, selectedResourceDirectories, defaultResourceDirectories, selectedResourceIndex, availableNetworkNames, defaultNetworkNames, selectedNetworkIndex, selectedNetworkMode, activeNetworkNames, showingControls, hostNetworkAvailable: true, showWindowsHostNetworkingHint: _dockerHostService.IsWindows);
+            RenderRunSelectionScreen(profileChoices, selectedIndex, uiChoices, selectedUiIndex, selectedTab, mountMode, currentWorkspacePath, selectedResourceDirectories, defaultResourceDirectories, selectedResourceIndex, availableNetworkNames, defaultNetworkNames, selectedNetworkIndex, selectedNetworkMode, activeNetworkNames, showingControls, hostNetworkAvailable: true, showWindowsHostNetworkingHint: _dockerHostService.IsWindows);
             var keyInfo = AnsiConsole.Console.Input.ReadKey(intercept: true);
             if(keyInfo is null)
             {
@@ -154,11 +159,23 @@ internal sealed class RunCliCommand : Command
                 {
                     case RunSelectionTab.Profile:
                         string selectedProfileName = profileChoices[selectedIndex].Name;
-                        if(TrySaveRunMenuDefaults(selectedProfileName, selectedResourceDirectories, defaultResourceDirectories, availableNetworkNames, defaultNetworkNames))
+                        if(TrySaveRunMenuDefaults(selectedProfileName, defaultUiMode, selectedResourceDirectories, defaultResourceDirectories, availableNetworkNames, defaultNetworkNames))
                         {
                             profileChoices = [.. profileChoices.Select(choice => choice with
                             {
                                 IsDefault = String.Equals(choice.Name, selectedProfileName, StringComparison.OrdinalIgnoreCase)
+                            })];
+                        }
+
+                        break;
+                    case RunSelectionTab.Ui:
+                        RunUiMode selectedUiMode = uiChoices[selectedUiIndex].Mode;
+                        if(TrySaveRunMenuDefaults(GetSelectedDefaultProfileName(profileChoices), selectedUiMode, selectedResourceDirectories, defaultResourceDirectories, availableNetworkNames, defaultNetworkNames))
+                        {
+                            defaultUiMode = selectedUiMode;
+                            uiChoices = [.. uiChoices.Select(choice => choice with
+                            {
+                                IsDefault = choice.Mode == selectedUiMode
                             })];
                         }
 
@@ -177,7 +194,7 @@ internal sealed class RunCliCommand : Command
                                 defaultResourceDirectories.Add(selectedResourceDirectory);
                             }
 
-                            if(!TrySaveRunMenuDefaults(GetSelectedDefaultProfileName(profileChoices), selectedResourceDirectories, defaultResourceDirectories, availableNetworkNames, defaultNetworkNames))
+                            if(!TrySaveRunMenuDefaults(GetSelectedDefaultProfileName(profileChoices), defaultUiMode, selectedResourceDirectories, defaultResourceDirectories, availableNetworkNames, defaultNetworkNames))
                             {
                                 if(resourceWasDefault)
                                 {
@@ -207,7 +224,7 @@ internal sealed class RunCliCommand : Command
                                 activeNetworkNames.Add(selectedNetworkName);
                             }
 
-                            if(!TrySaveRunMenuDefaults(GetSelectedDefaultProfileName(profileChoices), selectedResourceDirectories, defaultResourceDirectories, availableNetworkNames, defaultNetworkNames))
+                            if(!TrySaveRunMenuDefaults(GetSelectedDefaultProfileName(profileChoices), defaultUiMode, selectedResourceDirectories, defaultResourceDirectories, availableNetworkNames, defaultNetworkNames))
                             {
                                 if(networkWasDefault)
                                 {
@@ -239,6 +256,9 @@ internal sealed class RunCliCommand : Command
                         case RunSelectionTab.Profile:
                             selectedIndex = selectedIndex <= 0 ? profileChoices.Count - 1 : selectedIndex - 1;
                             break;
+                        case RunSelectionTab.Ui:
+                            selectedUiIndex = MoveUiSelection(uiChoices, selectedUiIndex, movingForward: false);
+                            break;
                         case RunSelectionTab.Resources:
                             int resourceEntryCount = selectedResourceDirectories.Count + 1;
                             selectedResourceIndex = selectedResourceIndex <= 0 ? resourceEntryCount - 1 : selectedResourceIndex - 1;
@@ -256,6 +276,9 @@ internal sealed class RunCliCommand : Command
                     {
                         case RunSelectionTab.Profile:
                             selectedIndex = selectedIndex >= profileChoices.Count - 1 ? 0 : selectedIndex + 1;
+                            break;
+                        case RunSelectionTab.Ui:
+                            selectedUiIndex = MoveUiSelection(uiChoices, selectedUiIndex, movingForward: true);
                             break;
                         case RunSelectionTab.Resources:
                             int resourceEntryCount = selectedResourceDirectories.Count + 1;
@@ -349,7 +372,7 @@ internal sealed class RunCliCommand : Command
                     seenResourceDirectories.Remove(removedDirectory);
                     if(defaultResourceDirectories.Remove(removedDirectory))
                     {
-                        _ = TrySaveRunMenuDefaults(GetSelectedDefaultProfileName(profileChoices), selectedResourceDirectories, defaultResourceDirectories, availableNetworkNames, defaultNetworkNames);
+                        _ = TrySaveRunMenuDefaults(GetSelectedDefaultProfileName(profileChoices), defaultUiMode, selectedResourceDirectories, defaultResourceDirectories, availableNetworkNames, defaultNetworkNames);
                     }
 
                     if(selectedResourceIndex > selectedResourceDirectories.Count)
@@ -359,9 +382,15 @@ internal sealed class RunCliCommand : Command
 
                     break;
                 case ConsoleKey.Enter:
+                    if(!uiChoices[selectedUiIndex].IsSelectable)
+                    {
+                        break;
+                    }
+
                     AnsiConsole.Clear();
                     return new RunSelection(
                         profileChoices[selectedIndex].Name,
+                        uiChoices[selectedUiIndex].Mode,
                         mountMode,
                         selectedResourceDirectories,
                         selectedNetworkMode,
@@ -382,6 +411,8 @@ internal sealed class RunCliCommand : Command
     private static void RenderRunSelectionScreen(
         IReadOnlyList<ProfileChoice> profileChoices,
         int selectedIndex,
+        IReadOnlyList<UiChoice> uiChoices,
+        int selectedUiIndex,
         RunSelectionTab selectedTab,
         WorkspaceMountMode mountMode,
         string currentWorkspacePath,
@@ -409,7 +440,7 @@ internal sealed class RunCliCommand : Command
                 ("M", "Toggle workspace mount"),
                 ("Space", "Add resource (resource tab)"),
                 ("Space", "Cycle mode / toggle network"),
-                ("+", "Save or clear default"),
+                ("+", "Save default / toggle saved"),
                 ("Backspace / Delete", "Remove selected resource"),
                 ("Enter", "Start session"),
                 ("Esc", "Cancel"),
@@ -441,11 +472,12 @@ internal sealed class RunCliCommand : Command
         };
         AnsiConsole.Write(mountPanel);
 
-        AnsiConsole.Write(CreateTabStrip(selectedTab, selectedResourceDirectories.Count, activeNetworkNames.Count));
+        AnsiConsole.Write(CreateTabStrip(selectedTab, selectedResourceDirectories.Count, activeNetworkNames.Count, profileChoices[selectedIndex], uiChoices[selectedUiIndex]));
         AnsiConsole.WriteLine();
 
         var activeContent = selectedTab switch
         {
+            RunSelectionTab.Ui => CreateUiSelectionContent(uiChoices, selectedUiIndex),
             RunSelectionTab.Resources => CreateResourceSelectionContent(selectedResourceDirectories, defaultResourceDirectories, selectedResourceIndex),
             RunSelectionTab.Networks => CreateNetworkSelectionContent(availableNetworkNames, defaultNetworkNames, selectedNetworkIndex, selectedNetworkMode, activeNetworkNames, hostNetworkAvailable, showWindowsHostNetworkingHint),
             _ => CreateProfileSelectionContent(profileChoices, selectedIndex)
@@ -472,6 +504,7 @@ internal sealed class RunCliCommand : Command
         string tabHint = selectedTab switch
         {
             RunSelectionTab.Profile => "[grey]Enter[/] [dodgerblue1]start[/] | [grey]+[/] [dodgerblue1]default[/] | [grey]↑↓[/] [dodgerblue1]navigate[/] | [grey]←→[/] [dodgerblue1]tabs[/]",
+            RunSelectionTab.Ui => "[grey]Enter[/] [dodgerblue1]start[/] | [grey]+[/] [dodgerblue1]default[/] | [grey]↑↓[/] [dodgerblue1]choose ui[/] | [grey]←→[/] [dodgerblue1]tabs[/]",
             RunSelectionTab.Resources => "[grey]Enter[/] [dodgerblue1]start[/] | [grey]Space[/] [dodgerblue1]add[/] | [grey]+[/] [dodgerblue1]default[/] | [grey]Del[/] [dodgerblue1]remove[/]",
             RunSelectionTab.Networks => "[grey]Enter[/] [dodgerblue1]start[/] | [grey]Space[/] [dodgerblue1]toggle[/] | [grey]+[/] [dodgerblue1]default[/] | [grey]←→[/] [dodgerblue1]tabs[/]",
             _ => ""
@@ -493,16 +526,33 @@ internal sealed class RunCliCommand : Command
         AnsiConsole.Write(footerPanel);
     }
 
-    private static Panel CreateTabStrip(RunSelectionTab selectedTab, int resourceCount, int activeNetworkCount)
+    private static Panel CreateTabStrip(RunSelectionTab selectedTab, int resourceCount, int activeNetworkCount, ProfileChoice selectedProfileChoice, UiChoice selectedUiChoice)
     {
         var tabGrid = new Grid();
         tabGrid.AddColumn();
         tabGrid.AddColumn();
         tabGrid.AddColumn();
+        tabGrid.AddColumn();
 
+        string profileLabel = $"👤 Profile: {Markup.Escape(selectedProfileChoice.Name)}";
         string profileTab = selectedTab is RunSelectionTab.Profile
-            ? "[white on dodgerblue1] 👤 Profile Selection [/]"
-            : "[grey70 on grey19] 👤 Profile Selection [/]";
+            ? $"[white on dodgerblue1] {profileLabel} [/]"
+            : $"[grey70 on grey19] {profileLabel} [/]";
+
+        string uiLabel = selectedUiChoice.Mode switch
+        {
+            RunUiMode.Web => "UI: Web",
+            RunUiMode.Desktop => "UI: Desktop",
+            _ => "UI: TUI"
+        };
+        if(selectedUiChoice.IsUnavailable)
+        {
+            uiLabel += " ([yellow]unavailable[/])";
+        }
+
+        string uiTab = selectedTab is RunSelectionTab.Ui
+            ? $"[white on dodgerblue1] {uiLabel} [/]"
+            : $"[grey70 on grey19] {uiLabel} [/]";
 
         string resourceLabel = resourceCount == 0
             ? "📁 Resource Directories"
@@ -518,7 +568,7 @@ internal sealed class RunCliCommand : Command
             ? $"[white on dodgerblue1] {networkLabel} [/]"
             : $"[grey70 on grey19] {networkLabel} [/]";
 
-        tabGrid.AddRow(profileTab, resourceTab, networkTab);
+        tabGrid.AddRow(profileTab, uiTab, resourceTab, networkTab);
 
         return new Panel(tabGrid)
         {
@@ -562,10 +612,52 @@ internal sealed class RunCliCommand : Command
         return new Markup(content.ToString());
     }
 
+    private static Markup CreateUiSelectionContent(IReadOnlyList<UiChoice> uiChoices, int selectedUiIndex)
+    {
+        var content = new StringBuilder();
+
+        for(int i = 0; i < uiChoices.Count; i++)
+        {
+            UiChoice choice = uiChoices[i];
+            bool isSelected = i == selectedUiIndex;
+            bool isDefault = choice.IsDefault;
+            string labelStyle = !choice.IsSelectable ? "grey58" : choice.IsUnavailable ? "yellow" : "white";
+            string label = Markup.Escape(choice.Label);
+            string description = Markup.Escape(choice.Description);
+            string defaultMarker = isDefault ? " [yellow]★[/]" : "";
+
+            if(isSelected)
+            {
+                content.Append($"[dodgerblue1]▶[/] [bold {labelStyle}]{label}[/]{defaultMarker}");
+            }
+            else
+            {
+                content.Append($"  [{(!choice.IsSelectable ? "grey58" : choice.IsUnavailable ? "yellow" : "grey70")}]{label}[/]{defaultMarker}");
+            }
+
+            content.AppendLine();
+            content.Append($"    [grey]-[/] [{(choice.IsSelectable ? (isSelected ? "grey70" : "grey58") : "grey50")}]{description}[/]");
+
+            if(!String.IsNullOrWhiteSpace(choice.Detail))
+            {
+                content.Append($" [grey]({Markup.Escape(choice.Detail!)})[/]");
+            }
+
+            content.AppendLine();
+
+            if(i < uiChoices.Count - 1)
+            {
+                content.AppendLine();
+            }
+        }
+
+        return new Markup(content.ToString());
+    }
+
     private static Markup CreateResourceSelectionContent(List<string> selectedResourceDirectories, HashSet<string> defaultResourceDirectories, int selectedResourceIndex)
     {
         var content = new StringBuilder();
-        content.AppendLine("[grey58]Add read-only resource directories to mount in the container (+ saves them for future runs):[/]");
+        content.AppendLine("[grey58]Add read-only resource directories to mount in the container:[/]");
         content.AppendLine();
 
         // Add button
@@ -612,7 +704,7 @@ internal sealed class RunCliCommand : Command
     private static Markup CreateNetworkSelectionContent(IReadOnlyList<string> availableNetworkNames, HashSet<string> defaultNetworkNames, int selectedNetworkIndex, DockerNetworkMode selectedNetworkMode, HashSet<string> activeNetworkNames, bool hostNetworkAvailable, bool showWindowsHostNetworkingHint)
     {
         var content = new StringBuilder();
-        content.AppendLine("[grey58]Configure Docker networking for the container (+ saves bridge networks for future runs):[/]");
+        content.AppendLine("[grey58]Configure Docker networking for the container:[/]");
         content.AppendLine();
 
         // Network mode
@@ -677,15 +769,83 @@ internal sealed class RunCliCommand : Command
         return new Markup(content.ToString());
     }
 
-    private static RunSelectionTab CycleInteractiveTab(RunSelectionTab selectedTab, bool movingRight) => (selectedTab, movingRight) switch
+    internal static RunSelectionTab CycleInteractiveTab(RunSelectionTab selectedTab, bool movingRight) => (selectedTab, movingRight) switch
     {
-        (RunSelectionTab.Profile, true) => RunSelectionTab.Resources,
+        (RunSelectionTab.Profile, true) => RunSelectionTab.Ui,
+        (RunSelectionTab.Ui, true) => RunSelectionTab.Resources,
         (RunSelectionTab.Resources, true) => RunSelectionTab.Networks,
         (RunSelectionTab.Networks, true) => RunSelectionTab.Profile,
         (RunSelectionTab.Profile, false) => RunSelectionTab.Networks,
-        (RunSelectionTab.Resources, false) => RunSelectionTab.Profile,
+        (RunSelectionTab.Ui, false) => RunSelectionTab.Profile,
+        (RunSelectionTab.Resources, false) => RunSelectionTab.Ui,
         _ => RunSelectionTab.Resources
     };
+
+    internal static List<UiChoice> BuildUiChoices(OpenCodeDesktopAppStatus desktopAppStatus, RunUiMode? defaultUiMode)
+    {
+        string desktopDetail = desktopAppStatus.Availability switch
+        {
+            OpenCodeDesktopAvailability.UnsupportedAttachContract => desktopAppStatus.Detail ?? "installed, but backend handoff is not supported yet",
+            _ => "app not detected on this host"
+        };
+        bool desktopSelectable = desktopAppStatus.Availability switch
+        {
+            OpenCodeDesktopAvailability.NotDetected => false,
+            OpenCodeDesktopAvailability.UnsupportedAttachContract => false,
+            _ => true
+        };
+
+        return
+        [
+            new UiChoice(RunUiMode.Tui, "TUI", "Attach the OCW-managed terminal client.", IsDefault: defaultUiMode is RunUiMode.Tui),
+            new UiChoice(RunUiMode.Web, "Web", "Open the local browser UI and print the URL.", IsDefault: defaultUiMode is RunUiMode.Web),
+            new UiChoice(RunUiMode.Desktop, "Desktop", "Open the installed OpenCode desktop app.", desktopDetail, true, desktopSelectable, defaultUiMode is RunUiMode.Desktop)
+        ];
+    }
+
+    internal static int GetInitialSelectableUiIndex(IReadOnlyList<UiChoice> uiChoices)
+    {
+        for(int i = 0; i < uiChoices.Count; i++)
+        {
+            if(uiChoices[i].IsSelectable && uiChoices[i].IsDefault)
+            {
+                return i;
+            }
+        }
+
+        for(int i = 0; i < uiChoices.Count; i++)
+        {
+            if(uiChoices[i].IsSelectable)
+            {
+                return i;
+            }
+        }
+
+        return 0;
+    }
+
+    internal static int MoveUiSelection(IReadOnlyList<UiChoice> uiChoices, int selectedUiIndex, bool movingForward)
+    {
+        if(uiChoices.Count == 0)
+        {
+            return 0;
+        }
+
+        int nextIndex = selectedUiIndex;
+        for(int i = 0; i < uiChoices.Count; i++)
+        {
+            nextIndex = movingForward
+                ? nextIndex >= uiChoices.Count - 1 ? 0 : nextIndex + 1
+                : nextIndex <= 0 ? uiChoices.Count - 1 : nextIndex - 1;
+
+            if(uiChoices[nextIndex].IsSelectable)
+            {
+                return nextIndex;
+            }
+        }
+
+        return selectedUiIndex;
+    }
 
     private static DockerNetworkMode CycleDockerNetworkMode(DockerNetworkMode networkMode, bool hostNetworkAvailable)
         => !hostNetworkAvailable
@@ -722,6 +882,7 @@ internal sealed class RunCliCommand : Command
 
     private bool TrySaveRunMenuDefaults(
         string defaultProfileName,
+        RunUiMode? defaultUiMode,
         IReadOnlyList<string> selectedResourceDirectories,
         HashSet<string> defaultResourceDirectories,
         IReadOnlyList<string> availableNetworkNames,
@@ -730,7 +891,7 @@ internal sealed class RunCliCommand : Command
         List<string> resourceDirectories = [.. selectedResourceDirectories.Where(defaultResourceDirectories.Contains)];
         List<string> dockerNetworks = [.. availableNetworkNames.Where(defaultNetworkNames.Contains)];
 
-        return _runMenuDefaultsService.TrySaveDefaults(new RunMenuDefaults(defaultProfileName, resourceDirectories, dockerNetworks));
+        return _runMenuDefaultsService.TrySaveDefaults(new RunMenuDefaults(defaultProfileName, defaultUiMode, resourceDirectories, dockerNetworks));
     }
 
     private static string GetSelectedDefaultProfileName(IReadOnlyList<ProfileChoice> profileChoices)
@@ -1107,13 +1268,15 @@ internal sealed class RunCliCommand : Command
         ? StringComparer.OrdinalIgnoreCase
         : StringComparer.Ordinal;
 
-    private sealed record RunSelection(string ProfileName, WorkspaceMountMode MountMode, IReadOnlyList<string> ResourceDirectories, DockerNetworkMode NetworkMode, IReadOnlyList<string> NetworkNames);
+    private sealed record RunSelection(string ProfileName, RunUiMode UiMode, WorkspaceMountMode MountMode, IReadOnlyList<string> ResourceDirectories, DockerNetworkMode NetworkMode, IReadOnlyList<string> NetworkNames);
     private sealed record ProfileChoice(string Name, bool IsDefault);
+    internal sealed record UiChoice(RunUiMode Mode, string Label, string Description, string? Detail = null, bool IsUnavailable = false, bool IsSelectable = true, bool IsDefault = false);
     private sealed record ExplorerEntry(string Label, ExplorerEntryType EntryType, string? Path = null);
 
-    private enum RunSelectionTab
+    internal enum RunSelectionTab
     {
         Profile,
+        Ui,
         Resources,
         Networks
     }

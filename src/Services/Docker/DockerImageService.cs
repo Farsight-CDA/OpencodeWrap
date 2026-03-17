@@ -10,6 +10,9 @@ internal sealed partial class DockerImageService : Singleton
     [Inject]
     private readonly DeferredSessionLogService _deferredSessionLogService;
 
+    [Inject]
+    private readonly SessionOutputService _sessionOutputService;
+
     public async Task<(bool Success, string ImageTag)> TryEnsureImageAsync(string dockerfilePath)
     {
         string imageTag = "opencode-wrap:unavailable";
@@ -27,7 +30,7 @@ internal sealed partial class DockerImageService : Singleton
             return (true, imageTag);
         }
 
-        AppIO.WriteInfo($"Docker image '{imageTag}' not found. Building it now...");
+        _sessionOutputService.WriteInfo(LogCategories.Docker, $"Docker image '{imageTag}' not found. Building it now...");
         return await TryBuildImageAsync(dockerfilePath, imageTag, noCache: false, _deferredSessionLogService);
     }
 

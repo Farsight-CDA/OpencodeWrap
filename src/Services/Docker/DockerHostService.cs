@@ -1,4 +1,5 @@
 using System.Collections.Frozen;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 
@@ -141,6 +142,70 @@ internal sealed partial class DockerHostService : Singleton
         return (true, networkNames);
     }
 
+    public async Task<OpenCodeDesktopAppStatus> GetOpenCodeDesktopAppStatusAsync()
+    {
+        string? launchTarget = IsWindows
+            ? GetWindowsDesktopAppPath()
+            : IsMacOS
+                ? GetMacDesktopAppPath()
+                : await GetLinuxDesktopAppTargetAsync();
+
+        if(String.IsNullOrWhiteSpace(launchTarget))
+        {
+            return OpenCodeDesktopAppStatus.NotDetected;
+        }
+
+        return new OpenCodeDesktopAppStatus(
+            OpenCodeDesktopAvailability.UnsupportedAttachContract,
+            launchTarget,
+            "Current OpenCode desktop builds do not yet expose a supported way to attach an existing OCW-managed backend session.");
+    }
+
+    public async Task<HostLaunchResult> TryOpenUrlAsync(string url)
+    {
+        if(String.IsNullOrWhiteSpace(url))
+        {
+            return HostLaunchResult.Fail("URL was not provided.");
+        }
+
+        try
+        {
+            if(IsWindows)
+            {
+                using var process = Process.Start(new ProcessStartInfo
+                {
+                    FileName = url,
+                    UseShellExecute = true
+                });
+
+                return process is null
+                    ? HostLaunchResult.Fail($"Failed to open '{url}' in the default browser.")
+                    : HostLaunchResult.Ok();
+            }
+
+            string command = IsMacOS ? "open" : "xdg-open";
+            var result = await ProcessRunner.RunAsync(command, [url]);
+            return result.Success
+                ? HostLaunchResult.Ok()
+                : HostLaunchResult.Fail(DescribeHostLaunchFailure(command, result, url));
+        }
+        catch(Exception ex)
+        {
+            return HostLaunchResult.Fail($"Failed to open '{url}' in the default browser: {ex.Message}");
+        }
+    }
+
+    public Task<HostLaunchResult> TryLaunchOpenCodeDesktopAsync(string attachUrl, OpenCodeDesktopAppStatus desktopStatus)
+    {
+        if(desktopStatus.Availability is OpenCodeDesktopAvailability.NotDetected)
+        {
+            return Task.FromResult(HostLaunchResult.Fail("OpenCode desktop was not detected on this host."));
+        }
+
+        string launchTarget = desktopStatus.LaunchTarget ?? "this host";
+        return Task.FromResult(HostLaunchResult.Fail($"Detected OpenCode desktop at '{launchTarget}', but current OpenCode desktop builds do not yet expose a supported attach-to-existing-server launch contract for OCW."));
+    }
+
     public bool TryEnsureGlobalConfigDirectory(out string configDirectory)
     {
         configDirectory = "";
@@ -224,6 +289,163 @@ internal sealed partial class DockerHostService : Singleton
 
         return false;
     }
+
+    private string? GetWindowsDesktopAppPath()
+    {
+        var candidates = new List<string>();
+
+        string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        if(!String.IsNullOrWhiteSpace(localAppData))
+        {
+            candidates.Add(Path.Combine(localAppData, "Programs", "OpenCode", "OpenCode.exe"));
+            candidates.Add(Path.Combine(localAppData, "Programs", "OpenCode Desktop", "OpenCode.exe"));
+        }
+
+        string programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+        if(!String.IsNullOrWhiteSpace(programFiles))
+        {
+            candidates.Add(Path.Combine(programFiles, "OpenCode", "OpenCode.exe"));
+            candidates.Add(Path.Combine(programFiles, "OpenCode Desktop", "OpenCode.exe"));
+        }
+
+        string programFilesX86 = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86);
+        if(!String.IsNullOrWhiteSpace(programFilesX86))
+        {
+            candidates.Add(Path.Combine(programFilesX86, "OpenCode", "OpenCode.exe"));
+            candidates.Add(Path.Combine(programFilesX86, "OpenCode Desktop", "OpenCode.exe"));
+        }
+
+        string? detectedPath = candidates.FirstOrDefault(File.Exists);
+        if(!String.IsNullOrWhiteSpace(detectedPath))
+        {
+            return detectedPath;
+        }
+
+        return GetWindowsDesktopStartMenuShortcutPath();
+    }
+
+    private string? GetWindowsDesktopStartMenuShortcutPath()
+    {
+        string[] startMenuDirectories =
+        [
+            Environment.GetFolderPath(Environment.SpecialFolder.Programs),
+            Environment.GetFolderPath(Environment.SpecialFolder.CommonPrograms),
+            Environment.GetFolderPath(Environment.SpecialFolder.StartMenu),
+            Environment.GetFolderPath(Environment.SpecialFolder.CommonStartMenu)
+        ];
+
+        foreach(string directory in startMenuDirectories.Where(path => !String.IsNullOrWhiteSpace(path)).Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            if(!Directory.Exists(directory))
+            {
+                continue;
+            }
+
+            try
+            {
+                string? shortcutPath = Directory
+                    .EnumerateFiles(directory, "*.lnk", SearchOption.AllDirectories)
+                    .FirstOrDefault(IsOpenCodeDesktopStartMenuShortcut);
+                if(!String.IsNullOrWhiteSpace(shortcutPath))
+                {
+                    return shortcutPath;
+                }
+            }
+            catch(Exception)
+            {
+            }
+        }
+
+        return null;
+    }
+
+    private static bool IsOpenCodeDesktopStartMenuShortcut(string path)
+    {
+        string fileName = Path.GetFileNameWithoutExtension(path);
+        return fileName.StartsWith("OpenCode", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private string? GetMacDesktopAppPath()
+    {
+        string homeDirectory = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        string[] candidates =
+        [
+            "/Applications/OpenCode.app",
+            String.IsNullOrWhiteSpace(homeDirectory) ? String.Empty : Path.Combine(homeDirectory, "Applications", "OpenCode.app")
+        ];
+
+        return candidates.FirstOrDefault(path => !String.IsNullOrWhiteSpace(path) && Directory.Exists(path));
+    }
+
+    private async Task<string?> GetLinuxDesktopAppTargetAsync()
+    {
+        string homeDirectory = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        string[] pathCandidates =
+        [
+            String.IsNullOrWhiteSpace(homeDirectory) ? String.Empty : Path.Combine(homeDirectory, ".local", "bin", "opencode-desktop"),
+            "/usr/local/bin/opencode-desktop",
+            "/usr/bin/opencode-desktop",
+            String.IsNullOrWhiteSpace(homeDirectory) ? String.Empty : Path.Combine(homeDirectory, "Applications", "OpenCode.AppImage")
+        ];
+
+        string? resolvedPath = pathCandidates.FirstOrDefault(path => !String.IsNullOrWhiteSpace(path) && File.Exists(path));
+        if(!String.IsNullOrWhiteSpace(resolvedPath))
+        {
+            return resolvedPath;
+        }
+
+        foreach(string commandName in new[] { "opencode-desktop", "OpenCode" })
+        {
+            var result = await ProcessRunner.RunAsync("which", [commandName]);
+            if(result.Success)
+            {
+                string resolved = result.StdOut.Trim();
+                if(resolved.Length > 0)
+                {
+                    return resolved;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private static string DescribeHostLaunchFailure(string command, ProcessRunner.ProcessRunResult result, string target)
+    {
+        string detail = FirstNonEmptyLine(result.StdErr, result.StdOut);
+        if(!result.Started)
+        {
+            return String.IsNullOrWhiteSpace(detail)
+                ? $"Failed to start '{command}' for '{target}'."
+                : $"Failed to start '{command}' for '{target}': {detail}";
+        }
+
+        return String.IsNullOrWhiteSpace(detail)
+            ? $"'{command}' exited with code {result.ExitCode} while opening '{target}'."
+            : $"'{command}' exited with code {result.ExitCode} while opening '{target}': {detail}";
+    }
+
+    private static string FirstNonEmptyLine(params string[] values)
+    {
+        foreach(string value in values)
+        {
+            if(String.IsNullOrWhiteSpace(value))
+            {
+                continue;
+            }
+
+            string firstLine = value
+                .Replace("\r", String.Empty, StringComparison.Ordinal)
+                .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .FirstOrDefault() ?? String.Empty;
+            if(!String.IsNullOrWhiteSpace(firstLine))
+            {
+                return firstLine;
+            }
+        }
+
+        return String.Empty;
+    }
 }
 
 internal enum DockerDesktopHostNetworkingState
@@ -232,4 +454,21 @@ internal enum DockerDesktopHostNetworkingState
     Unknown,
     Disabled,
     Enabled
+}
+
+internal enum OpenCodeDesktopAvailability
+{
+    NotDetected,
+    UnsupportedAttachContract
+}
+
+internal sealed record OpenCodeDesktopAppStatus(OpenCodeDesktopAvailability Availability, string? LaunchTarget, string? Detail)
+{
+    public static OpenCodeDesktopAppStatus NotDetected { get; } = new(OpenCodeDesktopAvailability.NotDetected, null, null);
+}
+
+internal sealed record HostLaunchResult(bool Success, string? ErrorMessage)
+{
+    public static HostLaunchResult Ok() => new(true, null);
+    public static HostLaunchResult Fail(string errorMessage) => new(false, errorMessage);
 }

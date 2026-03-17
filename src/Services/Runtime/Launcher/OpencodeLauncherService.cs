@@ -19,8 +19,10 @@ internal sealed partial class OpencodeLauncherService : Singleton
     [Inject] private readonly ManagedHostOpencodeService _managedHostOpencodeService;
     [Inject] private readonly OpencodeReleaseMetadataService _opencodeReleaseMetadataService;
     [Inject] private readonly OpencodeRuntimeImageService _opencodeRuntimeImageService;
+    [Inject] private readonly RunUiLauncherService _runUiLauncherService;
     [Inject] private readonly SessionStagingService _sessionStagingService;
     [Inject] private readonly DeferredSessionLogService _deferredSessionLogService;
+    [Inject] private readonly SessionOutputService _sessionOutputService;
     [Inject] private readonly LocalPortReservationService _localPortReservationService;
     [Inject] private readonly HostOpencodeAttachService _hostOpencodeAttachService;
     [Inject] private readonly OpencodeServeHealthcheckService _opencodeServeHealthcheckService;
@@ -35,13 +37,15 @@ internal sealed partial class OpencodeLauncherService : Singleton
         string? requestedProfileName,
         bool includeProfileConfig,
         OpencodeRuntimeMode runtimeMode,
+        RunUiMode runUiMode = RunUiMode.Tui,
         WorkspaceMountMode workspaceMountMode = WorkspaceMountMode.ReadWrite,
         IReadOnlyList<string>? extraReadonlyMountDirs = null,
         string? dockerNetworkMode = null,
         IReadOnlyList<string>? dockerNetworks = null,
         bool verboseSessionLogs = false)
     {
-        bool useHostAttachToServe = runtimeMode is OpencodeRuntimeMode.HostAttachToServe;
+        bool useServeSession = runtimeMode is OpencodeRuntimeMode.HostAttachToServe;
+        bool useManagedHostClient = useServeSession && runUiMode is RunUiMode.Tui;
         var sessionLog = includeProfileConfig
             ? _deferredSessionLogService.BeginSession(verboseSessionLogs ? LogLevel.Debug : LogLevel.Information)
             : null;
@@ -53,7 +57,7 @@ internal sealed partial class OpencodeLauncherService : Singleton
         {
             LogStartupPhase("starting ocw run startup", LogLevel.Debug);
 
-            if(!await AppIO.RunWithLoadingStateAsync("Checking Docker volume...", _volumeService.EnsureVolumeReadyAsync))
+            if(!await _sessionOutputService.RunWithLoadingStateAsync(LogCategories.Startup, "Checking Docker volume...", _volumeService.EnsureVolumeReadyAsync))
             {
                 return 1;
             }
@@ -146,7 +150,12 @@ internal sealed partial class OpencodeLauncherService : Singleton
             _deferredSessionLogService.Write("session", $"prepared runtime session '{session.SessionId}' at '{session.HostSessionDirectory}'", LogLevel.Information);
             LogStartupPhase($"runtime session '{session.SessionId}' finalized at '{session.HostSessionDirectory}'", LogLevel.Debug);
 
-            if(useHostAttachToServe)
+            session = session with
+            {
+                UiMode = runUiMode
+            };
+
+            if(useServeSession)
             {
                 bool useWindowsHostNetworking = _hostService.IsWindows
                     && String.Equals(selectedDockerNetworkMode, "host", StringComparison.OrdinalIgnoreCase);
@@ -182,15 +191,18 @@ internal sealed partial class OpencodeLauncherService : Singleton
                 };
                 LogStartupPhase($"prepared attach port {port} at '{session.AttachUrl}'", LogLevel.Debug);
 
-                var (leaseAcquired, lease) = await _managedHostOpencodeService.TryAcquireLeaseAsync(session.SessionId, latestRelease);
-                if(!leaseAcquired || lease is null)
+                if(useManagedHostClient)
                 {
-                    return 1;
-                }
+                    var (leaseAcquired, lease) = await _managedHostOpencodeService.TryAcquireLeaseAsync(session.SessionId, latestRelease);
+                    if(!leaseAcquired || lease is null)
+                    {
+                        return 1;
+                    }
 
-                hostLease = lease;
-                managedHostExecutablePath = lease.ExecutablePath;
-                LogStartupPhase("managed host OpenCode lease acquired", LogLevel.Debug);
+                    hostLease = lease;
+                    managedHostExecutablePath = lease.ExecutablePath;
+                    LogStartupPhase("managed host OpenCode lease acquired", LogLevel.Debug);
+                }
             }
 
             var (baseImageReady, baseImageTag) = await _dockerImageService.TryEnsureImageAsync(imageBuildProfile.DockerfilePath);
@@ -230,7 +242,7 @@ internal sealed partial class OpencodeLauncherService : Singleton
                 "-e", $"OCW_PROFILE_ROOT={OpencodeWrapConstants.CONTAINER_PROFILE_ROOT}"
             ]);
 
-            if(!useHostAttachToServe)
+            if(!useServeSession)
             {
                 containerArgs.Insert(0, "-it");
                 containerArgs.AddRange(BuildTerminalEnvironmentArgs());
@@ -241,7 +253,7 @@ internal sealed partial class OpencodeLauncherService : Singleton
                 containerArgs.AddRange(["--network", selectedDockerNetworkMode]);
             }
 
-            if(useHostAttachToServe && !String.Equals(selectedDockerNetworkMode, "host", StringComparison.OrdinalIgnoreCase))
+            if(useServeSession && !String.Equals(selectedDockerNetworkMode, "host", StringComparison.OrdinalIgnoreCase))
             {
                 string portMapping = $"127.0.0.1:{session.HostPort!.Value.ToString(CultureInfo.InvariantCulture)}:{session.ContainerPort!.Value.ToString(CultureInfo.InvariantCulture)}";
                 containerArgs.AddRange(["-p", portMapping]);
@@ -274,7 +286,7 @@ internal sealed partial class OpencodeLauncherService : Singleton
                 "--"
             ]);
 
-            if(useHostAttachToServe)
+            if(useServeSession)
             {
                 containerArgs.Add("serve");
                 containerArgs.Add("--hostname");
@@ -291,7 +303,7 @@ internal sealed partial class OpencodeLauncherService : Singleton
             }
 
             bool requiresPrecreatedContainer = selectedDockerNetworks.Count > 0;
-            string startupDescription = useHostAttachToServe
+            string startupDescription = useServeSession
                 ? requiresPrecreatedContainer ? "creating backend container with additional networks" : "starting backend container"
                 : requiresPrecreatedContainer ? "creating docker container with additional networks" : "starting attached docker process";
             LogStartupPhase(startupDescription, LogLevel.Debug);
@@ -299,7 +311,7 @@ internal sealed partial class OpencodeLauncherService : Singleton
             reservedPort?.Dispose();
             reservedPort = null;
 
-            if(useHostAttachToServe)
+            if(useServeSession)
             {
                 bool backendStarted = requiresPrecreatedContainer
                     ? (await CreateConnectAndStartContainerAsync(containerArgs, selectedDockerNetworks, startDetached: true)).Success
@@ -326,9 +338,27 @@ internal sealed partial class OpencodeLauncherService : Singleton
                     };
                 }
 
-                int attachExitCode = await _hostOpencodeAttachService.RunAttachAsync(managedHostExecutablePath!, session.AttachUrl!);
+                RunUiLaunchResult launchResult = await _runUiLauncherService.LaunchAsync(runUiMode, session.AttachUrl!, containerWorkDir, managedHostExecutablePath);
+                if(!launchResult.Success)
+                {
+                    if(!String.IsNullOrWhiteSpace(session.AttachUrl))
+                    {
+                        _sessionOutputService.WriteInfo(LogCategories.Attach, $"Local session URL: {session.AttachUrl}");
+                    }
+
+                    CleanupContainer(force: true);
+                    return launchResult.ExitCode;
+                }
+
+                if(launchResult.WaitForBackendShutdown)
+                {
+                    int backendExitCode = await WaitForContainerExitAsync(_containerName!);
+                    CleanupContainer(force: false);
+                    return backendExitCode;
+                }
+
                 CleanupContainer(force: true);
-                return attachExitCode;
+                return launchResult.ExitCode;
             }
 
             int exitCode = requiresPrecreatedContainer
@@ -404,6 +434,22 @@ internal sealed partial class OpencodeLauncherService : Singleton
         WriteSessionError("docker", "Failed to start OpenCode backend container.");
         WriteSessionErrorDetails("docker", runResult.StdErr);
         return false;
+    }
+
+    private async Task<int> WaitForContainerExitAsync(string containerName)
+    {
+        var waitResult = await ProcessRunner.RunAsync("docker", ["wait", containerName]);
+        if(!waitResult.Started)
+        {
+            _deferredSessionLogService.WriteWarningOrConsole("docker", $"Failed to wait for backend container '{containerName}' to exit.");
+            WriteSessionErrorDetails("docker", waitResult.StdErr);
+            return 1;
+        }
+
+        string exitCodeText = FirstNonEmptyLine(waitResult.StdOut, waitResult.StdErr);
+        return Int32.TryParse(exitCodeText, NumberStyles.Integer, CultureInfo.InvariantCulture, out int exitCode)
+            ? exitCode
+            : waitResult.ExitCode;
     }
 
     private async Task<ProcessRunner.ProcessRunResult> CreateConnectAndStartContainerAsync(
@@ -766,6 +812,28 @@ internal sealed partial class OpencodeLauncherService : Singleton
         => String.Equals(dockerNetworkMode, "host", StringComparison.OrdinalIgnoreCase) && isWindows
             ? "localhost"
             : "127.0.0.1";
+
+    private static string FirstNonEmptyLine(params string[] values)
+    {
+        foreach(string value in values)
+        {
+            if(String.IsNullOrWhiteSpace(value))
+            {
+                continue;
+            }
+
+            string firstLine = value
+                .Replace("\r", String.Empty, StringComparison.Ordinal)
+                .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .FirstOrDefault() ?? String.Empty;
+            if(!String.IsNullOrWhiteSpace(firstLine))
+            {
+                return firstLine;
+            }
+        }
+
+        return String.Empty;
+    }
 
     private void RegisterCleanupHandlers()
     {
