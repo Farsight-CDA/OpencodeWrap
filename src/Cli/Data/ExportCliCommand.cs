@@ -28,7 +28,7 @@ internal sealed class ExportCliCommand : Command
 
     private async Task<int> ExecuteAsync(string archivePath)
     {
-        if (!await AppIO.RunWithLoadingStateAsync("Checking Docker volume...", _volumeService.EnsureVolumeReadyAsync))
+        if(!await AppIO.RunWithLoadingStateAsync("Checking Docker volume...", _volumeService.EnsureVolumeReadyAsync))
         {
             return 1;
         }
@@ -41,12 +41,12 @@ internal sealed class ExportCliCommand : Command
         {
             Directory.CreateDirectory(tempRoot);
 
-            if (!await AppIO.RunWithLoadingStateAsync("Creating archive from volume...", () => _volumeService.ExportVolumeToHostArchiveAsync(temporaryArchive)))
+            if(!await AppIO.RunWithLoadingStateAsync("Creating archive from volume...", () => _volumeService.ExportVolumeToHostArchiveAsync(temporaryArchive)))
             {
                 return 1;
             }
 
-            if (!AppIO.RunWithLoadingState("Writing archive...", () => PersistArchive(temporaryArchive, destinationArchive)))
+            if(!AppIO.RunWithLoadingState("Writing archive...", () => PersistArchive(temporaryArchive, destinationArchive)))
             {
                 return 1;
             }
@@ -71,13 +71,13 @@ internal sealed class ExportCliCommand : Command
     private static bool PersistArchive(string sourceArchive, string destinationArchive)
     {
         string destinationDirectory = Path.GetDirectoryName(destinationArchive) ?? "";
-        if (String.IsNullOrWhiteSpace(destinationDirectory))
+        if(String.IsNullOrWhiteSpace(destinationDirectory))
         {
             AppIO.WriteError($"Invalid export destination '{destinationArchive}'.");
             return false;
         }
 
-        if (!File.Exists(sourceArchive))
+        if(!File.Exists(sourceArchive))
         {
             AppIO.WriteError($"Export archive was not created at '{sourceArchive}'.");
             return false;
@@ -89,12 +89,12 @@ internal sealed class ExportCliCommand : Command
             File.Copy(sourceArchive, destinationArchive, overwrite: true);
             return true;
         }
-        catch (UnauthorizedAccessException ex)
+        catch(UnauthorizedAccessException ex)
         {
             AppIO.WriteError($"Access denied while writing archive '{destinationArchive}': {ex.Message}");
             return false;
         }
-        catch (IOException ex)
+        catch(IOException ex)
         {
             AppIO.WriteError($"Failed to write archive '{destinationArchive}': {ex.Message}");
             return false;

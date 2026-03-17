@@ -40,7 +40,7 @@ internal static class ProcessIdentity
     public static bool TryGetParentProcessIdentity(out string? executablePath, out int parentPid, out long parentStartTicks)
     {
         executablePath = Environment.ProcessPath;
-        if (string.IsNullOrWhiteSpace(executablePath))
+        if(String.IsNullOrWhiteSpace(executablePath))
         {
             parentPid = 0;
             parentStartTicks = 0;

@@ -38,19 +38,19 @@ internal sealed class DeleteProfileCliCommand : Command
     private async Task<int> ExecuteAsync(string? profileNameInput, bool skipConfirmation)
     {
         var (success, catalog) = _profileService.TryLoadProfileCatalog();
-        if (!success)
+        if(!success)
         {
             return 1;
         }
 
         string? selectedProfileName = ResolveProfileName(profileNameInput, catalog);
-        if (String.IsNullOrWhiteSpace(selectedProfileName))
+        if(String.IsNullOrWhiteSpace(selectedProfileName))
         {
             return 1;
         }
 
         string normalizedName = selectedProfileName.Trim();
-        if (_profileService.TryGetProfileNameValidationError(normalizedName) is { } validationError)
+        if(_profileService.TryGetProfileNameValidationError(normalizedName) is { } validationError)
         {
             AppIO.WriteError(validationError);
             return 1;
@@ -60,9 +60,9 @@ internal sealed class DeleteProfileCliCommand : Command
         bool isBuiltIn = _builtInProfileTemplateService.BuiltInProfiles.Any(profile =>
             profile.Name.Equals(normalizedName, StringComparison.OrdinalIgnoreCase));
 
-        if (!hasOverrideDirectory)
+        if(!hasOverrideDirectory)
         {
-            if (isBuiltIn)
+            if(isBuiltIn)
             {
                 AppIO.WriteInfo($"Profile '{normalizedName}' is using the built-in template. Nothing to delete.");
                 return 0;
@@ -72,7 +72,7 @@ internal sealed class DeleteProfileCliCommand : Command
             return 1;
         }
 
-        if (!_profileService.TryResolveProfileDirectoryPath(catalog.ProfilesRoot, relativeDirectoryPath!, out string profileDirectoryPath))
+        if(!_profileService.TryResolveProfileDirectoryPath(catalog.ProfilesRoot, relativeDirectoryPath!, out string profileDirectoryPath))
         {
             AppIO.WriteError($"Profile '{normalizedName}' directory resolves outside '{catalog.ProfilesRoot}'.");
             return 1;
@@ -82,7 +82,7 @@ internal sealed class DeleteProfileCliCommand : Command
             ? $"Delete override profile '{normalizedName}' and remove '{profileDirectoryPath}'? This falls back to the built-in template."
             : $"Delete profile '{normalizedName}' and remove '{profileDirectoryPath}'?";
 
-        if (!skipConfirmation && !AppIO.Confirm(confirmMessage))
+        if(!skipConfirmation && !AppIO.Confirm(confirmMessage))
         {
             AppIO.WriteWarning("profile delete cancelled.");
             return 0;
@@ -92,7 +92,7 @@ internal sealed class DeleteProfileCliCommand : Command
         {
             bool deleted = AppIO.RunWithLoadingState($"Deleting profile '{normalizedName}'...", () =>
             {
-                if (Directory.Exists(profileDirectoryPath))
+                if(Directory.Exists(profileDirectoryPath))
                 {
                     Directory.Delete(profileDirectoryPath, recursive: true);
                 }
@@ -100,12 +100,12 @@ internal sealed class DeleteProfileCliCommand : Command
                 return true;
             });
 
-            if (!deleted)
+            if(!deleted)
             {
                 return 1;
             }
         }
-        catch (Exception ex)
+        catch(Exception ex)
         {
             AppIO.WriteError($"Failed to delete profile '{normalizedName}': {ex.Message}");
             return 1;
@@ -123,24 +123,24 @@ internal sealed class DeleteProfileCliCommand : Command
 
     private string? ResolveProfileName(string? profileNameInput, ProfileCatalog catalog)
     {
-        if (!String.IsNullOrWhiteSpace(profileNameInput))
+        if(!String.IsNullOrWhiteSpace(profileNameInput))
         {
             return profileNameInput;
         }
 
-        if (!AnsiConsole.Profile.Capabilities.Interactive)
+        if(!AnsiConsole.Profile.Capabilities.Interactive)
         {
             AppIO.WriteError("No profile provided and interactive selection is unavailable. Pass --profile <name>.");
             return null;
         }
 
         var profileNames = new HashSet<string>(catalog.ProfileDirectories.Keys, StringComparer.OrdinalIgnoreCase);
-        foreach (var builtInProfile in _builtInProfileTemplateService.BuiltInProfiles)
+        foreach(var builtInProfile in _builtInProfileTemplateService.BuiltInProfiles)
         {
             profileNames.Add(builtInProfile.Name);
         }
 
-        if (profileNames.Count == 0)
+        if(profileNames.Count == 0)
         {
             AppIO.WriteError("No profiles found. Use 'ocw profile add <name>' first.");
             return null;

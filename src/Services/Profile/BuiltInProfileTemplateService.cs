@@ -64,7 +64,7 @@ internal sealed partial class BuiltInProfileTemplateService : Singleton
         catch(Exception ex)
         {
             AppIO.TryDeleteDirectory(temporaryDirectoryPath);
-            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.Profile, $"Failed to prepare built-in profile '{builtInProfile.Name}': {ex.Message}");
+            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.PROFILE, $"Failed to prepare built-in profile '{builtInProfile.Name}': {ex.Message}");
             return (false, "");
         }
     }
@@ -74,7 +74,7 @@ internal sealed partial class BuiltInProfileTemplateService : Singleton
         string entrypointPath = Path.Combine(profileDirectoryPath, OpencodeWrapConstants.PROFILE_ENTRYPOINT_FILE_NAME);
         await File.WriteAllTextAsync(entrypointPath, DefaultEntrypointScript);
 
-        if (OperatingSystem.IsWindows())
+        if(OperatingSystem.IsWindows())
         {
             return;
         }
@@ -101,7 +101,7 @@ internal sealed partial class BuiltInProfileTemplateService : Singleton
         Directory.CreateDirectory(opencodeDirectoryPath);
         Directory.CreateDirectory(binDirectoryPath);
 
-        if (!File.Exists(binReadmePath))
+        if(!File.Exists(binReadmePath))
         {
             await File.WriteAllTextAsync(binReadmePath, ProfileBinReadme);
         }

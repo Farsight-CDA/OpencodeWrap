@@ -51,7 +51,7 @@ internal sealed partial class RunMenuDefaultsService : Singleton
 
         try
         {
-            RunMenuDefaults normalizedDefaults = NormalizeDefaults(defaults);
+            var normalizedDefaults = NormalizeDefaults(defaults);
 
             using var stream = File.Create(defaultsPath);
             using var writer = new Utf8JsonWriter(stream, new JsonWriterOptions
@@ -106,16 +106,16 @@ internal sealed partial class RunMenuDefaultsService : Singleton
         }
 
         string? defaultProfileName = null;
-        if(rootElement.TryGetProperty("defaultProfileName", out JsonElement defaultProfileElement)
+        if(rootElement.TryGetProperty("defaultProfileName", out var defaultProfileElement)
             && defaultProfileElement.ValueKind is JsonValueKind.String)
         {
             defaultProfileName = defaultProfileElement.GetString();
         }
 
         RunUiMode? defaultUiMode = null;
-        if(rootElement.TryGetProperty("defaultUiMode", out JsonElement defaultUiModeElement)
+        if(rootElement.TryGetProperty("defaultUiMode", out var defaultUiModeElement)
             && defaultUiModeElement.ValueKind is JsonValueKind.String
-            && TryParseRunUiMode(defaultUiModeElement.GetString(), out RunUiMode parsedDefaultUiMode))
+            && TryParseRunUiMode(defaultUiModeElement.GetString(), out var parsedDefaultUiMode))
         {
             defaultUiMode = parsedDefaultUiMode;
         }
@@ -130,13 +130,13 @@ internal sealed partial class RunMenuDefaultsService : Singleton
     private static List<string> ReadStringArray(JsonElement rootElement, string propertyName)
     {
         var values = new List<string>();
-        if(!rootElement.TryGetProperty(propertyName, out JsonElement propertyElement)
+        if(!rootElement.TryGetProperty(propertyName, out var propertyElement)
             || propertyElement.ValueKind is not JsonValueKind.Array)
         {
             return values;
         }
 
-        foreach(JsonElement item in propertyElement.EnumerateArray())
+        foreach(var item in propertyElement.EnumerateArray())
         {
             if(item.ValueKind is JsonValueKind.String && item.GetString() is { } value)
             {

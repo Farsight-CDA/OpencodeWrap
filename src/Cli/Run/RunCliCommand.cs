@@ -66,7 +66,7 @@ internal sealed class RunCliCommand : Command
             return null;
         }
 
-        if(!_runMenuDefaultsService.TryLoadDefaults(out RunMenuDefaults runMenuDefaults))
+        if(!_runMenuDefaultsService.TryLoadDefaults(out var runMenuDefaults))
         {
             return null;
         }
@@ -77,7 +77,7 @@ internal sealed class RunCliCommand : Command
             return null;
         }
 
-        OpenCodeDesktopAppStatus desktopAppStatus = await _dockerHostService.GetOpenCodeDesktopAppStatusAsync();
+        var desktopAppStatus = await _dockerHostService.GetOpenCodeDesktopAppStatusAsync();
 
         string defaultProfileName = profileNames.Contains(runMenuDefaults.DefaultProfileName ?? "")
             ? runMenuDefaults.DefaultProfileName!
@@ -112,8 +112,8 @@ internal sealed class RunCliCommand : Command
         }
 
         var selectedTab = RunSelectionTab.Profile;
-        RunUiMode? defaultUiMode = runMenuDefaults.DefaultUiMode;
-        List<UiChoice> uiChoices = BuildUiChoices(desktopAppStatus, defaultUiMode);
+        var defaultUiMode = runMenuDefaults.DefaultUiMode;
+        var uiChoices = BuildUiChoices(desktopAppStatus, defaultUiMode);
         int selectedUiIndex = GetInitialSelectableUiIndex(uiChoices);
         int selectedResourceIndex = selectedResourceDirectories.Count > 0 ? 1 : 0;
         int selectedNetworkIndex = 0;
@@ -169,7 +169,7 @@ internal sealed class RunCliCommand : Command
 
                         break;
                     case RunSelectionTab.Ui:
-                        RunUiMode selectedUiMode = uiChoices[selectedUiIndex].Mode;
+                        var selectedUiMode = uiChoices[selectedUiIndex].Mode;
                         if(TrySaveRunMenuDefaults(GetSelectedDefaultProfileName(profileChoices), selectedUiMode, selectedResourceDirectories, defaultResourceDirectories, availableNetworkNames, defaultNetworkNames))
                         {
                             defaultUiMode = selectedUiMode;
@@ -411,7 +411,7 @@ internal sealed class RunCliCommand : Command
     private static void RenderRunSelectionScreen(
         IReadOnlyList<ProfileChoice> profileChoices,
         int selectedIndex,
-        IReadOnlyList<UiChoice> uiChoices,
+        List<UiChoice> uiChoices,
         int selectedUiIndex,
         RunSelectionTab selectedTab,
         WorkspaceMountMode mountMode,
@@ -612,13 +612,13 @@ internal sealed class RunCliCommand : Command
         return new Markup(content.ToString());
     }
 
-    private static Markup CreateUiSelectionContent(IReadOnlyList<UiChoice> uiChoices, int selectedUiIndex)
+    private static Markup CreateUiSelectionContent(List<UiChoice> uiChoices, int selectedUiIndex)
     {
         var content = new StringBuilder();
 
         for(int i = 0; i < uiChoices.Count; i++)
         {
-            UiChoice choice = uiChoices[i];
+            var choice = uiChoices[i];
             bool isSelected = i == selectedUiIndex;
             bool isDefault = choice.IsDefault;
             string labelStyle = !choice.IsSelectable ? "grey58" : choice.IsUnavailable ? "yellow" : "white";

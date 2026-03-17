@@ -37,41 +37,36 @@ internal sealed partial class ManagedHostOpencodeService : Singleton
     public async Task<(bool Success, string ExecutablePath)> EnsureLatestAsync(LatestOpencodeRelease release)
     {
         var emptyResult = (false, String.Empty);
-        if(!_hostPathService.TryGetPaths(out OcwHostPaths paths))
+        if(!_hostPathService.TryGetPaths(out var paths))
         {
             return emptyResult;
         }
 
-        await using var hostLock = await _fileLockService.AcquireAsync(paths.OpencodeHostLockPath, LogCategories.OpencodeHost, "managed host OpenCode");
-        if(hostLock is null)
-        {
-            return emptyResult;
-        }
-
-        return await EnsureLatestLockedAsync(paths, release);
+        await using var hostLock = await _fileLockService.AcquireAsync(paths.OpencodeHostLockPath, LogCategories.OPENCODE_HOST, "managed host OpenCode");
+        return hostLock is null ? ((bool Success, string ExecutablePath)) emptyResult : await EnsureLatestLockedAsync(paths, release);
     }
 
     public async Task<(bool Success, ManagedHostOpencodeLease? Lease)> TryAcquireLeaseAsync(string sessionId, LatestOpencodeRelease release)
     {
         if(String.IsNullOrWhiteSpace(sessionId))
         {
-            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.Attach, "Runtime session id was not resolved for the managed host OpenCode lease.");
+            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.ATTACH, "Runtime session id was not resolved for the managed host OpenCode lease.");
             return (false, null);
         }
 
-        if(!_hostPathService.TryGetPaths(out OcwHostPaths paths))
+        if(!_hostPathService.TryGetPaths(out var paths))
         {
             return (false, null);
         }
 
-        await using var hostLock = await _fileLockService.AcquireAsync(paths.OpencodeHostLockPath, LogCategories.OpencodeHost, "managed host OpenCode");
+        await using var hostLock = await _fileLockService.AcquireAsync(paths.OpencodeHostLockPath, LogCategories.OPENCODE_HOST, "managed host OpenCode");
         if(hostLock is null)
         {
             return (false, null);
         }
 
-        var ensureResult = await EnsureLatestLockedAsync(paths, release);
-        if(!ensureResult.Success)
+        var (success, executablePath) = await EnsureLatestLockedAsync(paths, release);
+        if(!success)
         {
             return (false, null);
         }
@@ -80,34 +75,34 @@ internal sealed partial class ManagedHostOpencodeService : Singleton
         try
         {
             await File.WriteAllTextAsync(leasePath, release.Version);
-            _deferredSessionLogService.Write(LogCategories.OpencodeHost, $"created managed host OpenCode lease '{leasePath}'", LogLevel.Information);
-            return (true, new ManagedHostOpencodeLease(this, leasePath, ensureResult.ExecutablePath));
+            _deferredSessionLogService.Write(LogCategories.OPENCODE_HOST, $"created managed host OpenCode lease '{leasePath}'", LogLevel.Information);
+            return (true, new ManagedHostOpencodeLease(this, leasePath, executablePath));
         }
         catch(Exception ex)
         {
-            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.OpencodeHost, $"Failed to create managed host OpenCode lease '{leasePath}': {ex.Message}");
+            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.OPENCODE_HOST, $"Failed to create managed host OpenCode lease '{leasePath}': {ex.Message}");
             return (false, null);
         }
     }
 
     private async Task<(bool Success, string ExecutablePath)> EnsureLatestLockedAsync(OcwHostPaths paths, LatestOpencodeRelease release)
     {
-        if(TryReadMetadata(paths.OpencodeMetadataPath, out ManagedHostOpencodeMetadata? metadata)
+        if(TryReadMetadata(paths.OpencodeMetadataPath, out var metadata)
             && metadata is not null
             && IsInstalledVersionCurrent(paths, metadata, release.Version, out string executablePath))
         {
-            _deferredSessionLogService.Write(LogCategories.OpencodeHost, $"reusing managed host OpenCode {metadata.Version}", LogLevel.Information);
+            _deferredSessionLogService.Write(LogCategories.OPENCODE_HOST, $"reusing managed host OpenCode {metadata.Version}", LogLevel.Information);
             return (true, executablePath);
         }
 
-        var resolvedAsset = await _releaseMetadataService.TryResolveCurrentHostBinaryAsync(release);
-        if(!resolvedAsset.Success)
+        var (success, asset) = await _releaseMetadataService.TryResolveCurrentHostBinaryAsync(release);
+        if(!success)
         {
             return (false, String.Empty);
         }
 
-        ResolvedOpencodeBinaryAsset binaryAsset = resolvedAsset.Asset;
-        _deferredSessionLogService.Write(LogCategories.OpencodeHost, $"installing managed host OpenCode {release.Version} from '{binaryAsset.Asset.Name}'", LogLevel.Information);
+        var binaryAsset = asset;
+        _deferredSessionLogService.Write(LogCategories.OPENCODE_HOST, $"installing managed host OpenCode {release.Version} from '{binaryAsset.Asset.Name}'", LogLevel.Information);
 
         string temporaryRoot = Path.Combine(paths.OpencodeRoot, $"install-{Guid.NewGuid():N}");
         string archivePath = Path.Combine(temporaryRoot, binaryAsset.Asset.Name);
@@ -130,7 +125,7 @@ internal sealed partial class ManagedHostOpencodeService : Singleton
 
             if(!TryFindExecutable(extractedRoot, binaryAsset.ExecutableFileName, out string extractedExecutablePath))
             {
-                _deferredSessionLogService.WriteErrorOrConsole(LogCategories.OpencodeHost, $"Managed OpenCode artifact '{binaryAsset.Asset.Name}' did not contain '{binaryAsset.ExecutableFileName}'.");
+                _deferredSessionLogService.WriteErrorOrConsole(LogCategories.OPENCODE_HOST, $"Managed OpenCode artifact '{binaryAsset.Asset.Name}' did not contain '{binaryAsset.ExecutableFileName}'.");
                 return (false, String.Empty);
             }
 
@@ -156,7 +151,7 @@ internal sealed partial class ManagedHostOpencodeService : Singleton
             }
 
             string finalExecutablePath = Path.Combine(paths.OpencodeCurrentRoot, executableRelativePath);
-            _deferredSessionLogService.Write(LogCategories.OpencodeHost, $"managed host OpenCode {release.Version} installed at '{finalExecutablePath}'", LogLevel.Information);
+            _deferredSessionLogService.Write(LogCategories.OPENCODE_HOST, $"managed host OpenCode {release.Version} installed at '{finalExecutablePath}'", LogLevel.Information);
             return (true, finalExecutablePath);
         }
         finally
@@ -189,7 +184,7 @@ internal sealed partial class ManagedHostOpencodeService : Singleton
             {
                 if(waitingLogged)
                 {
-                    _deferredSessionLogService.Write(LogCategories.OpencodeHost, "active managed host OpenCode leases drained", LogLevel.Information);
+                    _deferredSessionLogService.Write(LogCategories.OPENCODE_HOST, "active managed host OpenCode leases drained", LogLevel.Information);
                 }
 
                 return;
@@ -197,7 +192,7 @@ internal sealed partial class ManagedHostOpencodeService : Singleton
 
             if(!waitingLogged)
             {
-                _deferredSessionLogService.Write(LogCategories.OpencodeHost, "waiting for active managed host OpenCode leases to drain", LogLevel.Information);
+                _deferredSessionLogService.Write(LogCategories.OPENCODE_HOST, "waiting for active managed host OpenCode leases to drain", LogLevel.Information);
                 waitingLogged = true;
             }
 
@@ -253,7 +248,7 @@ internal sealed partial class ManagedHostOpencodeService : Singleton
 
             if(!String.IsNullOrWhiteSpace(asset.Sha256) && !FileMatchesSha256(destinationPath, asset.Sha256))
             {
-                _deferredSessionLogService.WriteErrorOrConsole(LogCategories.OpencodeHost, $"Checksum validation failed for '{asset.Name}'.");
+                _deferredSessionLogService.WriteErrorOrConsole(LogCategories.OPENCODE_HOST, $"Checksum validation failed for '{asset.Name}'.");
                 return false;
             }
 
@@ -261,7 +256,7 @@ internal sealed partial class ManagedHostOpencodeService : Singleton
         }
         catch(Exception ex)
         {
-            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.OpencodeHost, $"Failed to download managed OpenCode artifact '{asset.Name}': {ex.Message}");
+            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.OPENCODE_HOST, $"Failed to download managed OpenCode artifact '{asset.Name}': {ex.Message}");
             return false;
         }
     }
@@ -278,18 +273,18 @@ internal sealed partial class ManagedHostOpencodeService : Singleton
 
             if(archivePath.EndsWith(".tar.gz", StringComparison.OrdinalIgnoreCase))
             {
-                await using FileStream archiveStream = File.OpenRead(archivePath);
+                await using var archiveStream = File.OpenRead(archivePath);
                 await using var gzipStream = new GZipStream(archiveStream, CompressionMode.Decompress);
                 TarFile.ExtractToDirectory(gzipStream, destinationDirectory, overwriteFiles: true);
                 return true;
             }
 
-            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.OpencodeHost, $"Unsupported managed OpenCode archive format '{archivePath}'.");
+            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.OPENCODE_HOST, $"Unsupported managed OpenCode archive format '{archivePath}'.");
             return false;
         }
         catch(Exception ex)
         {
-            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.OpencodeHost, $"Failed to extract managed OpenCode artifact '{archivePath}': {ex.Message}");
+            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.OPENCODE_HOST, $"Failed to extract managed OpenCode artifact '{archivePath}': {ex.Message}");
             return false;
         }
     }
@@ -305,7 +300,7 @@ internal sealed partial class ManagedHostOpencodeService : Singleton
         }
         catch(Exception ex)
         {
-            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.OpencodeHost, $"Failed to scan extracted managed OpenCode files in '{extractedRoot}': {ex.Message}");
+            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.OPENCODE_HOST, $"Failed to scan extracted managed OpenCode files in '{extractedRoot}': {ex.Message}");
             return false;
         }
 
@@ -338,14 +333,14 @@ internal sealed partial class ManagedHostOpencodeService : Singleton
         var versionResult = await ProcessRunner.RunAsync(executablePath, ["--version"]);
         if(!versionResult.Success)
         {
-            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.OpencodeHost, DescribeProcessFailure($"'{executablePath} --version'", versionResult));
+            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.OPENCODE_HOST, DescribeProcessFailure($"'{executablePath} --version'", versionResult));
             return false;
         }
 
         var attachHelpResult = await ProcessRunner.RunAsync(executablePath, ["attach", "--help"]);
         if(!attachHelpResult.Success)
         {
-            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.OpencodeHost, DescribeProcessFailure($"'{executablePath} attach --help'", attachHelpResult));
+            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.OPENCODE_HOST, DescribeProcessFailure($"'{executablePath} attach --help'", attachHelpResult));
             return false;
         }
 
@@ -374,7 +369,7 @@ internal sealed partial class ManagedHostOpencodeService : Singleton
         }
         catch(Exception ex)
         {
-            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.OpencodeHost, $"Failed to replace the managed host OpenCode installation: {ex.Message}");
+            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.OPENCODE_HOST, $"Failed to replace the managed host OpenCode installation: {ex.Message}");
 
             try
             {
@@ -412,7 +407,7 @@ internal sealed partial class ManagedHostOpencodeService : Singleton
         }
         catch(Exception ex)
         {
-            _deferredSessionLogService.WriteWarningOrConsole(LogCategories.OpencodeHost, $"Ignoring invalid managed host OpenCode metadata '{metadataPath}': {ex.Message}");
+            _deferredSessionLogService.WriteWarningOrConsole(LogCategories.OPENCODE_HOST, $"Ignoring invalid managed host OpenCode metadata '{metadataPath}': {ex.Message}");
             return false;
         }
     }
@@ -437,19 +432,19 @@ internal sealed partial class ManagedHostOpencodeService : Singleton
             if(File.Exists(leasePath))
             {
                 File.Delete(leasePath);
-                _deferredSessionLogService.Write(LogCategories.OpencodeHost, $"removed managed host OpenCode lease '{leasePath}'", LogLevel.Information);
+                _deferredSessionLogService.Write(LogCategories.OPENCODE_HOST, $"removed managed host OpenCode lease '{leasePath}'", LogLevel.Information);
             }
         }
         catch(Exception ex)
         {
-            _deferredSessionLogService.WriteWarningOrConsole(LogCategories.OpencodeHost, $"Failed to remove managed host OpenCode lease '{leasePath}': {ex.Message}");
+            _deferredSessionLogService.WriteWarningOrConsole(LogCategories.OPENCODE_HOST, $"Failed to remove managed host OpenCode lease '{leasePath}': {ex.Message}");
         }
     }
 
     private static bool FileMatchesSha256(string filePath, string expectedSha256)
     {
         using var sha256 = SHA256.Create();
-        using FileStream stream = File.OpenRead(filePath);
+        using var stream = File.OpenRead(filePath);
         byte[] hash = sha256.ComputeHash(stream);
         string actualSha256 = Convert.ToHexString(hash).ToLowerInvariant();
         return String.Equals(actualSha256, expectedSha256, StringComparison.OrdinalIgnoreCase);
@@ -458,14 +453,11 @@ internal sealed partial class ManagedHostOpencodeService : Singleton
     private static string DescribeProcessFailure(string commandDescription, ProcessRunner.ProcessRunResult result)
     {
         string detail = FirstNonEmptyLine(result.StdErr, result.StdOut);
-        if(!result.Started)
-        {
-            return String.IsNullOrWhiteSpace(detail)
+        return !result.Started
+            ? String.IsNullOrWhiteSpace(detail)
                 ? $"{commandDescription} could not start"
-                : $"{commandDescription} could not start: {detail}";
-        }
-
-        return String.IsNullOrWhiteSpace(detail)
+                : $"{commandDescription} could not start: {detail}"
+            : String.IsNullOrWhiteSpace(detail)
             ? $"{commandDescription} exited with code {result.ExitCode}"
             : $"{commandDescription} exited with code {result.ExitCode}: {detail}";
     }

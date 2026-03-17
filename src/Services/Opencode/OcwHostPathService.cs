@@ -50,7 +50,7 @@ internal sealed partial class OcwHostPathService : Singleton
         }
         catch(Exception ex)
         {
-            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.OpencodeHost, $"Failed to prepare OCW directories under '{configRoot}': {ex.Message}");
+            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.OPENCODE_HOST, $"Failed to prepare OCW directories under '{configRoot}': {ex.Message}");
             return false;
         }
 

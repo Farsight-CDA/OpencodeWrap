@@ -10,17 +10,17 @@ internal sealed partial class VolumeStateService : Singleton
 
     public async Task<bool> EnsureVolumeReadyAsync()
     {
-        if (!await _hostService.EnsureHostAndDockerAsync())
+        if(!await _hostService.EnsureHostAndDockerAsync())
         {
             return false;
         }
 
-        if (!await EnsureVolumeAsync(OpencodeWrapConstants.XDG_VOLUME_NAME))
+        if(!await EnsureVolumeAsync(OpencodeWrapConstants.XDG_VOLUME_NAME))
         {
             return false;
         }
 
-        if (!_hostService.IsUnixLike)
+        if(!_hostService.IsUnixLike)
         {
             return true;
         }
@@ -31,18 +31,18 @@ internal sealed partial class VolumeStateService : Singleton
 
     public async Task<bool> ValidateImportTargetStateAsync(bool force)
     {
-        if (force)
+        if(force)
         {
             return true;
         }
 
         var (success, hasContent) = await TryVolumeHasAnyContentAsync(OpencodeWrapConstants.XDG_VOLUME_NAME);
-        if (!success)
+        if(!success)
         {
             return false;
         }
 
-        if (!hasContent)
+        if(!hasContent)
         {
             return true;
         }
@@ -55,24 +55,24 @@ internal sealed partial class VolumeStateService : Singleton
     {
         string sourceShare = Path.Combine(sourceRoot, ".local", "share", "opencode");
         string sourceState = Path.Combine(sourceRoot, ".local", "state", "opencode");
-        if (!Directory.Exists(sourceShare) && !Directory.Exists(sourceState))
+        if(!Directory.Exists(sourceShare) && !Directory.Exists(sourceState))
         {
             _deferredSessionLogService.WriteErrorOrConsole("docker", $"Import source must contain at least one of '{sourceShare}' or '{sourceState}'.");
             return false;
         }
 
         var (resetSuccess, _) = await ResetNamedVolumeAsync();
-        if (!resetSuccess)
+        if(!resetSuccess)
         {
             return false;
         }
 
-        if (!await CopyHostXdgDirectoryToVolumeAsync(sourceRoot, OpencodeWrapConstants.XDG_VOLUME_NAME))
+        if(!await CopyHostXdgDirectoryToVolumeAsync(sourceRoot, OpencodeWrapConstants.XDG_VOLUME_NAME))
         {
             return false;
         }
 
-        if (!_hostService.IsUnixLike)
+        if(!_hostService.IsUnixLike)
         {
             return true;
         }
@@ -88,20 +88,20 @@ internal sealed partial class VolumeStateService : Singleton
 
     public async Task<(bool Success, bool Removed)> ResetNamedVolumeAsync()
     {
-        if (!await _hostService.EnsureHostAndDockerAsync())
+        if(!await _hostService.EnsureHostAndDockerAsync())
         {
             return (false, false);
         }
 
         string volumeName = OpencodeWrapConstants.XDG_VOLUME_NAME;
         var inspect = await ProcessRunner.RunAsync("docker", ["volume", "inspect", volumeName]);
-        if (!inspect.Success)
+        if(!inspect.Success)
         {
             return (true, false);
         }
 
         var remove = await ProcessRunner.RunAsync("docker", ["volume", "rm", "-f", volumeName]);
-        if (!remove.Success)
+        if(!remove.Success)
         {
             _deferredSessionLogService.WriteErrorOrConsole("docker", $"Failed to remove Docker volume '{volumeName}'.");
             _deferredSessionLogService.WriteErrorDetailsOrConsole("docker", remove.StdErr);
@@ -119,13 +119,13 @@ internal sealed partial class VolumeStateService : Singleton
     private async Task<bool> EnsureVolumeAsync(string volumeName)
     {
         var inspect = await ProcessRunner.RunAsync("docker", ["volume", "inspect", volumeName]);
-        if (inspect.Success)
+        if(inspect.Success)
         {
             return true;
         }
 
         var create = await ProcessRunner.RunAsync("docker", ["volume", "create", volumeName]);
-        if (!create.Success)
+        if(!create.Success)
         {
             _deferredSessionLogService.WriteErrorOrConsole("docker", $"Failed to create Docker volume '{volumeName}'.");
             _deferredSessionLogService.WriteErrorDetailsOrConsole("docker", create.StdErr);
@@ -156,7 +156,7 @@ internal sealed partial class VolumeStateService : Singleton
                 """
             ]);
 
-        if (!result.Success)
+        if(!result.Success)
         {
             _deferredSessionLogService.WriteErrorOrConsole("docker", $"Failed to set permissions on Docker volume '{volumeName}'.");
             _deferredSessionLogService.WriteErrorDetailsOrConsole("docker", result.StdErr);
@@ -221,7 +221,7 @@ internal sealed partial class VolumeStateService : Singleton
                 """
             ]);
 
-        if (!result.Success)
+        if(!result.Success)
         {
             _deferredSessionLogService.WriteErrorOrConsole("docker", $"Failed to import state from '{sourceRootDirectory}' into volume '{volumeName}'.");
             _deferredSessionLogService.WriteErrorDetailsOrConsole("docker", result.StdErr);
@@ -235,7 +235,7 @@ internal sealed partial class VolumeStateService : Singleton
         var runArgs = new List<string> { "run", "--rm" };
 
         string? userSpec = await _hostService.GetContainerUserSpecAsync();
-        if (userSpec is not null)
+        if(userSpec is not null)
         {
             runArgs.AddRange(["--user", userSpec]);
         }
@@ -262,7 +262,7 @@ internal sealed partial class VolumeStateService : Singleton
             "docker",
             runArgs);
 
-        if (!result.Success)
+        if(!result.Success)
         {
             _deferredSessionLogService.WriteErrorOrConsole("docker", $"Failed to export state from volume '{volumeName}/{sourceSubdirectory}' to '{destinationDirectory}'.");
             _deferredSessionLogService.WriteErrorDetailsOrConsole("docker", result.StdErr);
@@ -426,7 +426,7 @@ internal sealed partial class VolumeStateService : Singleton
                 """
             ]);
 
-        if (!result.Success)
+        if(!result.Success)
         {
             _deferredSessionLogService.WriteErrorOrConsole("docker", $"Failed to inspect Docker volume '{volumeName}' before import.");
             _deferredSessionLogService.WriteErrorDetailsOrConsole("docker", result.StdErr);

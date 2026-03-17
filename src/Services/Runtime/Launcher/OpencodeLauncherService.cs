@@ -57,7 +57,7 @@ internal sealed partial class OpencodeLauncherService : Singleton
         {
             LogStartupPhase("starting ocw run startup", LogLevel.Debug);
 
-            if(!await _sessionOutputService.RunWithLoadingStateAsync(LogCategories.Startup, "Checking Docker volume...", _volumeService.EnsureVolumeReadyAsync))
+            if(!await _sessionOutputService.RunWithLoadingStateAsync(LogCategories.STARTUP, "Checking Docker volume...", _volumeService.EnsureVolumeReadyAsync))
             {
                 return 1;
             }
@@ -338,12 +338,12 @@ internal sealed partial class OpencodeLauncherService : Singleton
                     };
                 }
 
-                RunUiLaunchResult launchResult = await _runUiLauncherService.LaunchAsync(runUiMode, session.AttachUrl!, containerWorkDir, managedHostExecutablePath);
+                var launchResult = await _runUiLauncherService.LaunchAsync(runUiMode, session.AttachUrl!, containerWorkDir, managedHostExecutablePath);
                 if(!launchResult.Success)
                 {
                     if(!String.IsNullOrWhiteSpace(session.AttachUrl))
                     {
-                        _sessionOutputService.WriteInfo(LogCategories.Attach, $"Local session URL: {session.AttachUrl}");
+                        _sessionOutputService.WriteInfo(LogCategories.ATTACH, $"Local session URL: {session.AttachUrl}");
                     }
 
                     CleanupContainer(force: true);
@@ -414,12 +414,7 @@ internal sealed partial class OpencodeLauncherService : Singleton
     {
         List<string> runArgs = ["run", "--rm", .. containerArgs];
         var result = await ProcessRunner.RunAttachedAsync("docker", runArgs);
-        if(!result.Started)
-        {
-            return 1;
-        }
-
-        return result.ExitCode;
+        return !result.Started ? 1 : result.ExitCode;
     }
 
     private async Task<bool> StartBackendContainerAsync(IReadOnlyList<string> containerArgs)

@@ -36,23 +36,23 @@ internal sealed partial class RunUiLauncherService : Singleton
     {
         if(String.IsNullOrWhiteSpace(attachUrl))
         {
-            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.Attach, "OpenCode web URL was not resolved.");
+            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.ATTACH, "OpenCode web URL was not resolved.");
             return RunUiLaunchResult.Fail();
         }
 
         string launchUrl = BuildWorkspaceLaunchUrl(attachUrl, workspaceDirectory);
-        _deferredSessionLogService.Write(LogCategories.Attach, $"launching browser against '{launchUrl}'", LogLevel.Information);
-        _sessionOutputService.WriteInfo(LogCategories.Attach, $"OpenCode web URL: {launchUrl}");
+        _deferredSessionLogService.Write(LogCategories.ATTACH, $"launching browser against '{launchUrl}'", LogLevel.Information);
+        _sessionOutputService.WriteInfo(LogCategories.ATTACH, $"OpenCode web URL: {launchUrl}");
 
-        HostLaunchResult openResult = await _dockerHostService.TryOpenUrlAsync(launchUrl);
+        var openResult = await _dockerHostService.TryOpenUrlAsync(launchUrl);
         if(!openResult.Success)
         {
-            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.Attach, openResult.ErrorMessage ?? "Failed to open the local browser UI.");
-            _deferredSessionLogService.WriteWarningOrConsole(LogCategories.Attach, "Open the printed URL manually, or rerun `ocw run` and choose TUI mode.");
+            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.ATTACH, openResult.ErrorMessage ?? "Failed to open the local browser UI.");
+            _deferredSessionLogService.WriteWarningOrConsole(LogCategories.ATTACH, "Open the printed URL manually, or rerun `ocw run` and choose TUI mode.");
             return RunUiLaunchResult.Fail();
         }
 
-        _sessionOutputService.WriteInfo(LogCategories.Attach, "Browser launched. Press Ctrl+C to stop the OCW session.");
+        _sessionOutputService.WriteInfo(LogCategories.ATTACH, "Browser launched. Press Ctrl+C to stop the OCW session.");
         return RunUiLaunchResult.WaitForBackend();
     }
 
@@ -60,23 +60,23 @@ internal sealed partial class RunUiLauncherService : Singleton
     {
         if(String.IsNullOrWhiteSpace(attachUrl))
         {
-            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.Attach, "OpenCode desktop attach URL was not resolved.");
+            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.ATTACH, "OpenCode desktop attach URL was not resolved.");
             return RunUiLaunchResult.Fail();
         }
 
-        OpenCodeDesktopAppStatus desktopStatus = await _dockerHostService.GetOpenCodeDesktopAppStatusAsync();
+        var desktopStatus = await _dockerHostService.GetOpenCodeDesktopAppStatusAsync();
         if(desktopStatus.Availability is OpenCodeDesktopAvailability.NotDetected)
         {
-            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.Attach, "OpenCode desktop mode was selected, but no local OpenCode desktop app installation was detected.");
-            _deferredSessionLogService.WriteWarningOrConsole(LogCategories.Attach, "Install the OpenCode desktop app from https://opencode.ai/download, or rerun `ocw run` and choose Web or TUI.");
+            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.ATTACH, "OpenCode desktop mode was selected, but no local OpenCode desktop app installation was detected.");
+            _deferredSessionLogService.WriteWarningOrConsole(LogCategories.ATTACH, "Install the OpenCode desktop app from https://opencode.ai/download, or rerun `ocw run` and choose Web or TUI.");
             return RunUiLaunchResult.Fail();
         }
 
-        HostLaunchResult launchResult = await _dockerHostService.TryLaunchOpenCodeDesktopAsync(attachUrl, desktopStatus);
+        var launchResult = await _dockerHostService.TryLaunchOpenCodeDesktopAsync(desktopStatus);
         if(!launchResult.Success)
         {
-            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.Attach, launchResult.ErrorMessage ?? "Failed to launch the OpenCode desktop app.");
-            _deferredSessionLogService.WriteWarningOrConsole(LogCategories.Attach, "Desktop mode currently requires an OpenCode desktop build that can attach to an OCW-managed local backend. Use Web mode for now.");
+            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.ATTACH, launchResult.ErrorMessage ?? "Failed to launch the OpenCode desktop app.");
+            _deferredSessionLogService.WriteWarningOrConsole(LogCategories.ATTACH, "Desktop mode currently requires an OpenCode desktop build that can attach to an OCW-managed local backend. Use Web mode for now.");
             return RunUiLaunchResult.Fail();
         }
 
@@ -90,7 +90,7 @@ internal sealed partial class RunUiLauncherService : Singleton
             return attachUrl;
         }
 
-        if(!Uri.TryCreate(attachUrl, UriKind.Absolute, out Uri? baseUri))
+        if(!Uri.TryCreate(attachUrl, UriKind.Absolute, out var baseUri))
         {
             return attachUrl;
         }

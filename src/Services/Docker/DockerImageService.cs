@@ -17,7 +17,7 @@ internal sealed partial class DockerImageService : Singleton
     {
         string imageTag = "opencode-wrap:unavailable";
 
-        if (!File.Exists(dockerfilePath))
+        if(!File.Exists(dockerfilePath))
         {
             _deferredSessionLogService.WriteErrorOrConsole("docker", $"Dockerfile not found: '{dockerfilePath}'.");
             return (false, imageTag);
@@ -25,12 +25,12 @@ internal sealed partial class DockerImageService : Singleton
 
         imageTag = await BuildImageTagAsync(dockerfilePath);
 
-        if (await ImageExistsAsync(imageTag))
+        if(await ImageExistsAsync(imageTag))
         {
             return (true, imageTag);
         }
 
-        _sessionOutputService.WriteInfo(LogCategories.Docker, $"Docker image '{imageTag}' not found. Building it now...");
+        _sessionOutputService.WriteInfo(LogCategories.DOCKER, $"Docker image '{imageTag}' not found. Building it now...");
         return await TryBuildImageAsync(dockerfilePath, imageTag, noCache: false, _deferredSessionLogService);
     }
 
@@ -38,7 +38,7 @@ internal sealed partial class DockerImageService : Singleton
     {
         string imageTag = "opencode-wrap:unavailable";
 
-        if (!File.Exists(dockerfilePath))
+        if(!File.Exists(dockerfilePath))
         {
             _deferredSessionLogService.WriteErrorOrConsole("docker", $"Dockerfile not found: '{dockerfilePath}'.");
             return (false, imageTag);
@@ -56,7 +56,7 @@ internal sealed partial class DockerImageService : Singleton
             "build"
         };
 
-        if (noCache)
+        if(noCache)
         {
             buildArgs.Add("--no-cache");
         }
@@ -69,7 +69,7 @@ internal sealed partial class DockerImageService : Singleton
         ]);
 
         bool built = (await ProcessRunner.RunAsync("docker", buildArgs, captureOutput: false, workDir: buildContextDirectory)).Success;
-        if (!built)
+        if(!built)
         {
             deferredSessionLogService.WriteErrorOrConsole("docker", $"Failed to build Docker image '{imageTag}'.");
             return (false, imageTag);
@@ -135,6 +135,6 @@ internal sealed partial class DockerImageService : Singleton
     {
         byte[] bytes = Encoding.UTF8.GetBytes(value);
         hash.AppendData(bytes);
-        hash.AppendData([(byte)'\n']);
+        hash.AppendData([(byte) '\n']);
     }
 }

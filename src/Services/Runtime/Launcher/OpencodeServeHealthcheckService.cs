@@ -13,22 +13,22 @@ internal sealed partial class OpencodeServeHealthcheckService : Singleton
 
     public async Task<string?> WaitUntilReadyAsync(string attachUrl, string? dockerNetworkMode, bool isWindows)
     {
-        if(!Uri.TryCreate(attachUrl, UriKind.Absolute, out Uri? attachUri))
+        if(!Uri.TryCreate(attachUrl, UriKind.Absolute, out var attachUri))
         {
             _deferredSessionLogService.WriteErrorOrConsole("startup", $"Invalid attach URL '{attachUrl}'.");
             return null;
         }
 
-        List<(string AttachUrl, Uri HealthUri)> probeTargets = BuildProbeTargets(attachUri, dockerNetworkMode, isWindows);
-        var primaryTarget = probeTargets[0];
+        var probeTargets = BuildProbeTargets(attachUri, dockerNetworkMode, isWindows);
+        var (_, healthUri) = probeTargets[0];
         if(probeTargets.Count == 1)
         {
-            _deferredSessionLogService.Write("startup", $"waiting for backend readiness at '{primaryTarget.HealthUri}'", LogLevel.Information);
+            _deferredSessionLogService.Write("startup", $"waiting for backend readiness at '{healthUri}'", LogLevel.Information);
         }
         else
         {
             string fallbackTargets = String.Join(", ", probeTargets.Skip(1).Select(target => $"'{target.HealthUri}'"));
-            _deferredSessionLogService.Write("startup", $"waiting for backend readiness at '{primaryTarget.HealthUri}' (fallbacks: {fallbackTargets})", LogLevel.Information);
+            _deferredSessionLogService.Write("startup", $"waiting for backend readiness at '{healthUri}' (fallbacks: {fallbackTargets})", LogLevel.Information);
         }
 
         using var handler = new SocketsHttpHandler
@@ -41,20 +41,20 @@ internal sealed partial class OpencodeServeHealthcheckService : Singleton
             Timeout = _requestTimeout
         };
 
-        DateTime deadlineUtc = DateTime.UtcNow + _readinessTimeout;
+        var deadlineUtc = DateTime.UtcNow + _readinessTimeout;
         string? lastFailureDetail = null;
 
         while(DateTime.UtcNow < deadlineUtc)
         {
-            foreach(var probeTarget in probeTargets)
+            foreach(var (probeAttachUrl, probeHealthUri) in probeTargets)
             {
                 try
                 {
-                    using var response = await httpClient.GetAsync(probeTarget.HealthUri, HttpCompletionOption.ResponseHeadersRead);
+                    using var response = await httpClient.GetAsync(probeHealthUri, HttpCompletionOption.ResponseHeadersRead);
                     if(response.IsSuccessStatusCode)
                     {
-                        _deferredSessionLogService.Write("startup", $"backend reported ready at '{probeTarget.HealthUri}'", LogLevel.Information);
-                        return probeTarget.AttachUrl;
+                        _deferredSessionLogService.Write("startup", $"backend reported ready at '{probeHealthUri}'", LogLevel.Information);
+                        return probeAttachUrl;
                     }
 
                     lastFailureDetail = $"HTTP {(int) response.StatusCode} {response.ReasonPhrase}";
@@ -68,7 +68,7 @@ internal sealed partial class OpencodeServeHealthcheckService : Singleton
             await Task.Delay(_pollInterval);
         }
 
-        _deferredSessionLogService.WriteErrorOrConsole("startup", $"OpenCode backend did not become ready at '{primaryTarget.HealthUri}' within {_readinessTimeout.TotalSeconds:F0}s.");
+        _deferredSessionLogService.WriteErrorOrConsole("startup", $"OpenCode backend did not become ready at '{healthUri}' within {_readinessTimeout.TotalSeconds:F0}s.");
         if(!String.IsNullOrWhiteSpace(lastFailureDetail))
         {
             _deferredSessionLogService.WriteErrorOrConsole("startup", lastFailureDetail);
@@ -97,7 +97,7 @@ internal sealed partial class OpencodeServeHealthcheckService : Singleton
 
         if(isWindows
             && String.Equals(dockerNetworkMode, "host", StringComparison.OrdinalIgnoreCase)
-            && TryBuildAlternateLoopbackUri(attachUri, out Uri alternateAttachUri))
+            && TryBuildAlternateLoopbackUri(attachUri, out var alternateAttachUri))
         {
             AddProbeTarget(alternateAttachUri);
         }

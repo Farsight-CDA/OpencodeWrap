@@ -38,41 +38,41 @@ internal sealed partial class OpencodeReleaseMetadataService : Singleton
     public async Task<(bool Success, LatestOpencodeRelease Release)> TryResolveLatestAsync()
     {
         var emptyRelease = new LatestOpencodeRelease("", "", DateTimeOffset.MinValue, []);
-        if(!_hostPathService.TryGetPaths(out OcwHostPaths paths))
+        if(!_hostPathService.TryGetPaths(out var paths))
         {
             return (false, emptyRelease);
         }
 
-        await using var latestLock = await _fileLockService.AcquireAsync(paths.OpencodeLatestLockPath, LogCategories.OpencodeVersion, "OpenCode latest-version metadata");
+        await using var latestLock = await _fileLockService.AcquireAsync(paths.OpencodeLatestLockPath, LogCategories.OPENCODE_VERSION, "OpenCode latest-version metadata");
         if(latestLock is null)
         {
             return (false, emptyRelease);
         }
 
-        CachedLatestOpencodeRelease? cachedRelease = TryReadCachedRelease(paths.OpencodeLatestCachePath);
+        var cachedRelease = TryReadCachedRelease(paths.OpencodeLatestCachePath);
         if(cachedRelease is not null && DateTimeOffset.UtcNow - cachedRelease.ResolvedAtUtc <= _cacheTtl)
         {
-            _deferredSessionLogService.Write(LogCategories.OpencodeVersion, $"reusing cached latest OpenCode version {cachedRelease.Release.Version}", LogLevel.Information);
+            _deferredSessionLogService.Write(LogCategories.OPENCODE_VERSION, $"reusing cached latest OpenCode version {cachedRelease.Release.Version}", LogLevel.Information);
             return (true, cachedRelease.Release);
         }
 
-        _deferredSessionLogService.Write(LogCategories.OpencodeVersion, "refreshing latest OpenCode release metadata", LogLevel.Information);
-        var fetchedRelease = await TryFetchLatestReleaseAsync();
-        if(fetchedRelease.Success)
+        _deferredSessionLogService.Write(LogCategories.OPENCODE_VERSION, "refreshing latest OpenCode release metadata", LogLevel.Information);
+        var (success, release) = await TryFetchLatestReleaseAsync();
+        if(success)
         {
-            var cacheEnvelope = new CachedLatestOpencodeRelease(DateTimeOffset.UtcNow, fetchedRelease.Release);
+            var cacheEnvelope = new CachedLatestOpencodeRelease(DateTimeOffset.UtcNow, release);
             await TryWriteCachedReleaseAsync(paths.OpencodeLatestCachePath, cacheEnvelope);
-            _deferredSessionLogService.Write(LogCategories.OpencodeVersion, $"resolved latest OpenCode version {fetchedRelease.Release.Version}", LogLevel.Information);
-            return (true, fetchedRelease.Release);
+            _deferredSessionLogService.Write(LogCategories.OPENCODE_VERSION, $"resolved latest OpenCode version {release.Version}", LogLevel.Information);
+            return (true, release);
         }
 
         if(cachedRelease is not null)
         {
-            _deferredSessionLogService.WriteWarningOrConsole(LogCategories.OpencodeVersion, $"Failed to refresh latest OpenCode metadata; reusing cached version {cachedRelease.Release.Version}.");
+            _deferredSessionLogService.WriteWarningOrConsole(LogCategories.OPENCODE_VERSION, $"Failed to refresh latest OpenCode metadata; reusing cached version {cachedRelease.Release.Version}.");
             return (true, cachedRelease.Release);
         }
 
-        _deferredSessionLogService.WriteErrorOrConsole(LogCategories.OpencodeVersion, "Failed to resolve the latest OpenCode release metadata.");
+        _deferredSessionLogService.WriteErrorOrConsole(LogCategories.OPENCODE_VERSION, "Failed to resolve the latest OpenCode release metadata.");
         return (false, emptyRelease);
     }
 
@@ -83,13 +83,13 @@ internal sealed partial class OpencodeReleaseMetadataService : Singleton
         string? arch = NormalizeArchitecture(RuntimeInformation.OSArchitecture.ToString());
         if(String.IsNullOrWhiteSpace(os) || String.IsNullOrWhiteSpace(arch))
         {
-            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.OpencodeHost, "Unsupported host platform for managed OpenCode installation.");
+            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.OPENCODE_HOST, "Unsupported host platform for managed OpenCode installation.");
             return (false, emptyAsset);
         }
 
         bool isMusl = os == "linux" && await IsMuslLinuxHostAsync();
         bool needsBaseline = arch == "x64" && !Avx2.IsSupported;
-        return TryResolveBinaryAsset(release, BuildTargetCandidates(os, arch, isMusl, needsBaseline), operatingSystem: os, logCategory: LogCategories.OpencodeHost);
+        return TryResolveBinaryAsset(release, BuildTargetCandidates(os, arch, isMusl, needsBaseline), operatingSystem: os, logCategory: LogCategories.OPENCODE_HOST);
     }
 
     public (bool Success, ResolvedOpencodeBinaryAsset Asset) TryResolveLinuxRuntimeBinary(LatestOpencodeRelease release, string architecture)
@@ -98,12 +98,12 @@ internal sealed partial class OpencodeReleaseMetadataService : Singleton
         string? normalizedArchitecture = NormalizeArchitecture(architecture);
         if(String.IsNullOrWhiteSpace(normalizedArchitecture))
         {
-            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.OpencodeRuntime, $"Unsupported Docker image architecture '{architecture}'.");
+            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.OPENCODE_RUNTIME, $"Unsupported Docker image architecture '{architecture}'.");
             return (false, emptyAsset);
         }
 
         bool needsBaseline = normalizedArchitecture == "x64" && !Avx2.IsSupported;
-        return TryResolveBinaryAsset(release, BuildTargetCandidates("linux", normalizedArchitecture, isMusl: false, needsBaseline), operatingSystem: "linux", logCategory: LogCategories.OpencodeRuntime);
+        return TryResolveBinaryAsset(release, BuildTargetCandidates("linux", normalizedArchitecture, isMusl: false, needsBaseline), operatingSystem: "linux", logCategory: LogCategories.OPENCODE_RUNTIME);
     }
 
     private (bool Success, ResolvedOpencodeBinaryAsset Asset) TryResolveBinaryAsset(LatestOpencodeRelease release, IReadOnlyList<string> targets, string operatingSystem, string logCategory)
@@ -116,7 +116,7 @@ internal sealed partial class OpencodeReleaseMetadataService : Singleton
         foreach(string target in targets)
         {
             string assetName = $"opencode-{target}{(operatingSystem == "linux" ? ".tar.gz" : ".zip")}";
-            if(release.Assets.TryGetValue(assetName, out OpencodeReleaseAsset? asset))
+            if(release.Assets.TryGetValue(assetName, out var asset))
             {
                 return (true, new ResolvedOpencodeBinaryAsset(target, executableFileName, asset));
             }
@@ -200,13 +200,9 @@ internal sealed partial class OpencodeReleaseMetadataService : Singleton
         }
 
         var lddResult = await ProcessRunner.RunAsync("ldd", ["--version"]);
-        if(!lddResult.Started)
-        {
-            return false;
-        }
-
-        return lddResult.StdOut.Contains("musl", StringComparison.OrdinalIgnoreCase)
-            || lddResult.StdErr.Contains("musl", StringComparison.OrdinalIgnoreCase);
+        return lddResult.Started
+            && (lddResult.StdOut.Contains("musl", StringComparison.OrdinalIgnoreCase)
+                || lddResult.StdErr.Contains("musl", StringComparison.OrdinalIgnoreCase));
     }
 
     private CachedLatestOpencodeRelease? TryReadCachedRelease(string cachePath)
@@ -223,7 +219,7 @@ internal sealed partial class OpencodeReleaseMetadataService : Singleton
         }
         catch(Exception ex)
         {
-            _deferredSessionLogService.WriteWarningOrConsole(LogCategories.OpencodeVersion, $"Ignoring invalid cached OpenCode metadata at '{cachePath}': {ex.Message}");
+            _deferredSessionLogService.WriteWarningOrConsole(LogCategories.OPENCODE_VERSION, $"Ignoring invalid cached OpenCode metadata at '{cachePath}': {ex.Message}");
             return null;
         }
     }
@@ -237,7 +233,7 @@ internal sealed partial class OpencodeReleaseMetadataService : Singleton
         }
         catch(Exception ex)
         {
-            _deferredSessionLogService.WriteWarningOrConsole(LogCategories.OpencodeVersion, $"Failed to write cached OpenCode metadata '{cachePath}': {ex.Message}");
+            _deferredSessionLogService.WriteWarningOrConsole(LogCategories.OPENCODE_VERSION, $"Failed to write cached OpenCode metadata '{cachePath}': {ex.Message}");
         }
     }
 
@@ -250,15 +246,15 @@ internal sealed partial class OpencodeReleaseMetadataService : Singleton
             using var response = await _httpClient.GetAsync(LATEST_RELEASE_ENDPOINT, HttpCompletionOption.ResponseHeadersRead);
             if(!response.IsSuccessStatusCode)
             {
-                _deferredSessionLogService.WriteErrorOrConsole(LogCategories.OpencodeVersion, $"OpenCode latest release lookup failed with HTTP {(int) response.StatusCode} {response.ReasonPhrase}.");
+                _deferredSessionLogService.WriteErrorOrConsole(LogCategories.OPENCODE_VERSION, $"OpenCode latest release lookup failed with HTTP {(int) response.StatusCode} {response.ReasonPhrase}.");
                 return (false, emptyRelease);
             }
 
             await using var stream = await response.Content.ReadAsStreamAsync();
             using var document = await JsonDocument.ParseAsync(stream);
-            JsonElement root = document.RootElement;
+            var root = document.RootElement;
 
-            string version = root.TryGetProperty("tag_name", out JsonElement tagNameElement)
+            string version = root.TryGetProperty("tag_name", out var tagNameElement)
                 ? (tagNameElement.GetString() ?? String.Empty).Trim().TrimStart('v')
                 : String.Empty;
             string tagName = tagNameElement.GetString() ?? String.Empty;
@@ -268,24 +264,24 @@ internal sealed partial class OpencodeReleaseMetadataService : Singleton
                 return (false, emptyRelease);
             }
 
-            DateTimeOffset publishedAtUtc = root.TryGetProperty("published_at", out JsonElement publishedAtElement)
+            var publishedAtUtc = root.TryGetProperty("published_at", out var publishedAtElement)
                 && publishedAtElement.ValueKind == JsonValueKind.String
-                && DateTimeOffset.TryParse(publishedAtElement.GetString(), out DateTimeOffset parsedPublishedAt)
+                && DateTimeOffset.TryParse(publishedAtElement.GetString(), out var parsedPublishedAt)
                     ? parsedPublishedAt
                     : DateTimeOffset.UtcNow;
 
             var assets = new Dictionary<string, OpencodeReleaseAsset>(StringComparer.OrdinalIgnoreCase);
-            if(root.TryGetProperty("assets", out JsonElement assetsElement) && assetsElement.ValueKind == JsonValueKind.Array)
+            if(root.TryGetProperty("assets", out var assetsElement) && assetsElement.ValueKind == JsonValueKind.Array)
             {
-                foreach(JsonElement assetElement in assetsElement.EnumerateArray())
+                foreach(var assetElement in assetsElement.EnumerateArray())
                 {
-                    string name = assetElement.TryGetProperty("name", out JsonElement nameElement)
+                    string name = assetElement.TryGetProperty("name", out var nameElement)
                         ? nameElement.GetString() ?? String.Empty
                         : String.Empty;
-                    string downloadUrl = assetElement.TryGetProperty("browser_download_url", out JsonElement urlElement)
+                    string downloadUrl = assetElement.TryGetProperty("browser_download_url", out var urlElement)
                         ? urlElement.GetString() ?? String.Empty
                         : String.Empty;
-                    string? sha256 = assetElement.TryGetProperty("digest", out JsonElement digestElement)
+                    string? sha256 = assetElement.TryGetProperty("digest", out var digestElement)
                         ? NormalizeSha256Digest(digestElement.GetString())
                         : null;
 
@@ -302,7 +298,7 @@ internal sealed partial class OpencodeReleaseMetadataService : Singleton
         }
         catch(Exception ex)
         {
-            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.OpencodeVersion, $"Failed to fetch the latest OpenCode release metadata: {ex.Message}");
+            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.OPENCODE_VERSION, $"Failed to fetch the latest OpenCode release metadata: {ex.Message}");
             return (false, emptyRelease);
         }
     }
@@ -322,9 +318,9 @@ internal sealed partial class OpencodeReleaseMetadataService : Singleton
             return null;
         }
 
-        const string prefix = "sha256:";
-        return digest.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
-            ? digest[prefix.Length..]
+        const string PREFIX = "sha256:";
+        return digest.StartsWith(PREFIX, StringComparison.OrdinalIgnoreCase)
+            ? digest[PREFIX.Length..]
             : digest;
     }
 }

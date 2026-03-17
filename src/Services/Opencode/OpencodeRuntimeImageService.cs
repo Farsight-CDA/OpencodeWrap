@@ -26,40 +26,40 @@ internal sealed partial class OpencodeRuntimeImageService : Singleton
         string unavailableTag = "opencode-wrap-runtime:unavailable";
         if(String.IsNullOrWhiteSpace(baseImageTag))
         {
-            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.OpencodeRuntime, "Base profile image tag was not resolved.");
+            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.OPENCODE_RUNTIME, "Base profile image tag was not resolved.");
             return (false, unavailableTag);
         }
 
-        if(!_hostPathService.TryGetPaths(out OcwHostPaths paths))
+        if(!_hostPathService.TryGetPaths(out var paths))
         {
             return (false, unavailableTag);
         }
 
-        var inspectBaseImage = await _dockerImageService.TryInspectImageAsync(baseImageTag);
-        if(!inspectBaseImage.Success)
+        var (success, image) = await _dockerImageService.TryInspectImageAsync(baseImageTag);
+        if(!success)
         {
-            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.OpencodeRuntime, $"Failed to inspect base profile image '{baseImageTag}'.");
+            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.OPENCODE_RUNTIME, $"Failed to inspect base profile image '{baseImageTag}'.");
             return (false, unavailableTag);
         }
 
-        if(!String.Equals(inspectBaseImage.Image.Os, "linux", StringComparison.OrdinalIgnoreCase))
+        if(!String.Equals(image.Os, "linux", StringComparison.OrdinalIgnoreCase))
         {
-            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.OpencodeRuntime, $"Unsupported base image OS '{inspectBaseImage.Image.Os}'. Only Linux profile images can host OpenCode runtime images.");
+            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.OPENCODE_RUNTIME, $"Unsupported base image OS '{image.Os}'. Only Linux profile images can host OpenCode runtime images.");
             return (false, unavailableTag);
         }
 
-        var resolvedBinary = _releaseMetadataService.TryResolveLinuxRuntimeBinary(release, inspectBaseImage.Image.Architecture);
-        if(!resolvedBinary.Success)
+        var (assetResolved, asset) = _releaseMetadataService.TryResolveLinuxRuntimeBinary(release, image.Architecture);
+        if(!assetResolved)
         {
             return (false, unavailableTag);
         }
 
-        string runtimeKey = $"{inspectBaseImage.Image.Id}|{release.Version}|{resolvedBinary.Asset.Asset.Name}";
+        string runtimeKey = $"{image.Id}|{release.Version}|{asset.Asset.Name}";
         string runtimeHash = ComputeSha256(runtimeKey)[..12];
         string imageTag = $"opencode-wrap-runtime:{runtimeHash}";
         string runtimeLockPath = Path.Combine(paths.LocksRoot, $"opencode-runtime-{runtimeHash}.lock");
 
-        await using var runtimeLock = await _fileLockService.AcquireAsync(runtimeLockPath, LogCategories.OpencodeRuntime, $"OpenCode runtime image '{imageTag}'");
+        await using var runtimeLock = await _fileLockService.AcquireAsync(runtimeLockPath, LogCategories.OPENCODE_RUNTIME, $"OpenCode runtime image '{imageTag}'");
         if(runtimeLock is null)
         {
             return (false, unavailableTag);
@@ -67,12 +67,12 @@ internal sealed partial class OpencodeRuntimeImageService : Singleton
 
         if(await _dockerImageService.ImageExistsAsync(imageTag))
         {
-            _deferredSessionLogService.Write(LogCategories.OpencodeRuntime, $"reusing runtime image '{imageTag}' for OpenCode {release.Version}", LogLevel.Information);
+            _deferredSessionLogService.Write(LogCategories.OPENCODE_RUNTIME, $"reusing runtime image '{imageTag}' for OpenCode {release.Version}", LogLevel.Information);
             return (true, imageTag);
         }
 
-        _deferredSessionLogService.Write(LogCategories.OpencodeRuntime, $"building runtime image '{imageTag}' for OpenCode {release.Version}", LogLevel.Information);
-        return await TryBuildRuntimeImageAsync(baseImageTag, imageTag, release, resolvedBinary.Asset);
+        _deferredSessionLogService.Write(LogCategories.OPENCODE_RUNTIME, $"building runtime image '{imageTag}' for OpenCode {release.Version}", LogLevel.Information);
+        return await TryBuildRuntimeImageAsync(baseImageTag, imageTag, release, asset);
     }
 
     private async Task<(bool Success, string ImageTag)> TryBuildRuntimeImageAsync(
@@ -104,7 +104,7 @@ internal sealed partial class OpencodeRuntimeImageService : Singleton
             var buildResult = await ProcessRunner.RunAsync("docker", buildArgs, captureOutput: false, workDir: buildContextDirectory);
             if(!buildResult.Success)
             {
-                _deferredSessionLogService.WriteErrorOrConsole(LogCategories.OpencodeRuntime, $"Failed to build runtime image '{imageTag}'.");
+                _deferredSessionLogService.WriteErrorOrConsole(LogCategories.OPENCODE_RUNTIME, $"Failed to build runtime image '{imageTag}'.");
                 return (false, imageTag);
             }
 

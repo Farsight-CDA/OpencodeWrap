@@ -20,20 +20,20 @@ internal sealed partial class SessionStagingService : Singleton
 
         CleanupStaleSessions();
 
-        if (String.IsNullOrWhiteSpace(containerName))
+        if(String.IsNullOrWhiteSpace(containerName))
         {
-            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.Session, "Container name is required to create a runtime session.");
+            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.SESSION, "Container name is required to create a runtime session.");
             return false;
         }
 
-        if (!_dockerHostService.TryEnsureGlobalConfigDirectory(out string configDirectory))
+        if(!_dockerHostService.TryEnsureGlobalConfigDirectory(out string configDirectory))
         {
             return false;
         }
 
-        if (!ProcessIdentity.TryGetCurrentProcessIdentity(out int ownerProcessId, out long ownerProcessStartTicks))
+        if(!ProcessIdentity.TryGetCurrentProcessIdentity(out int ownerProcessId, out long ownerProcessStartTicks))
         {
-            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.Session, "Failed to resolve the current process identity for runtime session cleanup.");
+            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.SESSION, "Failed to resolve the current process identity for runtime session cleanup.");
             return false;
         }
 
@@ -54,7 +54,7 @@ internal sealed partial class SessionStagingService : Singleton
         }
         catch(Exception ex)
         {
-            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.Session, $"Failed to prepare runtime session staging directory '{sessionDirectory}': {ex.Message}");
+            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.SESSION, $"Failed to prepare runtime session staging directory '{sessionDirectory}': {ex.Message}");
             AppIO.TryDeleteDirectory(sessionDirectory);
             return false;
         }
@@ -67,13 +67,13 @@ internal sealed partial class SessionStagingService : Singleton
 
     public void CleanupStaleSessions()
     {
-        if (!_dockerHostService.TryEnsureGlobalConfigDirectory(out string configDirectory))
+        if(!_dockerHostService.TryEnsureGlobalConfigDirectory(out string configDirectory))
         {
             return;
         }
 
         string sessionsRoot = Path.Combine(configDirectory, OpencodeWrapConstants.HOST_SESSION_ROOT_DIRECTORY_NAME);
-        if (!Directory.Exists(sessionsRoot))
+        if(!Directory.Exists(sessionsRoot))
         {
             return;
         }
@@ -94,7 +94,7 @@ internal sealed partial class SessionStagingService : Singleton
         {
             try
             {
-                if (ShouldDeleteSessionDirectory(sessionDirectory, utcNow))
+                if(ShouldDeleteSessionDirectory(sessionDirectory, utcNow))
                 {
                     AppIO.TryDeleteDirectory(sessionDirectory);
                 }
@@ -109,7 +109,7 @@ internal sealed partial class SessionStagingService : Singleton
     private static bool ShouldDeleteSessionDirectory(string sessionDirectory, DateTime utcNow)
     {
         string metadataPath = BuildMetadataPath(sessionDirectory);
-        if (!File.Exists(metadataPath))
+        if(!File.Exists(metadataPath))
         {
             return Directory.GetLastWriteTimeUtc(sessionDirectory) <= utcNow - _missingMetadataGracePeriod;
         }

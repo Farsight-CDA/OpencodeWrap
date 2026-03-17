@@ -30,9 +30,9 @@ internal sealed partial class LocalPortReservationService : Singleton
 
     public bool TrySelectUnusedTcpPort(out ReservedLocalPort reservation)
     {
-        const int minPort = 49152;
-        const int maxPort = 65535;
-        const int attempts = 256;
+        const int MIN_PORT = 49152;
+        const int MAX_PORT = 65535;
+        const int ATTEMPTS = 256;
 
         try
         {
@@ -41,9 +41,9 @@ internal sealed partial class LocalPortReservationService : Singleton
                 .. IPGlobalProperties.GetIPGlobalProperties().GetActiveTcpListeners().Select(endpoint => endpoint.Port)
             ];
 
-            for(int attempt = 0; attempt < attempts; attempt++)
+            for(int attempt = 0; attempt < ATTEMPTS; attempt++)
             {
-                int candidatePort = Random.Shared.Next(minPort, maxPort + 1);
+                int candidatePort = Random.Shared.Next(MIN_PORT, MAX_PORT + 1);
                 if(activePorts.Add(candidatePort))
                 {
                     reservation = new ReservedLocalPort(candidatePort, null);
@@ -51,7 +51,7 @@ internal sealed partial class LocalPortReservationService : Singleton
                 }
             }
 
-            for(int candidatePort = minPort; candidatePort <= maxPort; candidatePort++)
+            for(int candidatePort = MIN_PORT; candidatePort <= MAX_PORT; candidatePort++)
             {
                 if(activePorts.Add(candidatePort))
                 {

@@ -19,18 +19,18 @@ internal sealed class ListProfilesCliCommand : Command
     private async Task<int> ExecuteAsync()
     {
         var (success, catalog) = _profileService.TryLoadProfileCatalog();
-        if (!success)
+        if(!success)
         {
             return 1;
         }
 
         var allProfileNames = new HashSet<string>(catalog.ProfileDirectories.Keys, StringComparer.OrdinalIgnoreCase);
-        foreach (var builtInProfile in _builtInProfileTemplateService.BuiltInProfiles)
+        foreach(var builtInProfile in _builtInProfileTemplateService.BuiltInProfiles)
         {
             allProfileNames.Add(builtInProfile.Name);
         }
 
-        if (allProfileNames.Count == 0)
+        if(allProfileNames.Count == 0)
         {
             AppIO.WriteWarning("No profiles found.");
             return 0;
@@ -61,14 +61,14 @@ internal sealed class ListProfilesCliCommand : Command
                 : "✨ custom";
 
             string displayPath;
-            if (!hasOverride)
+            if(!hasOverride)
             {
                 displayPath = "[grey](embedded)[/]";
             }
             else
             {
                 string relativeDirectoryPath = catalog.ProfileDirectories[profileName];
-                if (_profileService.TryResolveProfileDirectoryPath(catalog.ProfilesRoot, relativeDirectoryPath, out string profileDirectoryPath))
+                if(_profileService.TryResolveProfileDirectoryPath(catalog.ProfilesRoot, relativeDirectoryPath, out string profileDirectoryPath))
                 {
                     displayPath = Markup.Escape(profileDirectoryPath);
                 }

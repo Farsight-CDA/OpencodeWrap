@@ -26,49 +26,49 @@ internal sealed partial class ProfileService : Singleton
         var emptyProfile = new ResolvedProfile("", "", "", null, null);
 
         var (success, catalog) = TryLoadProfileCatalog();
-        if (!success)
+        if(!success)
         {
             return (false, emptyProfile);
         }
 
         string selectedProfileName = requestedProfileName?.Trim() ?? "";
-        if (selectedProfileName.Length == 0)
+        if(selectedProfileName.Length == 0)
         {
             selectedProfileName = catalog.DefaultProfileName;
         }
 
-        if (TryGetProfileNameValidationError(selectedProfileName) is { } validationError)
+        if(TryGetProfileNameValidationError(selectedProfileName) is { } validationError)
         {
             _deferredSessionLogService.WriteErrorOrConsole("profile", validationError);
             return (false, emptyProfile);
         }
 
-        if (_builtInProfileTemplateService.BuiltInProfiles.Any(profile =>
+        if(_builtInProfileTemplateService.BuiltInProfiles.Any(profile =>
             profile.Name.Equals(selectedProfileName, StringComparison.OrdinalIgnoreCase)))
         {
             return await TryResolveBuiltInProfileAsync(catalog, selectedProfileName, emptyProfile, materializationRootDirectory);
         }
 
-        if (!catalog.ProfileDirectories.TryGetValue(selectedProfileName, out string? relativeDirectoryPath))
+        if(!catalog.ProfileDirectories.TryGetValue(selectedProfileName, out string? relativeDirectoryPath))
         {
             _deferredSessionLogService.WriteErrorOrConsole("profile", $"Profile '{selectedProfileName}' does not exist.");
             return (false, emptyProfile);
         }
 
-        if (!TryResolveProfileDirectoryPath(catalog.ProfilesRoot, relativeDirectoryPath, out string profileDirectoryPath))
+        if(!TryResolveProfileDirectoryPath(catalog.ProfilesRoot, relativeDirectoryPath, out string profileDirectoryPath))
         {
             _deferredSessionLogService.WriteErrorOrConsole("profile", $"Profile '{selectedProfileName}' directory resolves outside '{catalog.ProfilesRoot}'.");
             return (false, emptyProfile);
         }
 
-        if (!Directory.Exists(profileDirectoryPath))
+        if(!Directory.Exists(profileDirectoryPath))
         {
             _deferredSessionLogService.WriteErrorOrConsole("profile", $"Profile directory not found: '{profileDirectoryPath}'.");
             return (false, emptyProfile);
         }
 
         string dockerfilePath = Path.Combine(profileDirectoryPath, OpencodeWrapConstants.PROFILE_DOCKERFILE_NAME);
-        if (!File.Exists(dockerfilePath))
+        if(!File.Exists(dockerfilePath))
         {
             _deferredSessionLogService.WriteErrorOrConsole("profile", $"Profile Dockerfile not found: '{dockerfilePath}'.");
             return (false, emptyProfile);
@@ -84,12 +84,12 @@ internal sealed partial class ProfileService : Singleton
 
     public (bool Success, ProfileCatalog Catalog) TryLoadProfileCatalog()
     {
-        if (!_dockerHostService.TryEnsureGlobalConfigDirectory(out string configRoot))
+        if(!_dockerHostService.TryEnsureGlobalConfigDirectory(out string configRoot))
         {
             return (false, CreateEmptyCatalog());
         }
 
-        if (!TryEnsureProfilesRoot(configRoot, out string profilesRoot))
+        if(!TryEnsureProfilesRoot(configRoot, out string profilesRoot))
         {
             return (false, CreateEmptyCatalog());
         }
@@ -117,7 +117,7 @@ internal sealed partial class ProfileService : Singleton
         foreach(string directoryPath in directories)
         {
             string profileName = Path.GetFileName(directoryPath);
-            if (TryGetProfileNameValidationError(profileName) is not null)
+            if(TryGetProfileNameValidationError(profileName) is not null)
             {
                 continue;
             }
@@ -130,14 +130,14 @@ internal sealed partial class ProfileService : Singleton
 
     public bool IsValidProfileName(string profileName)
     {
-        if (profileName.Length == 0)
+        if(profileName.Length == 0)
         {
             return false;
         }
 
-        foreach (char c in profileName)
+        foreach(char c in profileName)
         {
-            if (Char.IsLetterOrDigit(c) || c == '-' || c == '_' || c == '.')
+            if(Char.IsLetterOrDigit(c) || c == '-' || c == '_' || c == '.')
             {
                 continue;
             }
@@ -155,16 +155,11 @@ internal sealed partial class ProfileService : Singleton
             || profileName.Equals(OpencodeWrapConstants.HOST_LOCK_ROOT_DIRECTORY_NAME, StringComparison.OrdinalIgnoreCase);
 
     public string? TryGetProfileNameValidationError(string profileName)
-    {
-        if (!IsValidProfileName(profileName))
-        {
-            return INVALID_PROFILE_NAME_MESSAGE;
-        }
-
-        return IsReservedProfileName(profileName)
-            ? RESERVED_PROFILE_NAME_MESSAGE
-            : null;
-    }
+        => !IsValidProfileName(profileName)
+            ? INVALID_PROFILE_NAME_MESSAGE
+            : IsReservedProfileName(profileName)
+                ? RESERVED_PROFILE_NAME_MESSAGE
+                : null;
 
     public bool TryResolveProfileDirectoryPath(string configRoot, string profileRelativePath, out string profileDirectoryPath)
     {
@@ -211,7 +206,7 @@ internal sealed partial class ProfileService : Singleton
     {
         var builtInProfile = _builtInProfileTemplateService.BuiltInProfiles.FirstOrDefault(profile =>
             profile.Name.Equals(profileName, StringComparison.OrdinalIgnoreCase));
-        if (builtInProfile is null)
+        if(builtInProfile is null)
         {
             _deferredSessionLogService.WriteErrorOrConsole("profile", $"Built-in profile template not found for '{profileName}'.");
             return (false, emptyProfile);
@@ -221,16 +216,16 @@ internal sealed partial class ProfileService : Singleton
             ? overrideRelativePath
             : profileName;
 
-        if (!TryResolveProfileDirectoryPath(catalog.ProfilesRoot, relativeDirectoryPath, out string overrideDirectoryPath))
+        if(!TryResolveProfileDirectoryPath(catalog.ProfilesRoot, relativeDirectoryPath, out string overrideDirectoryPath))
         {
             _deferredSessionLogService.WriteErrorOrConsole("profile", $"Profile '{profileName}' directory resolves outside '{catalog.ProfilesRoot}'.");
             return (false, emptyProfile);
         }
 
-        if (Directory.Exists(overrideDirectoryPath))
+        if(Directory.Exists(overrideDirectoryPath))
         {
             string overrideDockerfilePath = Path.Combine(overrideDirectoryPath, OpencodeWrapConstants.PROFILE_DOCKERFILE_NAME);
-            if (!File.Exists(overrideDockerfilePath))
+            if(!File.Exists(overrideDockerfilePath))
             {
                 _deferredSessionLogService.WriteErrorOrConsole("profile", $"Profile Dockerfile not found: '{overrideDockerfilePath}'.");
                 return (false, emptyProfile);
@@ -245,7 +240,7 @@ internal sealed partial class ProfileService : Singleton
         }
 
         var (materialized, temporaryDirectoryPath) = await _builtInProfileTemplateService.TryMaterializeBuiltInProfileAsync(builtInProfile, materializationRootDirectory);
-        if (!materialized)
+        if(!materialized)
         {
             return (false, emptyProfile);
         }

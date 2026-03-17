@@ -37,12 +37,12 @@ internal sealed class AddProfileCliCommand : Command
         }
 
         var (success, catalog) = _profileService.TryLoadProfileCatalog();
-        if (!success)
+        if(!success)
         {
             return 1;
         }
 
-        if (catalog.ProfileDirectories.ContainsKey(normalizedName))
+        if(catalog.ProfileDirectories.ContainsKey(normalizedName))
         {
             AppIO.WriteError($"Profile '{normalizedName}' already exists.");
             return 1;
