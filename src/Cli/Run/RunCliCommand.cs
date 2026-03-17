@@ -117,20 +117,26 @@ internal sealed class RunCliCommand : Command
         int selectedUiIndex = GetInitialSelectableUiIndex(uiChoices);
         int selectedResourceIndex = selectedResourceDirectories.Count > 0 ? 1 : 0;
         int selectedNetworkIndex = 0;
-        var selectedNetworkMode = DockerNetworkMode.Bridge;
+        bool hostNetworkAvailable = true;
+        DockerNetworkMode? defaultNetworkMode = ParseSavedDockerNetworkMode(runMenuDefaults.DefaultDockerNetworkMode, hostNetworkAvailable);
+        var selectedNetworkMode = defaultNetworkMode ?? DockerNetworkMode.Bridge;
         var activeNetworkNames = new HashSet<string>(StringComparer.Ordinal);
         var defaultNetworkNames = new HashSet<string>(StringComparer.Ordinal);
         foreach(string networkName in availableNetworkNames.Where(name => runMenuDefaults.DockerNetworks.Contains(name, StringComparer.Ordinal)))
         {
-            activeNetworkNames.Add(networkName);
             defaultNetworkNames.Add(networkName);
+        }
+
+        if(DoesNetworkModeSupportAdditionalNetworks(selectedNetworkMode))
+        {
+            activeNetworkNames.UnionWith(defaultNetworkNames);
         }
 
         bool showingControls = false;
 
         while(true)
         {
-            RenderRunSelectionScreen(profileChoices, selectedIndex, uiChoices, selectedUiIndex, selectedTab, mountMode, currentWorkspacePath, selectedResourceDirectories, defaultResourceDirectories, selectedResourceIndex, availableNetworkNames, defaultNetworkNames, selectedNetworkIndex, selectedNetworkMode, activeNetworkNames, showingControls, hostNetworkAvailable: true, showWindowsHostNetworkingHint: _dockerHostService.IsWindows);
+            RenderRunSelectionScreen(profileChoices, selectedIndex, uiChoices, selectedUiIndex, selectedTab, mountMode, currentWorkspacePath, selectedResourceDirectories, defaultResourceDirectories, selectedResourceIndex, availableNetworkNames, defaultNetworkNames, selectedNetworkIndex, selectedNetworkMode, defaultNetworkMode, activeNetworkNames, showingControls, hostNetworkAvailable, showWindowsHostNetworkingHint: _dockerHostService.IsWindows);
             var keyInfo = AnsiConsole.Console.Input.ReadKey(intercept: true);
             if(keyInfo is null)
             {
@@ -159,7 +165,7 @@ internal sealed class RunCliCommand : Command
                 {
                     case RunSelectionTab.Profile:
                         string selectedProfileName = profileChoices[selectedIndex].Name;
-                        if(TrySaveRunMenuDefaults(selectedProfileName, defaultUiMode, selectedResourceDirectories, defaultResourceDirectories, availableNetworkNames, defaultNetworkNames))
+                        if(TrySaveRunMenuDefaults(selectedProfileName, defaultUiMode, selectedResourceDirectories, defaultResourceDirectories, defaultNetworkMode, availableNetworkNames, defaultNetworkNames))
                         {
                             profileChoices = [.. profileChoices.Select(choice => choice with
                             {
@@ -170,7 +176,7 @@ internal sealed class RunCliCommand : Command
                         break;
                     case RunSelectionTab.Ui:
                         var selectedUiMode = uiChoices[selectedUiIndex].Mode;
-                        if(TrySaveRunMenuDefaults(GetSelectedDefaultProfileName(profileChoices), selectedUiMode, selectedResourceDirectories, defaultResourceDirectories, availableNetworkNames, defaultNetworkNames))
+                        if(TrySaveRunMenuDefaults(GetSelectedDefaultProfileName(profileChoices), selectedUiMode, selectedResourceDirectories, defaultResourceDirectories, defaultNetworkMode, availableNetworkNames, defaultNetworkNames))
                         {
                             defaultUiMode = selectedUiMode;
                             uiChoices = [.. uiChoices.Select(choice => choice with
@@ -194,7 +200,7 @@ internal sealed class RunCliCommand : Command
                                 defaultResourceDirectories.Add(selectedResourceDirectory);
                             }
 
-                            if(!TrySaveRunMenuDefaults(GetSelectedDefaultProfileName(profileChoices), defaultUiMode, selectedResourceDirectories, defaultResourceDirectories, availableNetworkNames, defaultNetworkNames))
+                            if(!TrySaveRunMenuDefaults(GetSelectedDefaultProfileName(profileChoices), defaultUiMode, selectedResourceDirectories, defaultResourceDirectories, defaultNetworkMode, availableNetworkNames, defaultNetworkNames))
                             {
                                 if(resourceWasDefault)
                                 {
@@ -209,7 +215,19 @@ internal sealed class RunCliCommand : Command
 
                         break;
                     case RunSelectionTab.Networks:
-                        if(selectedNetworkIndex > 0 && DoesNetworkModeSupportAdditionalNetworks(selectedNetworkMode) && availableNetworkNames.Count > 0)
+                        if(selectedNetworkIndex == 0)
+                        {
+                            DockerNetworkMode? previousDefaultNetworkMode = defaultNetworkMode;
+                            defaultNetworkMode = defaultNetworkMode == selectedNetworkMode
+                                ? null
+                                : selectedNetworkMode;
+
+                            if(!TrySaveRunMenuDefaults(GetSelectedDefaultProfileName(profileChoices), defaultUiMode, selectedResourceDirectories, defaultResourceDirectories, defaultNetworkMode, availableNetworkNames, defaultNetworkNames))
+                            {
+                                defaultNetworkMode = previousDefaultNetworkMode;
+                            }
+                        }
+                        else if(DoesNetworkModeSupportAdditionalNetworks(selectedNetworkMode) && availableNetworkNames.Count > 0)
                         {
                             string selectedNetworkName = availableNetworkNames[selectedNetworkIndex - 1];
                             bool networkWasDefault = defaultNetworkNames.Contains(selectedNetworkName);
@@ -224,7 +242,7 @@ internal sealed class RunCliCommand : Command
                                 activeNetworkNames.Add(selectedNetworkName);
                             }
 
-                            if(!TrySaveRunMenuDefaults(GetSelectedDefaultProfileName(profileChoices), defaultUiMode, selectedResourceDirectories, defaultResourceDirectories, availableNetworkNames, defaultNetworkNames))
+                            if(!TrySaveRunMenuDefaults(GetSelectedDefaultProfileName(profileChoices), defaultUiMode, selectedResourceDirectories, defaultResourceDirectories, defaultNetworkMode, availableNetworkNames, defaultNetworkNames))
                             {
                                 if(networkWasDefault)
                                 {
@@ -307,7 +325,7 @@ internal sealed class RunCliCommand : Command
                     {
                         if(selectedNetworkIndex == 0)
                         {
-                            selectedNetworkMode = CycleDockerNetworkMode(selectedNetworkMode, hostNetworkAvailable: true);
+                            selectedNetworkMode = CycleDockerNetworkMode(selectedNetworkMode, hostNetworkAvailable);
                             if(!DoesNetworkModeSupportAdditionalNetworks(selectedNetworkMode))
                             {
                                 activeNetworkNames.Clear();
@@ -372,7 +390,7 @@ internal sealed class RunCliCommand : Command
                     seenResourceDirectories.Remove(removedDirectory);
                     if(defaultResourceDirectories.Remove(removedDirectory))
                     {
-                        _ = TrySaveRunMenuDefaults(GetSelectedDefaultProfileName(profileChoices), defaultUiMode, selectedResourceDirectories, defaultResourceDirectories, availableNetworkNames, defaultNetworkNames);
+                        _ = TrySaveRunMenuDefaults(GetSelectedDefaultProfileName(profileChoices), defaultUiMode, selectedResourceDirectories, defaultResourceDirectories, defaultNetworkMode, availableNetworkNames, defaultNetworkNames);
                     }
 
                     if(selectedResourceIndex > selectedResourceDirectories.Count)
@@ -423,6 +441,7 @@ internal sealed class RunCliCommand : Command
         HashSet<string> defaultNetworkNames,
         int selectedNetworkIndex,
         DockerNetworkMode selectedNetworkMode,
+        DockerNetworkMode? defaultNetworkMode,
         HashSet<string> activeNetworkNames,
         bool showingControls,
         bool hostNetworkAvailable,
@@ -472,14 +491,14 @@ internal sealed class RunCliCommand : Command
         };
         AnsiConsole.Write(mountPanel);
 
-        AnsiConsole.Write(CreateTabStrip(selectedTab, selectedResourceDirectories.Count, activeNetworkNames.Count, profileChoices[selectedIndex], uiChoices[selectedUiIndex]));
+        AnsiConsole.Write(CreateTabStrip(selectedTab, selectedResourceDirectories.Count, activeNetworkNames.Count, selectedNetworkMode, profileChoices[selectedIndex], uiChoices[selectedUiIndex]));
         AnsiConsole.WriteLine();
 
         var activeContent = selectedTab switch
         {
             RunSelectionTab.Ui => CreateUiSelectionContent(uiChoices, selectedUiIndex),
             RunSelectionTab.Resources => CreateResourceSelectionContent(selectedResourceDirectories, defaultResourceDirectories, selectedResourceIndex),
-            RunSelectionTab.Networks => CreateNetworkSelectionContent(availableNetworkNames, defaultNetworkNames, selectedNetworkIndex, selectedNetworkMode, activeNetworkNames, hostNetworkAvailable, showWindowsHostNetworkingHint),
+            RunSelectionTab.Networks => CreateNetworkSelectionContent(availableNetworkNames, defaultNetworkNames, selectedNetworkIndex, selectedNetworkMode, defaultNetworkMode, activeNetworkNames, hostNetworkAvailable, showWindowsHostNetworkingHint),
             _ => CreateProfileSelectionContent(profileChoices, selectedIndex)
         };
 
@@ -526,7 +545,7 @@ internal sealed class RunCliCommand : Command
         AnsiConsole.Write(footerPanel);
     }
 
-    private static Panel CreateTabStrip(RunSelectionTab selectedTab, int resourceCount, int activeNetworkCount, ProfileChoice selectedProfileChoice, UiChoice selectedUiChoice)
+    private static Panel CreateTabStrip(RunSelectionTab selectedTab, int resourceCount, int activeNetworkCount, DockerNetworkMode selectedNetworkMode, ProfileChoice selectedProfileChoice, UiChoice selectedUiChoice)
     {
         var tabGrid = new Grid();
         tabGrid.AddColumn();
@@ -561,9 +580,10 @@ internal sealed class RunCliCommand : Command
             ? $"[white on dodgerblue1] {resourceLabel} [/]"
             : $"[grey70 on grey19] {resourceLabel} [/]";
 
+        string networkModeLabel = GetDockerNetworkModeLabel(selectedNetworkMode);
         string networkLabel = activeNetworkCount == 0
-            ? "🌐 Docker Networks"
-            : $"🌐 Docker Networks ([green]{activeNetworkCount}[/])";
+            ? $"🌐 Docker Networks: {networkModeLabel}"
+            : $"🌐 Docker Networks: {networkModeLabel} ([green]{activeNetworkCount}[/])";
         string networkTab = selectedTab is RunSelectionTab.Networks
             ? $"[white on dodgerblue1] {networkLabel} [/]"
             : $"[grey70 on grey19] {networkLabel} [/]";
@@ -621,7 +641,7 @@ internal sealed class RunCliCommand : Command
             var choice = uiChoices[i];
             bool isSelected = i == selectedUiIndex;
             bool isDefault = choice.IsDefault;
-            string labelStyle = !choice.IsSelectable ? "grey58" : choice.IsUnavailable ? "yellow" : "white";
+            string labelStyle = !choice.IsSelectable ? "grey35" : choice.IsUnavailable ? "red" : "white";
             string label = Markup.Escape(choice.Label);
             string description = Markup.Escape(choice.Description);
             string defaultMarker = isDefault ? " [yellow]★[/]" : "";
@@ -632,7 +652,7 @@ internal sealed class RunCliCommand : Command
             }
             else
             {
-                content.Append($"  [{(!choice.IsSelectable ? "grey58" : choice.IsUnavailable ? "yellow" : "grey70")}]{label}[/]{defaultMarker}");
+                content.Append($"  [{(!choice.IsSelectable ? "grey35" : choice.IsUnavailable ? "red" : "grey70")}]{label}[/]{defaultMarker}");
             }
 
             content.AppendLine();
@@ -640,7 +660,15 @@ internal sealed class RunCliCommand : Command
 
             if(!String.IsNullOrWhiteSpace(choice.Detail))
             {
-                content.Append($" [grey]({Markup.Escape(choice.Detail!)})[/]");
+                if(choice.IsUnavailable)
+                {
+                    content.AppendLine();
+                    content.Append($"      [red](error)[/]: [red]{Markup.Escape(choice.Detail!)}[/]");
+                }
+                else
+                {
+                    content.Append($" [grey]({Markup.Escape(choice.Detail!)})[/]");
+                }
             }
 
             content.AppendLine();
@@ -701,7 +729,7 @@ internal sealed class RunCliCommand : Command
         return new Markup(content.ToString());
     }
 
-    private static Markup CreateNetworkSelectionContent(IReadOnlyList<string> availableNetworkNames, HashSet<string> defaultNetworkNames, int selectedNetworkIndex, DockerNetworkMode selectedNetworkMode, HashSet<string> activeNetworkNames, bool hostNetworkAvailable, bool showWindowsHostNetworkingHint)
+    private static Markup CreateNetworkSelectionContent(IReadOnlyList<string> availableNetworkNames, HashSet<string> defaultNetworkNames, int selectedNetworkIndex, DockerNetworkMode selectedNetworkMode, DockerNetworkMode? defaultNetworkMode, HashSet<string> activeNetworkNames, bool hostNetworkAvailable, bool showWindowsHostNetworkingHint)
     {
         var content = new StringBuilder();
         content.AppendLine("[grey58]Configure Docker networking for the container:[/]");
@@ -709,6 +737,7 @@ internal sealed class RunCliCommand : Command
 
         // Network mode
         string modeLabel = GetDockerNetworkModeLabel(selectedNetworkMode);
+        string defaultModeMarker = defaultNetworkMode == selectedNetworkMode ? " [yellow]★[/]" : "";
         string modeDisplay = selectedNetworkMode switch
         {
             DockerNetworkMode.Host => "[yellow]host[/]",
@@ -717,11 +746,11 @@ internal sealed class RunCliCommand : Command
 
         if(selectedNetworkIndex == 0)
         {
-            content.AppendLine($"[dodgerblue1]▶[/] [bold white]Mode:[/] {modeDisplay} [grey](press Space to cycle)[/]");
+            content.AppendLine($"[dodgerblue1]▶[/] [bold white]Mode:[/] {modeDisplay}{defaultModeMarker}");
         }
         else
         {
-            content.AppendLine($"  [grey70]Mode:[/] {modeDisplay}");
+            content.AppendLine($"  [grey70]Mode:[/] {modeDisplay}{defaultModeMarker}");
         }
 
         if(!hostNetworkAvailable)
@@ -799,7 +828,7 @@ internal sealed class RunCliCommand : Command
         [
             new UiChoice(RunUiMode.Tui, "TUI", "Attach the OCW-managed terminal client.", IsDefault: defaultUiMode is RunUiMode.Tui),
             new UiChoice(RunUiMode.Web, "Web", "Open the local browser UI and print the URL.", IsDefault: defaultUiMode is RunUiMode.Web),
-            new UiChoice(RunUiMode.Desktop, "Desktop", "Open the installed OpenCode desktop app.", desktopDetail, true, desktopSelectable, defaultUiMode is RunUiMode.Desktop)
+            new UiChoice(RunUiMode.Desktop, "Desktop", "Open the installed OpenCode desktop app.", desktopDetail, IsUnavailable: true, desktopSelectable, defaultUiMode is RunUiMode.Desktop)
         ];
     }
 
@@ -864,6 +893,14 @@ internal sealed class RunCliCommand : Command
         _ => "bridge"
     };
 
+    private static DockerNetworkMode? ParseSavedDockerNetworkMode(string? persistedValue, bool hostNetworkAvailable)
+        => persistedValue?.Trim().ToLowerInvariant() switch
+        {
+            "bridge" => DockerNetworkMode.Bridge,
+            "host" when hostNetworkAvailable => DockerNetworkMode.Host,
+            _ => null
+        };
+
     private static string? ResolveDockerNetworkModeArgument(DockerNetworkMode networkMode) => networkMode switch
     {
         DockerNetworkMode.Host => "host",
@@ -885,13 +922,14 @@ internal sealed class RunCliCommand : Command
         RunUiMode? defaultUiMode,
         IReadOnlyList<string> selectedResourceDirectories,
         HashSet<string> defaultResourceDirectories,
+        DockerNetworkMode? defaultNetworkMode,
         IReadOnlyList<string> availableNetworkNames,
         HashSet<string> defaultNetworkNames)
     {
         List<string> resourceDirectories = [.. selectedResourceDirectories.Where(defaultResourceDirectories.Contains)];
         List<string> dockerNetworks = [.. availableNetworkNames.Where(defaultNetworkNames.Contains)];
 
-        return _runMenuDefaultsService.TrySaveDefaults(new RunMenuDefaults(defaultProfileName, defaultUiMode, resourceDirectories, dockerNetworks));
+        return _runMenuDefaultsService.TrySaveDefaults(new RunMenuDefaults(defaultProfileName, defaultUiMode, defaultNetworkMode is { } networkMode ? GetDockerNetworkModeLabel(networkMode) : null, resourceDirectories, dockerNetworks));
     }
 
     private static string GetSelectedDefaultProfileName(IReadOnlyList<ProfileChoice> profileChoices)
