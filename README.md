@@ -66,7 +66,7 @@ This starts OpenCode in Docker and launches the TUI.
 
 ### 2. Choose Your Profile
 
-Use arrow keys to select a profile, press **Enter** to start.
+Use arrow keys to select a profile, press **Enter** to start, or press **+** to star the current profile, resource directory, or bridge network as a default for future `ocw run` sessions.
 
 ### 3. Start Coding
 
