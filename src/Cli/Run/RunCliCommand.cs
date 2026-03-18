@@ -1,6 +1,5 @@
 using OpencodeWrap.Services.Runtime.Infrastructure;
 using Spectre.Console;
-using Spectre.Console.Rendering;
 using System.CommandLine;
 using System.Text;
 
@@ -845,9 +844,6 @@ internal sealed class RunCliCommand : Command
             content.AppendLine("[grey]Conflicting files stop launch, except AGENTS.md and root .env which are merged.[/]");
             return new Markup(content.ToString());
         }
-
-        content.AppendLine("[grey58]Space toggles an addon for this run. + saves it as a default.[/]");
-        content.AppendLine();
 
         for(int i = 0; i < availableAddonNames.Count; i++)
         {
