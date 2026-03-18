@@ -5,7 +5,7 @@ namespace OpencodeWrap.Services.Runtime;
 internal sealed partial class OpencodeServeHealthcheckService : Singleton
 {
     private static readonly TimeSpan _readinessTimeout = TimeSpan.FromSeconds(20);
-    private static readonly TimeSpan _pollInterval = TimeSpan.FromMilliseconds(250);
+    private static readonly TimeSpan _pollInterval = TimeSpan.FromMilliseconds(100);
     private static readonly TimeSpan _requestTimeout = TimeSpan.FromSeconds(2);
     private static readonly StringComparer _urlComparer = StringComparer.OrdinalIgnoreCase;
 

@@ -56,6 +56,9 @@ internal sealed partial class OpencodeLauncherService : Singleton
         string? managedHostExecutablePath = null;
         string? profileCleanupDirectoryPath = null;
         var sessionAddonCleanupDirectoryPaths = new List<string>();
+        Task<(bool Success, LatestOpencodeRelease Release)>? latestReleaseTask = null;
+        Task<(bool Success, string ImageTag)>? baseImageTask = null;
+        Task<(bool Success, ManagedHostOpencodeService.ManagedHostOpencodeLease? Lease)>? hostLeaseTask = null;
         try
         {
             LogStartupPhase("starting ocw run startup", LogLevel.Debug);
@@ -107,16 +110,7 @@ internal sealed partial class OpencodeLauncherService : Singleton
 
             _containerName = $"opencode-wrap-{Guid.NewGuid():N}"[..27];
 
-            var (releaseResolved, latestRelease) = await _sessionOutputService.RunWithLoadingStateAsync(
-                LogCategories.OPENCODE_VERSION,
-                "Resolving latest OpenCode release...",
-                _opencodeReleaseMetadataService.TryResolveLatestAsync);
-            if(!releaseResolved)
-            {
-                return 1;
-            }
-
-            LogStartupPhase($"resolved latest OpenCode version {latestRelease.Version}", LogLevel.Debug);
+            latestReleaseTask = BeginLatestReleaseResolutionAsync();
 
             var (success, profile) = await _profileService.TryResolveProfileAsync(includeProfileConfig ? requestedProfileName : null);
             if(!success)
@@ -126,6 +120,7 @@ internal sealed partial class OpencodeLauncherService : Singleton
 
             profileCleanupDirectoryPath = profile.CleanupDirectoryPath;
             var imageBuildProfile = profile;
+            baseImageTask = _dockerImageService.TryEnsureImageAsync(imageBuildProfile.DockerfilePath);
 
             LogStartupPhase($"resolved profile '{profile.Name}' from '{profile.DirectoryPath}'", LogLevel.Debug);
 
@@ -162,6 +157,14 @@ internal sealed partial class OpencodeLauncherService : Singleton
             {
                 UiMode = runUiMode
             };
+
+            var (releaseResolved, latestRelease) = await latestReleaseTask;
+            if(!releaseResolved)
+            {
+                return 1;
+            }
+
+            LogStartupPhase($"resolved latest OpenCode version {latestRelease.Version}", LogLevel.Debug);
 
             if(useServeSession)
             {
@@ -201,22 +204,11 @@ internal sealed partial class OpencodeLauncherService : Singleton
 
                 if(useManagedHostClient)
                 {
-                    var (leaseAcquired, lease) = await _sessionOutputService.RunWithLoadingStateAsync(
-                        LogCategories.OPENCODE_HOST,
-                        "Preparing local OpenCode client...",
-                        () => _managedHostOpencodeService.TryAcquireLeaseAsync(session.SessionId, latestRelease));
-                    if(!leaseAcquired || lease is null)
-                    {
-                        return 1;
-                    }
-
-                    hostLease = lease;
-                    managedHostExecutablePath = lease.ExecutablePath;
-                    LogStartupPhase("managed host OpenCode lease acquired", LogLevel.Debug);
+                    hostLeaseTask = BeginManagedHostClientPreparationAsync(session.SessionId, latestRelease);
                 }
             }
 
-            var (baseImageReady, baseImageTag) = await _dockerImageService.TryEnsureImageAsync(imageBuildProfile.DockerfilePath);
+            var (baseImageReady, baseImageTag) = await baseImageTask;
             if(!baseImageReady)
             {
                 return 1;
@@ -224,7 +216,23 @@ internal sealed partial class OpencodeLauncherService : Singleton
 
             LogStartupPhase($"base profile image ready: '{baseImageTag}'", LogLevel.Debug);
 
-            var (runtimeImageReady, runtimeImageTag) = await _opencodeRuntimeImageService.TryEnsureRuntimeImageAsync(baseImageTag, latestRelease);
+            Task<(bool Success, string ImageTag)> runtimeImageTask = _opencodeRuntimeImageService.TryEnsureRuntimeImageAsync(baseImageTag, latestRelease);
+            if(hostLeaseTask is not null)
+            {
+                await Task.WhenAll(runtimeImageTask, hostLeaseTask);
+
+                var (leaseAcquired, lease) = await hostLeaseTask;
+                if(!leaseAcquired || lease is null)
+                {
+                    return 1;
+                }
+
+                hostLease = lease;
+                managedHostExecutablePath = lease.ExecutablePath;
+                LogStartupPhase("managed host OpenCode lease acquired", LogLevel.Debug);
+            }
+
+            var (runtimeImageReady, runtimeImageTag) = await runtimeImageTask;
             if(!runtimeImageReady)
             {
                 return 1;
@@ -418,6 +426,18 @@ internal sealed partial class OpencodeLauncherService : Singleton
 
         void LogStartupPhase(string message, LogLevel level)
             => _deferredSessionLogService.Write("startup", message, level);
+
+        Task<(bool Success, LatestOpencodeRelease Release)> BeginLatestReleaseResolutionAsync()
+        {
+            _deferredSessionLogService.Write(LogCategories.OPENCODE_VERSION, "Resolving latest OpenCode release...", LogLevel.Information);
+            return _opencodeReleaseMetadataService.TryResolveLatestAsync();
+        }
+
+        Task<(bool Success, ManagedHostOpencodeService.ManagedHostOpencodeLease? Lease)> BeginManagedHostClientPreparationAsync(string sessionId, LatestOpencodeRelease latestRelease)
+        {
+            _deferredSessionLogService.Write(LogCategories.OPENCODE_HOST, "Preparing local OpenCode client...", LogLevel.Information);
+            return _managedHostOpencodeService.TryAcquireLeaseAsync(sessionId, latestRelease);
+        }
     }
 
     private static string BuildContainerCommand()
