@@ -3,7 +3,6 @@ using OpencodeWrap.Services.Runtime.Infrastructure;
 using OpencodeWrap.Services.Runtime.Launcher;
 using System.Globalization;
 using System.Runtime.InteropServices;
-using System.Text;
 
 namespace OpencodeWrap.Services.Runtime;
 
@@ -26,6 +25,7 @@ internal sealed partial class OpencodeLauncherService : Singleton
     [Inject] private readonly LocalPortReservationService _localPortReservationService;
     [Inject] private readonly HostOpencodeAttachService _hostOpencodeAttachService;
     [Inject] private readonly OpencodeServeHealthcheckService _opencodeServeHealthcheckService;
+    [Inject] private readonly RuntimeAgentInstructionsService _runtimeAgentInstructionsService;
 
     private int _cleanupStarted;
     private string? _containerName;
@@ -40,7 +40,7 @@ internal sealed partial class OpencodeLauncherService : Singleton
         RunUiMode runUiMode = RunUiMode.Tui,
         WorkspaceMountMode workspaceMountMode = WorkspaceMountMode.ReadWrite,
         IReadOnlyList<string>? extraReadonlyMountDirs = null,
-        string? dockerNetworkMode = null,
+        DockerNetworkMode dockerNetworkMode = DockerNetworkMode.Bridge,
         IReadOnlyList<string>? dockerNetworks = null,
         bool verboseSessionLogs = false)
     {
@@ -87,10 +87,7 @@ internal sealed partial class OpencodeLauncherService : Singleton
                 return 1;
             }
 
-            if(!TryNormalizeDockerNetworkMode(dockerNetworkMode, out string? selectedDockerNetworkMode))
-            {
-                return 1;
-            }
+            DockerNetworkMode selectedDockerNetworkMode = dockerNetworkMode;
 
             if(!TryNormalizeDockerNetworks(dockerNetworks, out var selectedDockerNetworks))
             {
@@ -99,11 +96,11 @@ internal sealed partial class OpencodeLauncherService : Singleton
 
             if(selectedDockerNetworks.Count > 0 && !DockerNetworkModeSupportsAdditionalNetworks(selectedDockerNetworkMode))
             {
-                _deferredSessionLogService.WriteErrorOrConsole("startup", $"Docker network mode '{selectedDockerNetworkMode}' does not support additional network attachments.");
+                _deferredSessionLogService.WriteErrorOrConsole("startup", $"Docker network mode '{selectedDockerNetworkMode.GetLabel()}' does not support additional network attachments.");
                 return 1;
             }
 
-            string runtimeAgentInstructions = BuildRuntimeAgentInstructions(containerWorkDir, workspaceMountMode, additionalReadonlyMounts);
+            string runtimeAgentInstructions = _runtimeAgentInstructionsService.Build(containerWorkDir, workspaceMountMode, additionalReadonlyMounts);
 
             _containerName = $"opencode-wrap-{Guid.NewGuid():N}"[..27];
 
@@ -158,7 +155,7 @@ internal sealed partial class OpencodeLauncherService : Singleton
             if(useServeSession)
             {
                 bool useWindowsHostNetworking = _hostService.IsWindows
-                    && String.Equals(selectedDockerNetworkMode, "host", StringComparison.OrdinalIgnoreCase);
+                    && selectedDockerNetworkMode.IsHost();
                 if(useWindowsHostNetworking)
                 {
                     switch(_hostService.GetDockerDesktopHostNetworkingState())
@@ -248,12 +245,12 @@ internal sealed partial class OpencodeLauncherService : Singleton
                 containerArgs.AddRange(BuildTerminalEnvironmentArgs());
             }
 
-            if(!String.IsNullOrWhiteSpace(selectedDockerNetworkMode))
+            if(selectedDockerNetworkMode.IsHost())
             {
-                containerArgs.AddRange(["--network", selectedDockerNetworkMode]);
+                containerArgs.AddRange(["--network", selectedDockerNetworkMode.GetLabel()]);
             }
 
-            if(useServeSession && !String.Equals(selectedDockerNetworkMode, "host", StringComparison.OrdinalIgnoreCase))
+            if(useServeSession && !selectedDockerNetworkMode.IsHost())
             {
                 string portMapping = $"127.0.0.1:{session.HostPort!.Value.ToString(CultureInfo.InvariantCulture)}:{session.ContainerPort!.Value.ToString(CultureInfo.InvariantCulture)}";
                 containerArgs.AddRange(["-p", portMapping]);
@@ -490,49 +487,6 @@ internal sealed partial class OpencodeLauncherService : Singleton
         return startResult;
     }
 
-    private static string BuildRuntimeAgentInstructions(
-        string containerWorkDir,
-        WorkspaceMountMode workspaceMountMode,
-        List<(string HostPath, string ContainerPath)> additionalReadonlyMounts)
-    {
-        var builder = new StringBuilder();
-        builder.AppendLine("# OCW Runtime Environment");
-        builder.AppendLine();
-        builder.AppendLine("- You are running inside a disposable Docker container started by OpencodeWrap.");
-        builder.AppendLine("- You may freely clone temporary reference repositories and create scratch files under `/tmp`.");
-        builder.AppendLine($"- You may freely install transient user-space tools into writable locations such as `/tmp` and `{OpencodeWrapConstants.CONTAINER_TOOL_BIN_ROOT}`.");
-        builder.AppendLine($"- Profile-local helper binaries live under `{OpencodeWrapConstants.CONTAINER_PROFILE_ROOT}/{OpencodeWrapConstants.PROFILE_BIN_DIRECTORY_NAME}` and are added to `PATH` for profile runs.");
-        builder.AppendLine("- Do not assume root access or that system-wide package installation is available.");
-
-        if(workspaceMountMode == WorkspaceMountMode.None)
-        {
-            builder.AppendLine("- No workspace directory is mounted for this session.");
-        }
-        else
-        {
-            builder.AppendLine($"- The current workspace for this session is `{containerWorkDir}`.");
-        }
-
-        if(additionalReadonlyMounts.Count == 0)
-        {
-            builder.AppendLine($"- No additional read-only reference directories are mounted under `{OpencodeWrapConstants.CONTAINER_RESOURCE_ROOT}` for this session.");
-            return builder.ToString().TrimEnd();
-        }
-
-        builder.AppendLine($"- Additional reference directories are mounted read-only under `{OpencodeWrapConstants.CONTAINER_RESOURCE_ROOT}`.");
-        builder.AppendLine("- Treat those resource directories as reference material only and do not attempt to modify them.");
-        builder.AppendLine();
-        builder.AppendLine("## Current Read-Only Resource Directories");
-        builder.AppendLine();
-
-        foreach(var (hostPath, containerPath) in additionalReadonlyMounts)
-        {
-            builder.AppendLine($"- `{containerPath}` (host source: `{hostPath}`)");
-        }
-
-        return builder.ToString().TrimEnd();
-    }
-
     private void WriteSessionError(string category, string message)
         => _deferredSessionLogService.WriteErrorOrConsole(category, message);
 
@@ -716,33 +670,8 @@ internal sealed partial class OpencodeLauncherService : Singleton
         return true;
     }
 
-    private bool TryNormalizeDockerNetworkMode(string? requestedNetworkMode, out string? normalizedNetworkMode)
-    {
-        if(String.IsNullOrWhiteSpace(requestedNetworkMode))
-        {
-            normalizedNetworkMode = null;
-            return true;
-        }
-
-        string normalizedValue = requestedNetworkMode.Trim().ToLowerInvariant();
-        switch(normalizedValue)
-        {
-            case "bridge":
-            case "default":
-                normalizedNetworkMode = null;
-                return true;
-            case "host":
-                normalizedNetworkMode = normalizedValue;
-                return true;
-            default:
-                _deferredSessionLogService.WriteErrorOrConsole("startup", $"Invalid Docker network mode '{requestedNetworkMode}'. Expected one of: bridge, host.");
-                normalizedNetworkMode = null;
-                return false;
-        }
-    }
-
-    private static bool DockerNetworkModeSupportsAdditionalNetworks(string? dockerNetworkMode)
-        => String.IsNullOrWhiteSpace(dockerNetworkMode) || String.Equals(dockerNetworkMode, "bridge", StringComparison.OrdinalIgnoreCase);
+    private static bool DockerNetworkModeSupportsAdditionalNetworks(DockerNetworkMode dockerNetworkMode)
+        => dockerNetworkMode.SupportsAdditionalNetworks();
 
     private static string BuildUniqueContainerResourceDirectoryName(string hostPath, HashSet<string> seenContainerNames)
     {
@@ -798,13 +727,13 @@ internal sealed partial class OpencodeLauncherService : Singleton
         }
     }
 
-    private static string ResolveServeHostname(string? dockerNetworkMode, bool isWindows)
-        => String.Equals(dockerNetworkMode, "host", StringComparison.OrdinalIgnoreCase) && !isWindows
+    private static string ResolveServeHostname(DockerNetworkMode dockerNetworkMode, bool isWindows)
+        => dockerNetworkMode.IsHost() && !isWindows
             ? "127.0.0.1"
             : "0.0.0.0";
 
-    private static string ResolveAttachHostname(string? dockerNetworkMode, bool isWindows)
-        => String.Equals(dockerNetworkMode, "host", StringComparison.OrdinalIgnoreCase) && isWindows
+    private static string ResolveAttachHostname(DockerNetworkMode dockerNetworkMode, bool isWindows)
+        => dockerNetworkMode.IsHost() && isWindows
             ? "localhost"
             : "127.0.0.1";
 

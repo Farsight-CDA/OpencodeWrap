@@ -11,7 +11,7 @@ internal sealed partial class OpencodeServeHealthcheckService : Singleton
 
     [Inject] private readonly DeferredSessionLogService _deferredSessionLogService;
 
-    public async Task<string?> WaitUntilReadyAsync(string attachUrl, string? dockerNetworkMode, bool isWindows)
+    public async Task<string?> WaitUntilReadyAsync(string attachUrl, DockerNetworkMode dockerNetworkMode, bool isWindows)
     {
         if(!Uri.TryCreate(attachUrl, UriKind.Absolute, out var attachUri))
         {
@@ -77,7 +77,7 @@ internal sealed partial class OpencodeServeHealthcheckService : Singleton
         return null;
     }
 
-    private static List<(string AttachUrl, Uri HealthUri)> BuildProbeTargets(Uri attachUri, string? dockerNetworkMode, bool isWindows)
+    private static List<(string AttachUrl, Uri HealthUri)> BuildProbeTargets(Uri attachUri, DockerNetworkMode dockerNetworkMode, bool isWindows)
     {
         var probeTargets = new List<(string AttachUrl, Uri HealthUri)>();
         var seenAttachUrls = new HashSet<string>(_urlComparer);
@@ -96,7 +96,7 @@ internal sealed partial class OpencodeServeHealthcheckService : Singleton
         AddProbeTarget(attachUri);
 
         if(isWindows
-            && String.Equals(dockerNetworkMode, "host", StringComparison.OrdinalIgnoreCase)
+            && dockerNetworkMode.IsHost()
             && TryBuildAlternateLoopbackUri(attachUri, out var alternateAttachUri))
         {
             AddProbeTarget(alternateAttachUri);

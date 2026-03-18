@@ -36,7 +36,7 @@ internal sealed class RunCliCommand : Command
             var selection = await PromptForRunSelectionAsync();
             return selection is null
                 ? 1
-                : await _launcherService.ExecuteAsync([], requestedProfileName: selection.ProfileName, includeProfileConfig: true, runtimeMode: OpencodeRuntimeMode.HostAttachToServe, runUiMode: selection.UiMode, workspaceMountMode: selection.MountMode, extraReadonlyMountDirs: selection.ResourceDirectories, dockerNetworkMode: ResolveDockerNetworkModeArgument(selection.NetworkMode), dockerNetworks: selection.NetworkNames, verboseSessionLogs: verbose);
+                : await _launcherService.ExecuteAsync([], requestedProfileName: selection.ProfileName, includeProfileConfig: true, runtimeMode: OpencodeRuntimeMode.HostAttachToServe, runUiMode: selection.UiMode, workspaceMountMode: selection.MountMode, extraReadonlyMountDirs: selection.ResourceDirectories, dockerNetworkMode: selection.NetworkMode, dockerNetworks: selection.NetworkNames, verboseSessionLogs: verbose);
         });
     }
 
@@ -885,27 +885,16 @@ internal sealed class RunCliCommand : Command
                 _ => DockerNetworkMode.Bridge
             };
 
-    private static bool DoesNetworkModeSupportAdditionalNetworks(DockerNetworkMode networkMode) => networkMode is DockerNetworkMode.Bridge;
+    private static bool DoesNetworkModeSupportAdditionalNetworks(DockerNetworkMode networkMode)
+        => networkMode.SupportsAdditionalNetworks();
 
-    private static string GetDockerNetworkModeLabel(DockerNetworkMode networkMode) => networkMode switch
-    {
-        DockerNetworkMode.Host => "host",
-        _ => "bridge"
-    };
+    private static string GetDockerNetworkModeLabel(DockerNetworkMode networkMode)
+        => networkMode.GetLabel();
 
-    private static DockerNetworkMode? ParseSavedDockerNetworkMode(string? persistedValue, bool hostNetworkAvailable)
-        => persistedValue?.Trim().ToLowerInvariant() switch
-        {
-            "bridge" => DockerNetworkMode.Bridge,
-            "host" when hostNetworkAvailable => DockerNetworkMode.Host,
-            _ => null
-        };
-
-    private static string? ResolveDockerNetworkModeArgument(DockerNetworkMode networkMode) => networkMode switch
-    {
-        DockerNetworkMode.Host => "host",
-        _ => null
-    };
+    private static DockerNetworkMode? ParseSavedDockerNetworkMode(DockerNetworkMode? persistedValue, bool hostNetworkAvailable)
+        => persistedValue is DockerNetworkMode.Host && !hostNetworkAvailable
+            ? null
+            : persistedValue;
 
     private static int GetNetworkEntryCount(IReadOnlyList<string> availableNetworkNames, DockerNetworkMode networkMode)
         => !DoesNetworkModeSupportAdditionalNetworks(networkMode)
@@ -929,7 +918,7 @@ internal sealed class RunCliCommand : Command
         List<string> resourceDirectories = [.. selectedResourceDirectories.Where(defaultResourceDirectories.Contains)];
         List<string> dockerNetworks = [.. availableNetworkNames.Where(defaultNetworkNames.Contains)];
 
-        return _runMenuDefaultsService.TrySaveDefaults(new RunMenuDefaults(defaultProfileName, defaultUiMode, defaultNetworkMode is { } networkMode ? GetDockerNetworkModeLabel(networkMode) : null, resourceDirectories, dockerNetworks));
+        return _runMenuDefaultsService.TrySaveDefaults(new RunMenuDefaults(defaultProfileName, defaultUiMode, defaultNetworkMode, resourceDirectories, dockerNetworks));
     }
 
     private static string GetSelectedDefaultProfileName(IReadOnlyList<ProfileChoice> profileChoices)
@@ -1317,12 +1306,6 @@ internal sealed class RunCliCommand : Command
         Ui,
         Resources,
         Networks
-    }
-
-    private enum DockerNetworkMode
-    {
-        Bridge,
-        Host
     }
 
     private enum ExplorerEntryType

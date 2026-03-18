@@ -70,9 +70,9 @@ internal sealed partial class RunMenuDefaultsService : Singleton
                 writer.WriteString("defaultUiMode", GetPersistedRunUiModeValue(defaultUiMode));
             }
 
-            if(!String.IsNullOrWhiteSpace(normalizedDefaults.DefaultDockerNetworkMode))
+            if(normalizedDefaults.DefaultDockerNetworkMode is { } defaultDockerNetworkMode)
             {
-                writer.WriteString("defaultDockerNetworkMode", normalizedDefaults.DefaultDockerNetworkMode);
+                writer.WriteString("defaultDockerNetworkMode", defaultDockerNetworkMode.GetLabel());
             }
 
             writer.WritePropertyName("resourceDirectories");
@@ -125,11 +125,15 @@ internal sealed partial class RunMenuDefaultsService : Singleton
             defaultUiMode = parsedDefaultUiMode;
         }
 
-        string? defaultDockerNetworkMode = null;
+        DockerNetworkMode? defaultDockerNetworkMode = null;
         if(rootElement.TryGetProperty("defaultDockerNetworkMode", out var defaultDockerNetworkModeElement)
             && defaultDockerNetworkModeElement.ValueKind is JsonValueKind.String)
         {
-            defaultDockerNetworkMode = NormalizeDockerNetworkMode(defaultDockerNetworkModeElement.GetString());
+            string? persistedDockerNetworkMode = defaultDockerNetworkModeElement.GetString();
+            if(DockerNetworkModeExtensions.TryParsePersistedValue(persistedDockerNetworkMode, out var parsedDockerNetworkMode))
+            {
+                defaultDockerNetworkMode = parsedDockerNetworkMode;
+            }
         }
 
         return NormalizeDefaults(new RunMenuDefaults(
@@ -165,8 +169,6 @@ internal sealed partial class RunMenuDefaultsService : Singleton
         string? defaultProfileName = String.IsNullOrWhiteSpace(defaults.DefaultProfileName)
             ? null
             : defaults.DefaultProfileName.Trim();
-        string? defaultDockerNetworkMode = NormalizeDockerNetworkMode(defaults.DefaultDockerNetworkMode);
-
         var seenResourceDirectories = new HashSet<string>(GetHostPathComparer());
         List<string> resourceDirectories = [.. defaults.ResourceDirectories
             .Where(path => !String.IsNullOrWhiteSpace(path))
@@ -179,15 +181,8 @@ internal sealed partial class RunMenuDefaultsService : Singleton
             .Select(name => name.Trim())
             .Where(seenNetworkNames.Add)];
 
-        return new RunMenuDefaults(defaultProfileName, defaults.DefaultUiMode, defaultDockerNetworkMode, resourceDirectories, dockerNetworks);
+        return new RunMenuDefaults(defaultProfileName, defaults.DefaultUiMode, defaults.DefaultDockerNetworkMode, resourceDirectories, dockerNetworks);
     }
-
-    private static string? NormalizeDockerNetworkMode(string? persistedValue) => persistedValue?.Trim().ToLowerInvariant() switch
-    {
-        "bridge" => "bridge",
-        "host" => "host",
-        _ => null
-    };
 
     private static string GetPersistedRunUiModeValue(RunUiMode runUiMode) => runUiMode switch
     {
@@ -223,7 +218,7 @@ internal sealed partial class RunMenuDefaultsService : Singleton
         : StringComparer.Ordinal;
 }
 
-internal sealed record RunMenuDefaults(string? DefaultProfileName, RunUiMode? DefaultUiMode, string? DefaultDockerNetworkMode, IReadOnlyList<string> ResourceDirectories, IReadOnlyList<string> DockerNetworks)
+internal sealed record RunMenuDefaults(string? DefaultProfileName, RunUiMode? DefaultUiMode, DockerNetworkMode? DefaultDockerNetworkMode, IReadOnlyList<string> ResourceDirectories, IReadOnlyList<string> DockerNetworks)
 {
     public static RunMenuDefaults Empty { get; } = new(null, null, null, [], []);
 }
