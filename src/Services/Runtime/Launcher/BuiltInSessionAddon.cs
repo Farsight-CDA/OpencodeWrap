@@ -1,4 +1,4 @@
-namespace OpencodeWrap.Services.Runtime;
+namespace OpencodeWrap.Services.Runtime.Launcher;
 
 internal sealed record BuiltInSessionAddon(
     string Name,

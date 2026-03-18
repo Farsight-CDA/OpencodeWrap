@@ -43,8 +43,6 @@ internal sealed partial class RuntimeAgentInstructionsService : Singleton
         builder.AppendLine();
         builder.AppendLine("## Current Read-Only Resource Directories");
         builder.AppendLine();
-
-
         foreach(var (_, containerPath) in additionalReadonlyMounts)
         {
             builder.AppendLine($"- `{containerPath}`");
