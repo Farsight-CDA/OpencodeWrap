@@ -671,23 +671,23 @@ internal sealed class RunCliCommand : Command
             : $"[grey70 on grey19] {uiLabel} [/]";
 
         string resourceLabel = resourceCount == 0
-            ? "📁 Resource Directories"
-            : $"📁 Resource Directories ([green]{resourceCount}[/])";
+            ? "📁 Resources"
+            : $"📁 Resources ([green]{resourceCount}[/])";
         string resourceTab = selectedTab is RunSelectionTab.Resources
             ? $"[white on dodgerblue1] {resourceLabel} [/]"
             : $"[grey70 on grey19] {resourceLabel} [/]";
 
         string addonLabel = activeAddonCount == 0
-            ? "🧩 Session Addons"
-            : $"🧩 Session Addons ([green]{activeAddonCount}[/])";
+            ? "🧩 Addons"
+            : $"🧩 Addons ([green]{activeAddonCount}[/])";
         string addonTab = selectedTab is RunSelectionTab.Addons
             ? $"[white on dodgerblue1] {addonLabel} [/]"
             : $"[grey70 on grey19] {addonLabel} [/]";
 
         string networkModeLabel = GetDockerNetworkModeLabel(selectedNetworkMode);
         string networkLabel = activeNetworkCount == 0
-            ? $"🌐 Docker Networks: {networkModeLabel}"
-            : $"🌐 Docker Networks: {networkModeLabel} ([green]{activeNetworkCount}[/])";
+            ? $"🌐 Networks: {networkModeLabel}"
+            : $"🌐 Networks: {networkModeLabel} ([green]{activeNetworkCount}[/])";
         string networkTab = selectedTab is RunSelectionTab.Networks
             ? $"[white on dodgerblue1] {networkLabel} [/]"
             : $"[grey70 on grey19] {networkLabel} [/]";
