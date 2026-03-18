@@ -107,7 +107,10 @@ internal sealed partial class OpencodeLauncherService : Singleton
 
             _containerName = $"opencode-wrap-{Guid.NewGuid():N}"[..27];
 
-            var (releaseResolved, latestRelease) = await _opencodeReleaseMetadataService.TryResolveLatestAsync();
+            var (releaseResolved, latestRelease) = await _sessionOutputService.RunWithLoadingStateAsync(
+                LogCategories.OPENCODE_VERSION,
+                "Resolving latest OpenCode release...",
+                _opencodeReleaseMetadataService.TryResolveLatestAsync);
             if(!releaseResolved)
             {
                 return 1;
@@ -198,7 +201,10 @@ internal sealed partial class OpencodeLauncherService : Singleton
 
                 if(useManagedHostClient)
                 {
-                    var (leaseAcquired, lease) = await _managedHostOpencodeService.TryAcquireLeaseAsync(session.SessionId, latestRelease);
+                    var (leaseAcquired, lease) = await _sessionOutputService.RunWithLoadingStateAsync(
+                        LogCategories.OPENCODE_HOST,
+                        "Preparing local OpenCode client...",
+                        () => _managedHostOpencodeService.TryAcquireLeaseAsync(session.SessionId, latestRelease));
                     if(!leaseAcquired || lease is null)
                     {
                         return 1;
@@ -319,15 +325,24 @@ internal sealed partial class OpencodeLauncherService : Singleton
             if(useServeSession)
             {
                 bool backendStarted = requiresPrecreatedContainer
-                    ? (await CreateConnectAndStartContainerAsync(containerArgs, selectedDockerNetworks, startDetached: true)).Success
-                    : await StartBackendContainerAsync(containerArgs);
+                    ? (await _sessionOutputService.RunWithLoadingStateAsync(
+                        LogCategories.STARTUP,
+                        "Starting OpenCode backend...",
+                        () => CreateConnectAndStartContainerAsync(containerArgs, selectedDockerNetworks, startDetached: true))).Success
+                    : await _sessionOutputService.RunWithLoadingStateAsync(
+                        LogCategories.STARTUP,
+                        "Starting OpenCode backend...",
+                        () => StartBackendContainerAsync(containerArgs));
                 if(!backendStarted)
                 {
                     CleanupContainer(force: true);
                     return 1;
                 }
 
-                string? readyAttachUrl = await _opencodeServeHealthcheckService.WaitUntilReadyAsync(session.AttachUrl!, selectedDockerNetworkMode, _hostService.IsWindows);
+                string? readyAttachUrl = await _sessionOutputService.RunWithLoadingStateAsync(
+                    LogCategories.STARTUP,
+                    "Waiting for OpenCode backend...",
+                    () => _opencodeServeHealthcheckService.WaitUntilReadyAsync(session.AttachUrl!, selectedDockerNetworkMode, _hostService.IsWindows));
                 if(readyAttachUrl is null)
                 {
                     await WriteContainerLogsAsync(_containerName!);

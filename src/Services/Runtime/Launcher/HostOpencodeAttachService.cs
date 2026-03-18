@@ -8,6 +8,9 @@ internal sealed partial class HostOpencodeAttachService : Singleton
     [Inject]
     private readonly DeferredSessionLogService _deferredSessionLogService;
 
+    [Inject]
+    private readonly SessionOutputService _sessionOutputService;
+
     public async Task<int> RunAttachAsync(string executablePath, string attachUrl)
     {
         if(String.IsNullOrWhiteSpace(executablePath))
@@ -41,15 +44,21 @@ internal sealed partial class HostOpencodeAttachService : Singleton
 
         try
         {
-            using var process = Process.Start(startInfo);
+            Process? process = await _sessionOutputService.RunWithLoadingStateAsync(
+                LogCategories.ATTACH,
+                "Launching OpenCode terminal...",
+                () => Task.FromResult(Process.Start(startInfo)));
             if(process is null)
             {
                 _deferredSessionLogService.WriteErrorOrConsole(LogCategories.ATTACH, "Failed to start the managed host `opencode attach` process.");
                 return 1;
             }
 
-            await process.WaitForExitAsync();
-            return process.ExitCode;
+            using(process)
+            {
+                await process.WaitForExitAsync();
+                return process.ExitCode;
+            }
         }
         catch(Exception ex)
         {

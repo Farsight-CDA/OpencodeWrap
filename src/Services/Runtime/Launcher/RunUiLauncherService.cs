@@ -44,7 +44,10 @@ internal sealed partial class RunUiLauncherService : Singleton
         _deferredSessionLogService.Write(LogCategories.ATTACH, $"launching browser against '{launchUrl}'", LogLevel.Information);
         _sessionOutputService.WriteInfo(LogCategories.ATTACH, $"OpenCode web URL: {launchUrl}");
 
-        var openResult = await _dockerHostService.TryOpenUrlAsync(launchUrl);
+        var openResult = await _sessionOutputService.RunWithLoadingStateAsync(
+            LogCategories.ATTACH,
+            "Launching browser...",
+            () => _dockerHostService.TryOpenUrlAsync(launchUrl));
         if(!openResult.Success)
         {
             _deferredSessionLogService.WriteErrorOrConsole(LogCategories.ATTACH, openResult.ErrorMessage ?? "Failed to open the local browser UI.");
@@ -72,7 +75,10 @@ internal sealed partial class RunUiLauncherService : Singleton
             return RunUiLaunchResult.Fail();
         }
 
-        var launchResult = await _dockerHostService.TryLaunchOpenCodeDesktopAsync(desktopStatus);
+        var launchResult = await _sessionOutputService.RunWithLoadingStateAsync(
+            LogCategories.ATTACH,
+            "Launching OpenCode desktop...",
+            () => _dockerHostService.TryLaunchOpenCodeDesktopAsync(desktopStatus));
         if(!launchResult.Success)
         {
             _deferredSessionLogService.WriteErrorOrConsole(LogCategories.ATTACH, launchResult.ErrorMessage ?? "Failed to launch the OpenCode desktop app.");
