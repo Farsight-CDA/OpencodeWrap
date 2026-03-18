@@ -16,7 +16,7 @@ internal static class SessionProfileEnvFile
         environmentVariables = [];
         errorMessage = null;
 
-        List<SessionEnvSource> sources = BuildSources(profile, sessionAddons);
+        var sources = BuildSources(profile, sessionAddons);
         if(sources.Count == 0)
         {
             string sessionEnvFilePath = Path.Combine(sessionProfileDirectoryPath, OpencodeWrapConstants.PROFILE_ENV_FILE_NAME);
@@ -31,14 +31,14 @@ internal static class SessionProfileEnvFile
         var mergedVariables = new List<SessionEnvironmentVariable>();
         var seenKeys = new Dictionary<string, string>(StringComparer.Ordinal);
 
-        foreach(SessionEnvSource source in sources)
+        foreach(var source in sources)
         {
-            if(!TryParseSource(source, out IReadOnlyList<KeyValuePair<string, string>> parsedVariables, out errorMessage))
+            if(!TryParseSource(source, out var parsedVariables, out errorMessage))
             {
                 return false;
             }
 
-            foreach(KeyValuePair<string, string> parsedVariable in parsedVariables)
+            foreach(var parsedVariable in parsedVariables)
             {
                 if(seenKeys.TryGetValue(parsedVariable.Key, out string? existingSourceLabel))
                 {
@@ -63,7 +63,7 @@ internal static class SessionProfileEnvFile
 
         TryAddSource(sources, Path.Combine(profile.DirectoryPath, OpencodeWrapConstants.PROFILE_ENV_FILE_NAME), $"profile '{profile.Name}' .env");
 
-        foreach(ResolvedSessionAddon addon in sessionAddons)
+        foreach(var addon in sessionAddons)
         {
             TryAddSource(sources, Path.Combine(addon.DirectoryPath, OpencodeWrapConstants.PROFILE_ENV_FILE_NAME), $"session addon '{addon.Name}' .env");
         }
@@ -103,7 +103,7 @@ internal static class SessionProfileEnvFile
 
         for(int index = 0; index < lines.Length; index++)
         {
-            if(!TryParseLine(lines[index], index + 1, source, out KeyValuePair<string, string>? parsedVariable, out errorMessage))
+            if(!TryParseLine(lines[index], index + 1, source, out var parsedVariable, out errorMessage))
             {
                 return false;
             }
@@ -136,13 +136,13 @@ internal static class SessionProfileEnvFile
         variable = null;
         errorMessage = null;
 
-        ReadOnlySpan<char> trimmedLine = line.AsSpan().Trim();
+        var trimmedLine = line.AsSpan().Trim();
         if(trimmedLine.Length == 0 || trimmedLine[0] == '#')
         {
             return true;
         }
 
-        ReadOnlySpan<char> declaration = trimmedLine.StartsWith("export ", StringComparison.Ordinal)
+        var declaration = trimmedLine.StartsWith("export ", StringComparison.Ordinal)
             ? trimmedLine["export ".Length..].TrimStart()
             : trimmedLine;
 
@@ -306,7 +306,7 @@ internal static class SessionProfileEnvFile
         var builder = new StringBuilder();
         for(int index = 0; index < variables.Count; index++)
         {
-            SessionEnvironmentVariable variable = variables[index];
+            var variable = variables[index];
             builder.Append(variable.Key);
             builder.Append('=');
             builder.Append(FormatValue(variable.Value));

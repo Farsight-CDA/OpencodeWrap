@@ -94,7 +94,7 @@ internal sealed partial class OpencodeLauncherService : Singleton
                 return 1;
             }
 
-            DockerNetworkMode selectedDockerNetworkMode = dockerNetworkMode;
+            var selectedDockerNetworkMode = dockerNetworkMode;
 
             if(!TryNormalizeDockerNetworks(dockerNetworks, out var selectedDockerNetworks))
             {
@@ -217,7 +217,7 @@ internal sealed partial class OpencodeLauncherService : Singleton
 
             LogStartupPhase($"base profile image ready: '{baseImageTag}'", LogLevel.Debug);
 
-            Task<(bool Success, string ImageTag)> runtimeImageTask = _opencodeRuntimeImageService.TryEnsureRuntimeImageAsync(baseImageTag, latestRelease);
+            var runtimeImageTask = _opencodeRuntimeImageService.TryEnsureRuntimeImageAsync(baseImageTag, latestRelease);
             if(hostLeaseTask is not null)
             {
                 await Task.WhenAll(runtimeImageTask, hostLeaseTask);
@@ -253,7 +253,7 @@ internal sealed partial class OpencodeLauncherService : Singleton
                 containerArgs.AddRange(["--user", userSpec]);
             }
 
-            foreach(SessionEnvironmentVariable environmentVariable in sessionEnvironmentVariables)
+            foreach(var environmentVariable in sessionEnvironmentVariables)
             {
                 containerArgs.AddRange(["-e", $"{environmentVariable.Key}={environmentVariable.Value}"]);
             }
@@ -635,7 +635,7 @@ internal sealed partial class OpencodeLauncherService : Singleton
 
     private bool TryApplySessionAddons(string sessionProfileDirectoryPath, IReadOnlyList<ResolvedSessionAddon> sessionAddons)
     {
-        foreach(ResolvedSessionAddon addon in sessionAddons)
+        foreach(var addon in sessionAddons)
         {
             try
             {

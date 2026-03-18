@@ -34,7 +34,7 @@ internal sealed class DeleteAddonCliCommand : Command
         }
 
         string? selectedAddonName = ResolveAddonName(catalog);
-        if(String.IsNullOrWhiteSpace(selectedAddonName) || !catalog.Addons.TryGetValue(selectedAddonName, out SessionAddonCatalogEntry? addonEntry))
+        if(String.IsNullOrWhiteSpace(selectedAddonName) || !catalog.Addons.TryGetValue(selectedAddonName, out var addonEntry))
         {
             return 1;
         }

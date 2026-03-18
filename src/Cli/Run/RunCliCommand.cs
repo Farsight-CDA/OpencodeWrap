@@ -140,7 +140,7 @@ internal sealed class RunCliCommand : Command
         int selectedAddonIndex = 0;
         int selectedNetworkIndex = 0;
         bool hostNetworkAvailable = true;
-        DockerNetworkMode? defaultNetworkMode = ParseSavedDockerNetworkMode(runMenuDefaults.DefaultDockerNetworkMode, hostNetworkAvailable);
+        var defaultNetworkMode = ParseSavedDockerNetworkMode(runMenuDefaults.DefaultDockerNetworkMode, hostNetworkAvailable);
         var selectedNetworkMode = defaultNetworkMode ?? DockerNetworkMode.Bridge;
         var activeNetworkNames = new HashSet<string>(StringComparer.Ordinal);
         var defaultNetworkNames = new HashSet<string>(StringComparer.Ordinal);
@@ -255,7 +255,7 @@ internal sealed class RunCliCommand : Command
                     case RunSelectionTab.Networks:
                         if(selectedNetworkIndex == 0)
                         {
-                            DockerNetworkMode? previousDefaultNetworkMode = defaultNetworkMode;
+                            var previousDefaultNetworkMode = defaultNetworkMode;
                             defaultNetworkMode = defaultNetworkMode == selectedNetworkMode
                                 ? null
                                 : selectedNetworkMode;

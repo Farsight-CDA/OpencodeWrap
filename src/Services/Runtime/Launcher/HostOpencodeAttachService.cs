@@ -44,7 +44,7 @@ internal sealed partial class HostOpencodeAttachService : Singleton
 
         try
         {
-            Process? process = await _sessionOutputService.RunWithLoadingStateAsync(
+            var process = await _sessionOutputService.RunWithLoadingStateAsync(
                 LogCategories.ATTACH,
                 "Launching OpenCode terminal...",
                 () => Task.FromResult(Process.Start(startInfo)));

@@ -106,7 +106,7 @@ internal sealed partial class SessionAddonService : Singleton
                 continue;
             }
 
-            if(!catalog.Addons.TryGetValue(normalizedAddonName, out SessionAddonCatalogEntry? addonEntry))
+            if(!catalog.Addons.TryGetValue(normalizedAddonName, out var addonEntry))
             {
                 _deferredSessionLogService.WriteErrorOrConsole("profile", $"Session addon '{normalizedAddonName}' was not found under '{catalog.AddonsRoot}'.");
                 return false;
@@ -143,7 +143,7 @@ internal sealed partial class SessionAddonService : Singleton
     {
         var addons = new Dictionary<string, SessionAddonCatalogEntry>(GetHostNameComparer());
 
-        foreach(BuiltInSessionAddon builtInAddon in _builtInSessionAddonService.BuiltInAddons)
+        foreach(var builtInAddon in _builtInSessionAddonService.BuiltInAddons)
         {
             addons[builtInAddon.Name] = new SessionAddonCatalogEntry(builtInAddon.Name, null, builtInAddon);
         }

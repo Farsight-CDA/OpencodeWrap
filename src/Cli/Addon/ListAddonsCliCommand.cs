@@ -38,7 +38,7 @@ internal sealed class ListAddonsCliCommand : Command
 
         int invalidPathCount = 0;
 
-        foreach(SessionAddonCatalogEntry addon in catalog.Addons.Values.OrderBy(addon => addon.Name, StringComparer.OrdinalIgnoreCase))
+        foreach(var addon in catalog.Addons.Values.OrderBy(addon => addon.Name, StringComparer.OrdinalIgnoreCase))
         {
             bool isBuiltIn = addon.BuiltInAddon is not null;
             bool hasOverride = !String.IsNullOrWhiteSpace(addon.DirectoryPath);

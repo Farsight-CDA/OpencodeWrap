@@ -41,7 +41,7 @@ internal sealed class AddAddonCliCommand : Command
             return 1;
         }
 
-        bool hasOverrideDirectory = catalog.Addons.TryGetValue(normalizedName, out SessionAddonCatalogEntry? addonEntry)
+        bool hasOverrideDirectory = catalog.Addons.TryGetValue(normalizedName, out var addonEntry)
             && !String.IsNullOrWhiteSpace(addonEntry.DirectoryPath);
         if(hasOverrideDirectory)
         {
@@ -55,7 +55,7 @@ internal sealed class AddAddonCliCommand : Command
             return 1;
         }
 
-        BuiltInSessionAddon? builtInAddon = addonEntry?.BuiltInAddon;
+        var builtInAddon = addonEntry?.BuiltInAddon;
 
         try
         {
