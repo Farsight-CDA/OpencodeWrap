@@ -44,9 +44,10 @@ internal sealed partial class RuntimeAgentInstructionsService : Singleton
         builder.AppendLine("## Current Read-Only Resource Directories");
         builder.AppendLine();
 
-        foreach(var (hostPath, containerPath) in additionalReadonlyMounts)
+
+        foreach(var (_, containerPath) in additionalReadonlyMounts)
         {
-            builder.AppendLine($"- `{containerPath}` (host source: `{hostPath}`)");
+            builder.AppendLine($"- `{containerPath}`");
         }
 
         return builder.ToString().TrimEnd();
