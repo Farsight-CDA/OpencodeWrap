@@ -25,6 +25,7 @@ internal static class OpencodeWrapConstants
     public const string HOST_OPENCODE_HOST_LOCK_FILE_NAME = "opencode-host.lock";
     public const string PROFILE_DOCKERFILE_NAME = "Dockerfile";
     public const string PROFILE_BIN_DIRECTORY_NAME = "bin";
+    public const string PROFILE_ENV_FILE_NAME = ".env";
     public const string PROFILE_OPENCODE_DIRECTORY_NAME = "opencode";
     public const string PROFILE_ENTRYPOINT_FILE_NAME = "entrypoint.sh";
     public const string XDG_VOLUME_NAME = "opencode-wrap-xdg";

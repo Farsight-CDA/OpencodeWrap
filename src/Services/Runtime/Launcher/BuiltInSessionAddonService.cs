@@ -3,6 +3,7 @@ namespace OpencodeWrap.Services.Runtime;
 internal sealed partial class BuiltInSessionAddonService : Singleton
 {
     private const string QUESTION_AFFINITY_NAME = "Question Affinity";
+    private const string WEB_SEARCH_NAME = "Web Search";
     private const string QUESTION_AFFINITY_INSTRUCTIONS = """
         # Agent Behavior
 
@@ -10,6 +11,7 @@ internal sealed partial class BuiltInSessionAddonService : Singleton
         - If a user request contains any ambiguity please use questions to clarify further.
         - When asking questions always use the questions tool.
         """;
+    private const string WEB_SEARCH_ENVIRONMENT = "OPENCODE_ENABLE_EXA=1\n";
 
     [Inject]
     private readonly DeferredSessionLogService _deferredSessionLogService;
@@ -21,6 +23,12 @@ internal sealed partial class BuiltInSessionAddonService : Singleton
             new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
             {
                 [$"{OpencodeWrapConstants.PROFILE_OPENCODE_DIRECTORY_NAME}/{OpencodeWrapConstants.AGENTS_FILE_NAME}"] = QUESTION_AFFINITY_INSTRUCTIONS
+            }),
+        new(
+            WEB_SEARCH_NAME,
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                [OpencodeWrapConstants.PROFILE_ENV_FILE_NAME] = WEB_SEARCH_ENVIRONMENT
             })
     ];
 

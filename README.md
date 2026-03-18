@@ -69,9 +69,9 @@ This starts OpenCode in Docker, prompts for a UI mode, and then launches the sel
 
 Use arrow keys to select a profile and UI mode, then review optional resource directories, session addons, and Docker networks. Press **Enter** to start, or press **+** to star the current profile, resource directory, session addon, or bridge network as a default for future `ocw run` sessions.
 
-Session addons live under `~/.opencode-wrap/addons/<name>`. When enabled, each addon directory is copied into the temporary session profile before launch. File conflicts stop the launch, except `AGENTS.md`, which is merged so addon instructions are combined with the profile and runtime instructions.
+Session addons live under `~/.opencode-wrap/addons/<name>`. When enabled, each addon directory is copied into the temporary session profile before launch. File conflicts stop the launch, except `AGENTS.md`, which is merged so addon instructions are combined with the profile and runtime instructions, and the root `.env`, which is merged into the container environment in profile-then-addon order. Duplicate `.env` keys currently stop the launch.
 
-OCW also ships a built-in addon named `Question Affinity`, which adds clarification-focused `AGENTS.md` guidance without requiring a host addon folder.
+OCW also ships built-in addons named `Question Affinity`, which adds clarification-focused `AGENTS.md` guidance, and `Web Search`, which enables the `websearch` tool by setting `OPENCODE_ENABLE_EXA=1`, without requiring host addon folders.
 
 Available UI modes:
 

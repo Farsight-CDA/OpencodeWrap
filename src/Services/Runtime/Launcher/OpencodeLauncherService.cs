@@ -56,6 +56,7 @@ internal sealed partial class OpencodeLauncherService : Singleton
         string? managedHostExecutablePath = null;
         string? profileCleanupDirectoryPath = null;
         var sessionAddonCleanupDirectoryPaths = new List<string>();
+        IReadOnlyList<SessionEnvironmentVariable> sessionEnvironmentVariables = [];
         Task<(bool Success, LatestOpencodeRelease Release)>? latestReleaseTask = null;
         Task<(bool Success, string ImageTag)>? baseImageTask = null;
         Task<(bool Success, ManagedHostOpencodeService.ManagedHostOpencodeLease? Lease)>? hostLeaseTask = null;
@@ -142,7 +143,7 @@ internal sealed partial class OpencodeLauncherService : Singleton
                 .Where(path => !String.IsNullOrWhiteSpace(path))
                 .Select(path => path!));
 
-            if(!TryPrepareSessionProfile(profile, session.HostSessionDirectory, includeProfileConfig, runtimeAgentInstructions, resolvedSessionAddons, out profile))
+            if(!TryPrepareSessionProfile(profile, session.HostSessionDirectory, includeProfileConfig, runtimeAgentInstructions, resolvedSessionAddons, out profile, out sessionEnvironmentVariables))
             {
                 return 1;
             }
@@ -250,6 +251,11 @@ internal sealed partial class OpencodeLauncherService : Singleton
             if(userSpec is not null)
             {
                 containerArgs.AddRange(["--user", userSpec]);
+            }
+
+            foreach(SessionEnvironmentVariable environmentVariable in sessionEnvironmentVariables)
+            {
+                containerArgs.AddRange(["-e", $"{environmentVariable.Key}={environmentVariable.Value}"]);
             }
 
             containerArgs.AddRange(
@@ -547,8 +553,10 @@ internal sealed partial class OpencodeLauncherService : Singleton
         bool includeProfileConfig,
         string runtimeAgentInstructions,
         IReadOnlyList<ResolvedSessionAddon> sessionAddons,
-        out ResolvedProfile sessionProfile)
+        out ResolvedProfile sessionProfile,
+        out IReadOnlyList<SessionEnvironmentVariable> sessionEnvironmentVariables)
     {
+        sessionEnvironmentVariables = [];
         string sessionProfileDirectoryPath = Path.Combine(sessionDirectoryPath, "profile");
         string sessionConfigDirectoryPath = Path.Combine(sessionProfileDirectoryPath, OpencodeWrapConstants.PROFILE_OPENCODE_DIRECTORY_NAME);
 
@@ -563,6 +571,14 @@ internal sealed partial class OpencodeLauncherService : Singleton
 
             if(!TryApplySessionAddons(sessionProfileDirectoryPath, sessionAddons))
             {
+                sessionProfile = profile;
+                AppIO.TryDeleteDirectory(sessionProfileDirectoryPath);
+                return false;
+            }
+
+            if(!SessionProfileEnvFile.TryPrepareForLaunch(profile, sessionProfileDirectoryPath, sessionAddons, out sessionEnvironmentVariables, out string? environmentErrorMessage))
+            {
+                _deferredSessionLogService.WriteErrorOrConsole("profile", environmentErrorMessage ?? $"Failed to prepare merged environment file in '{sessionProfileDirectoryPath}'.");
                 sessionProfile = profile;
                 AppIO.TryDeleteDirectory(sessionProfileDirectoryPath);
                 return false;
@@ -639,6 +655,11 @@ internal sealed partial class OpencodeLauncherService : Singleton
                 foreach(string filePath in Directory.EnumerateFiles(addon.DirectoryPath, "*", SearchOption.AllDirectories))
                 {
                     string relativePath = Path.GetRelativePath(addon.DirectoryPath, filePath);
+                    if(IsSessionEnvFile(relativePath))
+                    {
+                        continue;
+                    }
+
                     string destinationPath = Path.Combine(sessionProfileDirectoryPath, relativePath);
                     if(Directory.Exists(destinationPath))
                     {
@@ -682,6 +703,9 @@ internal sealed partial class OpencodeLauncherService : Singleton
 
     private static bool IsAgentsFile(string relativePath)
         => String.Equals(Path.GetFileName(relativePath), OpencodeWrapConstants.AGENTS_FILE_NAME, StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsSessionEnvFile(string relativePath)
+        => String.Equals(NormalizeDisplayPath(relativePath), OpencodeWrapConstants.PROFILE_ENV_FILE_NAME, StringComparison.OrdinalIgnoreCase);
 
     private static string NormalizeDisplayPath(string path)
         => path.Replace('\\', '/');
