@@ -1,5 +1,6 @@
 global using Farsight.Common;
 global using OpencodeWrap;
+global using OpencodeWrap.Cli.Addon;
 global using OpencodeWrap.Cli;
 global using OpencodeWrap.Cli.Data;
 global using OpencodeWrap.Cli.Profile;

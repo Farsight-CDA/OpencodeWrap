@@ -65,9 +65,13 @@ ocw run
 
 This starts OpenCode in Docker, prompts for a UI mode, and then launches the selected local client.
 
-### 2. Choose Your Profile and UI
+### 2. Choose Your Profile, UI, and Session Extras
 
-Use arrow keys to select a profile and UI mode, press **Enter** to start, or press **+** to star the current profile, resource directory, or bridge network as a default for future `ocw run` sessions.
+Use arrow keys to select a profile and UI mode, then review optional resource directories, session addons, and Docker networks. Press **Enter** to start, or press **+** to star the current profile, resource directory, session addon, or bridge network as a default for future `ocw run` sessions.
+
+Session addons live under `~/.opencode-wrap/addons/<name>`. When enabled, each addon directory is copied into the temporary session profile before launch. File conflicts stop the launch, except `AGENTS.md`, which is merged so addon instructions are combined with the profile and runtime instructions.
+
+OCW also ships a built-in addon named `Question Affinity`, which adds clarification-focused `AGENTS.md` guidance without requiring a host addon folder.
 
 Available UI modes:
 
@@ -92,6 +96,12 @@ ocw profile list
 
 # Create a custom profile
 ocw profile add myprofile
+
+# List available session addons
+ocw addon list
+
+# Create a custom session addon
+ocw addon add "My Addon"
 
 # Import existing OpenCode data
 ocw data import-host

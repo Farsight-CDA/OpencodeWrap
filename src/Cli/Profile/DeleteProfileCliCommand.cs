@@ -5,37 +5,30 @@ namespace OpencodeWrap.Cli.Profile;
 
 internal sealed class DeleteProfileCliCommand : Command
 {
-    private readonly Option<string?> _profileOption;
     private readonly Option<bool> _yesOption;
     private readonly ProfileService _profileService;
     private readonly BuiltInProfileTemplateService _builtInProfileTemplateService;
 
     public DeleteProfileCliCommand(ProfileService profileService, BuiltInProfileTemplateService builtInProfileTemplateService)
-        : base("delete", "Delete a profile and its directory.")
+        : base("delete", "Interactively delete a profile directory.")
     {
         _profileService = profileService;
         _builtInProfileTemplateService = builtInProfileTemplateService;
-        _profileOption = new Option<string?>("--profile", "-p")
-        {
-            Description = "Profile name from a directory under $HOME/.opencode-wrap/profiles."
-        };
         _yesOption = new Option<bool>("--yes", "-y")
         {
             Description = "Skip confirmation prompt."
         };
 
-        Add(_profileOption);
         Add(_yesOption);
 
         SetAction(async parseResult =>
         {
-            string? profileName = parseResult.GetValue(_profileOption);
             bool skipConfirmation = parseResult.GetValue(_yesOption);
-            return await ExecuteAsync(profileName, skipConfirmation);
+            return await ExecuteAsync(skipConfirmation);
         });
     }
 
-    private async Task<int> ExecuteAsync(string? profileNameInput, bool skipConfirmation)
+    private async Task<int> ExecuteAsync(bool skipConfirmation)
     {
         var (success, catalog) = _profileService.TryLoadProfileCatalog();
         if(!success)
@@ -43,7 +36,7 @@ internal sealed class DeleteProfileCliCommand : Command
             return 1;
         }
 
-        string? selectedProfileName = ResolveProfileName(profileNameInput, catalog);
+        string? selectedProfileName = ResolveProfileName(catalog);
         if(String.IsNullOrWhiteSpace(selectedProfileName))
         {
             return 1;
@@ -59,18 +52,6 @@ internal sealed class DeleteProfileCliCommand : Command
         bool hasOverrideDirectory = catalog.ProfileDirectories.TryGetValue(normalizedName, out string? relativeDirectoryPath);
         bool isBuiltIn = _builtInProfileTemplateService.BuiltInProfiles.Any(profile =>
             profile.Name.Equals(normalizedName, StringComparison.OrdinalIgnoreCase));
-
-        if(!hasOverrideDirectory)
-        {
-            if(isBuiltIn)
-            {
-                AppIO.WriteInfo($"Profile '{normalizedName}' is using the built-in template. Nothing to delete.");
-                return 0;
-            }
-
-            AppIO.WriteError($"Profile '{normalizedName}' does not exist.");
-            return 1;
-        }
 
         if(!_profileService.TryResolveProfileDirectoryPath(catalog.ProfilesRoot, relativeDirectoryPath!, out string profileDirectoryPath))
         {
@@ -121,45 +102,39 @@ internal sealed class DeleteProfileCliCommand : Command
         return 0;
     }
 
-    private string? ResolveProfileName(string? profileNameInput, ProfileCatalog catalog)
+    private string? ResolveProfileName(ProfileCatalog catalog)
     {
-        if(!String.IsNullOrWhiteSpace(profileNameInput))
-        {
-            return profileNameInput;
-        }
-
         if(!AnsiConsole.Profile.Capabilities.Interactive)
         {
-            AppIO.WriteError("No profile provided and interactive selection is unavailable. Pass --profile <name>.");
+            AppIO.WriteError("Interactive profile selection is unavailable. Run this command in an interactive terminal.");
             return null;
         }
 
-        var profileNames = new HashSet<string>(catalog.ProfileDirectories.Keys, StringComparer.OrdinalIgnoreCase);
-        foreach(var builtInProfile in _builtInProfileTemplateService.BuiltInProfiles)
-        {
-            profileNames.Add(builtInProfile.Name);
-        }
-
-        if(profileNames.Count == 0)
-        {
-            AppIO.WriteError("No profiles found. Use 'ocw profile add <name>' first.");
-            return null;
-        }
-
-        List<ProfileChoice> profileChoices = [.. profileNames
+        List<ProfileChoice> profileChoices = [.. catalog.ProfileDirectories.Keys
             .OrderByDescending(name => String.Equals(name, catalog.DefaultProfileName, StringComparison.OrdinalIgnoreCase))
             .ThenBy(name => name, StringComparer.OrdinalIgnoreCase)
-            .Select(name => new ProfileChoice(name, String.Equals(name, catalog.DefaultProfileName, StringComparison.OrdinalIgnoreCase)))];
+            .Select(name => new ProfileChoice(
+                name,
+                String.Equals(name, catalog.DefaultProfileName, StringComparison.OrdinalIgnoreCase),
+                _builtInProfileTemplateService.BuiltInProfiles.Any(profile => profile.Name.Equals(name, StringComparison.OrdinalIgnoreCase))))];
+
+        if(profileChoices.Count == 0)
+        {
+            AppIO.WriteError("No deletable profiles found. Use 'ocw profile add <name>' first.");
+            return null;
+        }
 
         var selectedProfile = AnsiConsole.Prompt(
             new SelectionPrompt<ProfileChoice>()
                 .Title("[bold red]🗑 Select a profile to delete[/]")
                 .PageSize(Math.Min(profileChoices.Count, 10))
-                .UseConverter(choice => choice.IsDefault ? $"★ {choice.Name} (default)" : choice.Name)
+                .UseConverter(choice => choice.IsBuiltIn
+                    ? choice.IsDefault ? $"★ {choice.Name} (built-in override, default)" : $"{choice.Name} (built-in override)"
+                    : choice.IsDefault ? $"★ {choice.Name} (default)" : choice.Name)
                 .AddChoices(profileChoices));
 
         return selectedProfile.Name;
     }
 
-    private sealed record ProfileChoice(string Name, bool IsDefault);
+    private sealed record ProfileChoice(string Name, bool IsDefault, bool IsBuiltIn);
 }

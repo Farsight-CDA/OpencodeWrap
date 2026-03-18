@@ -2,7 +2,7 @@ namespace OpencodeWrap.Services.Runtime.Launcher;
 
 internal static class SessionProfileAgentsFile
 {
-    public static void EnsureForLaunch(string agentsPath, bool includeProfileConfig, string? globalAgentInstructions, string runtimeAgentInstructions)
+    public static void EnsureForLaunch(string agentsPath, bool includeProfileConfig, string runtimeAgentInstructions)
     {
         if(!includeProfileConfig)
         {
@@ -13,11 +13,23 @@ internal static class SessionProfileAgentsFile
             ? File.ReadAllText(agentsPath)
             : null;
 
-        string mergedContent = String.Join(
-            Environment.NewLine + Environment.NewLine,
-            new[] { globalAgentInstructions, profileAgentInstructions, runtimeAgentInstructions }
-                .Where(content => !String.IsNullOrWhiteSpace(content))
-                .Select(content => content!.TrimEnd()));
+        string mergedContent = MergeContent(profileAgentInstructions, runtimeAgentInstructions);
         File.WriteAllText(agentsPath, mergedContent);
     }
+
+    public static void MergeIntoFile(string destinationPath, string sourcePath)
+    {
+        string? existingInstructions = File.Exists(destinationPath)
+            ? File.ReadAllText(destinationPath)
+            : null;
+        string sourceInstructions = File.ReadAllText(sourcePath);
+        File.WriteAllText(destinationPath, MergeContent(existingInstructions, sourceInstructions));
+    }
+
+    public static string MergeContent(params string?[] sections)
+        => String.Join(
+            Environment.NewLine + Environment.NewLine,
+            sections
+                .Where(content => !String.IsNullOrWhiteSpace(content))
+                .Select(content => content!.TrimEnd()));
 }

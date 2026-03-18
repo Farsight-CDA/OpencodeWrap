@@ -20,6 +20,7 @@ internal sealed partial class OpencodeLauncherService : Singleton
     [Inject] private readonly OpencodeRuntimeImageService _opencodeRuntimeImageService;
     [Inject] private readonly RunUiLauncherService _runUiLauncherService;
     [Inject] private readonly SessionStagingService _sessionStagingService;
+    [Inject] private readonly SessionAddonService _sessionAddonService;
     [Inject] private readonly DeferredSessionLogService _deferredSessionLogService;
     [Inject] private readonly SessionOutputService _sessionOutputService;
     [Inject] private readonly LocalPortReservationService _localPortReservationService;
@@ -40,6 +41,7 @@ internal sealed partial class OpencodeLauncherService : Singleton
         RunUiMode runUiMode = RunUiMode.Tui,
         WorkspaceMountMode workspaceMountMode = WorkspaceMountMode.ReadWrite,
         IReadOnlyList<string>? extraReadonlyMountDirs = null,
+        IReadOnlyList<string>? sessionAddons = null,
         DockerNetworkMode dockerNetworkMode = DockerNetworkMode.Bridge,
         IReadOnlyList<string>? dockerNetworks = null,
         bool verboseSessionLogs = false)
@@ -53,6 +55,7 @@ internal sealed partial class OpencodeLauncherService : Singleton
         ManagedHostOpencodeService.ManagedHostOpencodeLease? hostLease = null;
         string? managedHostExecutablePath = null;
         string? profileCleanupDirectoryPath = null;
+        var sessionAddonCleanupDirectoryPaths = new List<string>();
         try
         {
             LogStartupPhase("starting ocw run startup", LogLevel.Debug);
@@ -123,12 +126,6 @@ internal sealed partial class OpencodeLauncherService : Singleton
 
             LogStartupPhase($"resolved profile '{profile.Name}' from '{profile.DirectoryPath}'", LogLevel.Debug);
 
-            string? globalAgentInstructions = null;
-            if(includeProfileConfig && !TryReadGlobalAgentInstructions(out globalAgentInstructions))
-            {
-                return 1;
-            }
-
             if(!_sessionStagingService.TryCreateSession(_containerName, out var session))
             {
                 return 1;
@@ -136,7 +133,18 @@ internal sealed partial class OpencodeLauncherService : Singleton
 
             _hostSessionDirectory = session.HostSessionDirectory;
 
-            if(!TryPrepareSessionProfile(profile, session.HostSessionDirectory, includeProfileConfig, globalAgentInstructions, runtimeAgentInstructions, out profile))
+            IReadOnlyList<ResolvedSessionAddon> resolvedSessionAddons = [];
+            if(includeProfileConfig && !_sessionAddonService.TryResolveAddons(sessionAddons, session.HostSessionDirectory, out resolvedSessionAddons))
+            {
+                return 1;
+            }
+
+            sessionAddonCleanupDirectoryPaths.AddRange(resolvedSessionAddons
+                .Select(addon => addon.CleanupDirectoryPath)
+                .Where(path => !String.IsNullOrWhiteSpace(path))
+                .Select(path => path!));
+
+            if(!TryPrepareSessionProfile(profile, session.HostSessionDirectory, includeProfileConfig, runtimeAgentInstructions, resolvedSessionAddons, out profile))
             {
                 return 1;
             }
@@ -378,6 +386,11 @@ internal sealed partial class OpencodeLauncherService : Singleton
                 AppIO.TryDeleteDirectory(profileCleanupDirectoryPath);
             }
 
+            foreach(string addonCleanupDirectoryPath in sessionAddonCleanupDirectoryPaths)
+            {
+                AppIO.TryDeleteDirectory(addonCleanupDirectoryPath);
+            }
+
             if(_hostSessionDirectory is not null)
             {
                 _deferredSessionLogService.Write("session", $"deleting runtime session directory '{_hostSessionDirectory}'", LogLevel.Information);
@@ -493,38 +506,12 @@ internal sealed partial class OpencodeLauncherService : Singleton
     private void WriteSessionErrorDetails(string category, string? detail)
         => _deferredSessionLogService.WriteErrorDetailsOrConsole(category, detail);
 
-    private bool TryReadGlobalAgentInstructions(out string? globalAgentInstructions)
-    {
-        globalAgentInstructions = null;
-        if(!_hostService.TryEnsureGlobalConfigDirectory(out string configDirectoryPath))
-        {
-            return false;
-        }
-
-        string agentsPath = Path.Combine(configDirectoryPath, OpencodeWrapConstants.HOST_GLOBAL_AGENTS_FILE_NAME);
-        if(!File.Exists(agentsPath))
-        {
-            return true;
-        }
-
-        try
-        {
-            globalAgentInstructions = File.ReadAllText(agentsPath);
-            return true;
-        }
-        catch(Exception ex)
-        {
-            _deferredSessionLogService.WriteErrorOrConsole("profile", $"Failed to read global AGENTS file '{agentsPath}': {ex.Message}");
-            return false;
-        }
-    }
-
     private bool TryPrepareSessionProfile(
         ResolvedProfile profile,
         string sessionDirectoryPath,
         bool includeProfileConfig,
-        string? globalAgentInstructions,
         string runtimeAgentInstructions,
+        IReadOnlyList<ResolvedSessionAddon> sessionAddons,
         out ResolvedProfile sessionProfile)
     {
         string sessionProfileDirectoryPath = Path.Combine(sessionDirectoryPath, "profile");
@@ -539,10 +526,17 @@ internal sealed partial class OpencodeLauncherService : Singleton
                 CopyDirectoryContents(profile.DirectoryPath, sessionProfileDirectoryPath);
             }
 
+            if(!TryApplySessionAddons(sessionProfileDirectoryPath, sessionAddons))
+            {
+                sessionProfile = profile;
+                AppIO.TryDeleteDirectory(sessionProfileDirectoryPath);
+                return false;
+            }
+
             Directory.CreateDirectory(sessionConfigDirectoryPath);
 
-            string agentsPath = Path.Combine(sessionConfigDirectoryPath, OpencodeWrapConstants.HOST_GLOBAL_AGENTS_FILE_NAME);
-            SessionProfileAgentsFile.EnsureForLaunch(agentsPath, includeProfileConfig, globalAgentInstructions, runtimeAgentInstructions);
+            string agentsPath = Path.Combine(sessionConfigDirectoryPath, OpencodeWrapConstants.AGENTS_FILE_NAME);
+            SessionProfileAgentsFile.EnsureForLaunch(agentsPath, includeProfileConfig, runtimeAgentInstructions);
 
             sessionProfile = new ResolvedProfile(
                 profile.Name,
@@ -587,6 +581,75 @@ internal sealed partial class OpencodeLauncherService : Singleton
             File.Copy(filePath, destinationPath, overwrite: true);
         }
     }
+
+    private bool TryApplySessionAddons(string sessionProfileDirectoryPath, IReadOnlyList<ResolvedSessionAddon> sessionAddons)
+    {
+        foreach(ResolvedSessionAddon addon in sessionAddons)
+        {
+            try
+            {
+                foreach(string directoryPath in Directory.EnumerateDirectories(addon.DirectoryPath, "*", SearchOption.AllDirectories))
+                {
+                    string relativePath = Path.GetRelativePath(addon.DirectoryPath, directoryPath);
+                    string destinationDirectoryPath = Path.Combine(sessionProfileDirectoryPath, relativePath);
+                    if(File.Exists(destinationDirectoryPath))
+                    {
+                        WriteSessionAddonConflict(addon.Name, relativePath, "directory conflicts with existing file");
+                        return false;
+                    }
+
+                    Directory.CreateDirectory(destinationDirectoryPath);
+                }
+
+                foreach(string filePath in Directory.EnumerateFiles(addon.DirectoryPath, "*", SearchOption.AllDirectories))
+                {
+                    string relativePath = Path.GetRelativePath(addon.DirectoryPath, filePath);
+                    string destinationPath = Path.Combine(sessionProfileDirectoryPath, relativePath);
+                    if(Directory.Exists(destinationPath))
+                    {
+                        WriteSessionAddonConflict(addon.Name, relativePath, "file conflicts with existing directory");
+                        return false;
+                    }
+
+                    if(File.Exists(destinationPath))
+                    {
+                        if(IsAgentsFile(relativePath))
+                        {
+                            SessionProfileAgentsFile.MergeIntoFile(destinationPath, filePath);
+                            continue;
+                        }
+
+                        WriteSessionAddonConflict(addon.Name, relativePath, "file already exists");
+                        return false;
+                    }
+
+                    string? destinationParent = Path.GetDirectoryName(destinationPath);
+                    if(!String.IsNullOrWhiteSpace(destinationParent))
+                    {
+                        Directory.CreateDirectory(destinationParent);
+                    }
+
+                    File.Copy(filePath, destinationPath, overwrite: false);
+                }
+            }
+            catch(Exception ex)
+            {
+                _deferredSessionLogService.WriteErrorOrConsole("profile", $"Failed to apply session addon '{addon.Name}' from '{addon.DirectoryPath}': {ex.Message}");
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private void WriteSessionAddonConflict(string addonName, string relativePath, string reason)
+        => _deferredSessionLogService.WriteErrorOrConsole("profile", $"Session addon '{addonName}' conflicts at '{NormalizeDisplayPath(relativePath)}' ({reason}). Rename or remove the conflicting file before launching.");
+
+    private static bool IsAgentsFile(string relativePath)
+        => String.Equals(Path.GetFileName(relativePath), OpencodeWrapConstants.AGENTS_FILE_NAME, StringComparison.OrdinalIgnoreCase);
+
+    private static string NormalizeDisplayPath(string path)
+        => path.Replace('\\', '/');
 
     private static string ResolveContainerWorkspacePath(string hostWorkDir)
     {

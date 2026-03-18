@@ -219,12 +219,7 @@ internal sealed partial class DockerHostService : Singleton
         try
         {
             Directory.CreateDirectory(configDirectory);
-            string globalAgentsPath = Path.Combine(configDirectory, OpencodeWrapConstants.HOST_GLOBAL_AGENTS_FILE_NAME);
-            if(!File.Exists(globalAgentsPath))
-            {
-                File.WriteAllText(globalAgentsPath, String.Empty);
-            }
-
+            Directory.CreateDirectory(Path.Combine(configDirectory, OpencodeWrapConstants.HOST_ADDON_ROOT_DIRECTORY_NAME));
             return true;
         }
         catch(Exception ex)

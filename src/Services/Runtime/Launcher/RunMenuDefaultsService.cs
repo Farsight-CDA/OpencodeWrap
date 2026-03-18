@@ -84,6 +84,15 @@ internal sealed partial class RunMenuDefaultsService : Singleton
 
             writer.WriteEndArray();
 
+            writer.WritePropertyName("sessionAddons");
+            writer.WriteStartArray();
+            foreach(string addonName in normalizedDefaults.SessionAddons)
+            {
+                writer.WriteStringValue(addonName);
+            }
+
+            writer.WriteEndArray();
+
             writer.WritePropertyName("dockerNetworks");
             writer.WriteStartArray();
             foreach(string networkName in normalizedDefaults.DockerNetworks)
@@ -141,6 +150,7 @@ internal sealed partial class RunMenuDefaultsService : Singleton
             defaultUiMode,
             defaultDockerNetworkMode,
             ReadStringArray(rootElement, "resourceDirectories"),
+            ReadStringArray(rootElement, "sessionAddons"),
             ReadStringArray(rootElement, "dockerNetworks")));
     }
 
@@ -181,7 +191,13 @@ internal sealed partial class RunMenuDefaultsService : Singleton
             .Select(name => name.Trim())
             .Where(seenNetworkNames.Add)];
 
-        return new RunMenuDefaults(defaultProfileName, defaults.DefaultUiMode, defaults.DefaultDockerNetworkMode, resourceDirectories, dockerNetworks);
+        var seenAddonNames = new HashSet<string>(GetHostPathComparer());
+        List<string> sessionAddons = [.. defaults.SessionAddons
+            .Where(name => !String.IsNullOrWhiteSpace(name))
+            .Select(name => name.Trim())
+            .Where(seenAddonNames.Add)];
+
+        return new RunMenuDefaults(defaultProfileName, defaults.DefaultUiMode, defaults.DefaultDockerNetworkMode, resourceDirectories, sessionAddons, dockerNetworks);
     }
 
     private static string GetPersistedRunUiModeValue(RunUiMode runUiMode) => runUiMode switch
@@ -218,7 +234,7 @@ internal sealed partial class RunMenuDefaultsService : Singleton
         : StringComparer.Ordinal;
 }
 
-internal sealed record RunMenuDefaults(string? DefaultProfileName, RunUiMode? DefaultUiMode, DockerNetworkMode? DefaultDockerNetworkMode, IReadOnlyList<string> ResourceDirectories, IReadOnlyList<string> DockerNetworks)
+internal sealed record RunMenuDefaults(string? DefaultProfileName, RunUiMode? DefaultUiMode, DockerNetworkMode? DefaultDockerNetworkMode, IReadOnlyList<string> ResourceDirectories, IReadOnlyList<string> SessionAddons, IReadOnlyList<string> DockerNetworks)
 {
-    public static RunMenuDefaults Empty { get; } = new(null, null, null, [], []);
+    public static RunMenuDefaults Empty { get; } = new(null, null, null, [], [], []);
 }

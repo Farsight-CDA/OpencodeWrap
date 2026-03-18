@@ -30,6 +30,11 @@ internal static class Program
             builder.Services.AddTransient<DeleteProfileCliCommand>();
             builder.Services.AddTransient<BuildProfileCliCommand>();
             builder.Services.AddTransient<OpenProfileDirectoryCliCommand>();
+            builder.Services.AddTransient<AddonCliCommand>();
+            builder.Services.AddTransient<ListAddonsCliCommand>();
+            builder.Services.AddTransient<AddAddonCliCommand>();
+            builder.Services.AddTransient<DeleteAddonCliCommand>();
+            builder.Services.AddTransient<OpenAddonDirectoryCliCommand>();
 
             using var host = builder.Build();
             Environment.ExitCode = await OpencodeWrapCli.RunAsync(args, host.Services);
