@@ -154,30 +154,12 @@ internal sealed class RunCliCommand : Command
             activeNetworkNames.UnionWith(defaultNetworkNames);
         }
 
-        bool showingControls = false;
-
         while(true)
         {
-            RenderRunSelectionScreen(profileChoices, selectedIndex, uiChoices, selectedUiIndex, selectedTab, mountMode, currentWorkspacePath, selectedResourceDirectories, defaultResourceDirectories, selectedResourceIndex, addonCatalog.AddonsRoot, availableAddonNames, defaultAddonNames, selectedAddonIndex, activeAddonNames, availableNetworkNames, defaultNetworkNames, selectedNetworkIndex, selectedNetworkMode, defaultNetworkMode, activeNetworkNames, showingControls, hostNetworkAvailable, showWindowsHostNetworkingHint: _dockerHostService.IsWindows);
+            RenderRunSelectionScreen(profileChoices, selectedIndex, uiChoices, selectedUiIndex, selectedTab, mountMode, currentWorkspacePath, selectedResourceDirectories, defaultResourceDirectories, selectedResourceIndex, addonCatalog.AddonsRoot, availableAddonNames, defaultAddonNames, selectedAddonIndex, activeAddonNames, availableNetworkNames, defaultNetworkNames, selectedNetworkIndex, selectedNetworkMode, defaultNetworkMode, activeNetworkNames, hostNetworkAvailable, showWindowsHostNetworkingHint: _dockerHostService.IsWindows);
             var keyInfo = AnsiConsole.Console.Input.ReadKey(intercept: true);
             if(keyInfo is null)
             {
-                continue;
-            }
-
-            if(showingControls)
-            {
-                if(!IsHelpKey(keyInfo.Value))
-                {
-                    showingControls = false;
-                }
-
-                continue;
-            }
-
-            if(IsHelpKey(keyInfo.Value))
-            {
-                showingControls = true;
                 continue;
             }
 
@@ -535,31 +517,9 @@ internal sealed class RunCliCommand : Command
         DockerNetworkMode selectedNetworkMode,
         DockerNetworkMode? defaultNetworkMode,
         HashSet<string> activeNetworkNames,
-        bool showingControls,
         bool hostNetworkAvailable,
         bool showWindowsHostNetworkingHint)
     {
-        if(showingControls)
-        {
-            RenderControlsScreen(
-                "Run Setup Controls",
-                "Press any key to return.",
-                ("Left / Right", "Switch tabs"),
-                ("A / D", "Switch tabs"),
-                ("Up / Down", "Move selection"),
-                ("W / S", "Move selection"),
-                ("M", "Toggle workspace mount"),
-                ("Space", "Add resource (resource tab)"),
-                ("Space", "Toggle addon (addons tab)"),
-                ("Space", "Cycle mode / toggle network"),
-                ("+", "Save default / toggle saved"),
-                ("Backspace / Delete", "Remove selected resource"),
-                ("Enter", "Start session"),
-                ("Esc", "Cancel"),
-                ("?", "Show controls"));
-            return;
-        }
-
         AnsiConsole.Clear();
         AppIO.WriteHeader("Run Setup");
 
@@ -611,7 +571,6 @@ internal sealed class RunCliCommand : Command
         var footerGrid = new Grid();
         footerGrid.AddColumn(new GridColumn().Width(20));
         footerGrid.AddColumn(new GridColumn().Width(20));
-        footerGrid.AddColumn(new GridColumn().Width(20));
         footerGrid.AddColumn(new GridColumn());
 
         string tabHint = selectedTab switch
@@ -626,7 +585,6 @@ internal sealed class RunCliCommand : Command
 
         footerGrid.AddRow(
             "[grey]ESC[/] [dodgerblue1]cancel[/]",
-            "[grey]?[/] [dodgerblue1]help[/]",
             "[grey]M[/] [dodgerblue1]mount mode[/]",
             tabHint
         );
@@ -1040,8 +998,6 @@ internal sealed class RunCliCommand : Command
             ? 1
             : availableNetworkNames.Count + 1;
 
-    private static bool IsHelpKey(ConsoleKeyInfo keyInfo) => keyInfo.KeyChar == '?';
-
     private static bool IsDefaultToggleKey(ConsoleKeyInfo keyInfo)
         => keyInfo.KeyChar == '+' || keyInfo.Key is ConsoleKey.Add or ConsoleKey.OemPlus;
 
@@ -1094,7 +1050,6 @@ internal sealed class RunCliCommand : Command
 
         int selectedIndex = 0;
         bool selectingDrive = false;
-        bool showingControls = false;
 
         while(true)
         {
@@ -1135,27 +1090,11 @@ internal sealed class RunCliCommand : Command
                 selectedIndex = 0;
             }
 
-            RenderResourceDirectoryExplorer(currentDirectory, selectingDrive, entries, selectedIndex, showingControls);
+            RenderResourceDirectoryExplorer(currentDirectory, selectingDrive, entries, selectedIndex);
 
             var keyInfo = AnsiConsole.Console.Input.ReadKey(intercept: true);
             if(keyInfo is null)
             {
-                continue;
-            }
-
-            if(showingControls)
-            {
-                if(!IsHelpKey(keyInfo.Value))
-                {
-                    showingControls = false;
-                }
-
-                continue;
-            }
-
-            if(IsHelpKey(keyInfo.Value))
-            {
-                showingControls = true;
                 continue;
             }
 
@@ -1261,24 +1200,8 @@ internal sealed class RunCliCommand : Command
         string currentDirectory,
         bool selectingDrive,
         IReadOnlyList<ExplorerEntry> entries,
-        int selectedIndex,
-        bool showingControls)
+        int selectedIndex)
     {
-        if(showingControls)
-        {
-            RenderControlsScreen(
-                "Resource Browser Controls",
-                "Press any key to return.",
-                ("Up / Down", "Navigate"),
-                ("W / S", "Navigate"),
-                ("Space / Right", "Open selected"),
-                ("Left / Backspace", "Go up"),
-                ("Enter", "Add current directory"),
-                ("Esc", "Cancel"),
-                ("?", "Show controls"));
-            return;
-        }
-
         AnsiConsole.Clear();
         AppIO.WriteHeader("Resource Browser", "Pick additional read-only mounts.");
 
@@ -1333,32 +1256,6 @@ internal sealed class RunCliCommand : Command
             Header = new PanelHeader("[bold]Directories[/]", Justify.Left),
             Padding = new Padding(1, 0, 1, 0)
         });
-    }
-
-    private static void RenderControlsScreen(string title, string subtitle, params (string Key, string Action)[] shortcuts)
-    {
-        AnsiConsole.Clear();
-        AppIO.WriteHeader(title, subtitle);
-        AnsiConsole.Write(CreateKeyHelpPanel(shortcuts));
-    }
-
-    private static Panel CreateKeyHelpPanel(params (string Key, string Action)[] shortcuts)
-    {
-        var keyGrid = new Grid();
-        keyGrid.AddColumn(new GridColumn().NoWrap());
-        keyGrid.AddColumn();
-
-        foreach(var (key, action) in shortcuts)
-        {
-            keyGrid.AddRow($"[deepskyblue1]{Markup.Escape(key)}[/]", $"[grey]{Markup.Escape(action)}[/]");
-        }
-
-        return new Panel(keyGrid)
-        {
-            Border = BoxBorder.Rounded,
-            Header = new PanelHeader("[bold]Controls[/]", Justify.Left),
-            Padding = new Padding(1, 0, 1, 0)
-        };
     }
 
     private static List<string> GetChildDirectories(string directory)
