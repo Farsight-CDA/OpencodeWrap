@@ -76,6 +76,12 @@ internal sealed partial class SessionAddonService : Singleton
         return PathIsWithin(addonsRoot, addonDirectoryPath);
     }
 
+    public void EnsureAddonSupportDirectories(string addonDirectoryPath)
+    {
+        Directory.CreateDirectory(Path.Combine(addonDirectoryPath, OpencodeWrapConstants.PROFILE_OPENCODE_DIRECTORY_NAME));
+        Directory.CreateDirectory(Path.Combine(addonDirectoryPath, OpencodeWrapConstants.PROFILE_BIN_DIRECTORY_NAME));
+    }
+
     public bool TryResolveAddons(IReadOnlyList<string>? requestedAddonNames, string? materializationRootDirectory, out IReadOnlyList<ResolvedSessionAddon> addons)
     {
         addons = [];

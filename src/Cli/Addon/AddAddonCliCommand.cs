@@ -9,7 +9,7 @@ internal sealed class AddAddonCliCommand : Command
     private readonly BuiltInSessionAddonService _builtInSessionAddonService;
 
     public AddAddonCliCommand(SessionAddonService sessionAddonService, BuiltInSessionAddonService builtInSessionAddonService)
-        : base("add", "Add a new session addon directory under the OCW config directory.")
+        : base("add", "Add a new session addon directory under the OCW config directory with starter opencode/bin folders.")
     {
         _sessionAddonService = sessionAddonService;
         _builtInSessionAddonService = builtInSessionAddonService;
@@ -63,10 +63,17 @@ internal sealed class AddAddonCliCommand : Command
             {
                 if(builtInAddon is not null)
                 {
-                    return Task.FromResult(_builtInSessionAddonService.TryMaterializeBuiltInAddon(builtInAddon, catalog.ConfigRoot, out _));
+                    bool materialized = _builtInSessionAddonService.TryMaterializeBuiltInAddon(builtInAddon, catalog.ConfigRoot, out _);
+                    if(materialized)
+                    {
+                        _sessionAddonService.EnsureAddonSupportDirectories(addonDirectoryPath);
+                    }
+
+                    return Task.FromResult(materialized);
                 }
 
                 Directory.CreateDirectory(addonDirectoryPath);
+                _sessionAddonService.EnsureAddonSupportDirectories(addonDirectoryPath);
                 return Task.FromResult(true);
             });
 
@@ -83,6 +90,7 @@ internal sealed class AddAddonCliCommand : Command
 
         string mode = builtInAddon is not null ? "override" : "session addon";
         AppIO.WriteSuccess($"Added {mode} '{normalizedName}' at '{addonDirectoryPath}'.");
+        AppIO.WriteInfo($"Starter folders created: '{Path.Combine(addonDirectoryPath, OpencodeWrapConstants.PROFILE_OPENCODE_DIRECTORY_NAME)}' and '{Path.Combine(addonDirectoryPath, OpencodeWrapConstants.PROFILE_BIN_DIRECTORY_NAME)}'.");
         AppIO.WriteInfo("Place files here using the same relative paths you want copied into the session profile.");
         return 0;
     }
