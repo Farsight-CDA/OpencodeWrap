@@ -1,6 +1,6 @@
 using Microsoft.Extensions.Logging;
 
-namespace OpencodeWrap.Services.Runtime;
+namespace OpencodeWrap.Services.Logging;
 
 internal sealed partial class SessionOutputService : Singleton
 {

@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
+using OpencodeWrap.Services.Docker;
 
-namespace OpencodeWrap.Services.Runtime;
+namespace OpencodeWrap.Services.Runtime.Lifecycle;
 
 internal sealed partial class OpencodeServeHealthcheckService : Singleton
 {

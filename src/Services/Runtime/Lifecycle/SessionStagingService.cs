@@ -1,7 +1,7 @@
-using OpencodeWrap.Services.Runtime.Infrastructure;
+using OpencodeWrap.Services.Runtime.Core;
 using System.Globalization;
 
-namespace OpencodeWrap.Services.Runtime;
+namespace OpencodeWrap.Services.Runtime.Lifecycle;
 
 internal sealed partial class SessionStagingService : Singleton
 {

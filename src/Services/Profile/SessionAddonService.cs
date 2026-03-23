@@ -1,4 +1,4 @@
-namespace OpencodeWrap.Services.Runtime;
+namespace OpencodeWrap.Services.Profile;
 
 internal sealed record SessionAddonCatalog(string ConfigRoot, string AddonsRoot, IReadOnlyDictionary<string, SessionAddonCatalogEntry> Addons);
 internal sealed record SessionAddonCatalogEntry(string Name, string? DirectoryPath, BuiltInSessionAddon? BuiltInAddon = null);

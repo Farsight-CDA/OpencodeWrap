@@ -1,4 +1,4 @@
-namespace OpencodeWrap.Services.Runtime.Launcher;
+namespace OpencodeWrap.Services.Profile;
 
 internal static class SessionProfileAgentsFile
 {

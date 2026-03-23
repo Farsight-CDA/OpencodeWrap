@@ -1,8 +1,8 @@
 using Microsoft.Extensions.Logging;
-using OpencodeWrap.Services.Runtime.Infrastructure;
+using OpencodeWrap.Services.Runtime.Core;
 using System.Text;
 
-namespace OpencodeWrap.Services.Runtime;
+namespace OpencodeWrap.Services.Runtime.Launch;
 
 internal sealed partial class RunUiLauncherService : Singleton
 {

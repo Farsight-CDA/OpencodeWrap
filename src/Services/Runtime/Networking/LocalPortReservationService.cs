@@ -2,7 +2,7 @@ using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
 
-namespace OpencodeWrap.Services.Runtime.Infrastructure;
+namespace OpencodeWrap.Services.Runtime.Networking;
 
 internal sealed partial class LocalPortReservationService : Singleton
 {

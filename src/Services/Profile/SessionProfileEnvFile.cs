@@ -1,6 +1,6 @@
 using System.Text;
 
-namespace OpencodeWrap.Services.Runtime.Launcher;
+namespace OpencodeWrap.Services.Profile;
 
 internal sealed record SessionEnvironmentVariable(string Key, string Value, string SourceLabel);
 

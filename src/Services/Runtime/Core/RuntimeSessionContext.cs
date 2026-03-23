@@ -1,4 +1,4 @@
-namespace OpencodeWrap.Services.Runtime.Infrastructure;
+namespace OpencodeWrap.Services.Runtime.Core;
 
 internal sealed record RuntimeSessionContext(
     string SessionId,

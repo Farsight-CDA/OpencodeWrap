@@ -1,7 +1,7 @@
 using Microsoft.Extensions.Logging;
 using Spectre.Console;
 
-namespace OpencodeWrap.Services.Runtime;
+namespace OpencodeWrap.Services.Logging;
 
 internal sealed partial class DeferredSessionLogService : Singleton
 {

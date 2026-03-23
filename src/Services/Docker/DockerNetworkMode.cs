@@ -1,4 +1,4 @@
-namespace OpencodeWrap.Services.Runtime.Launcher;
+namespace OpencodeWrap.Services.Docker;
 
 internal enum DockerNetworkMode
 {

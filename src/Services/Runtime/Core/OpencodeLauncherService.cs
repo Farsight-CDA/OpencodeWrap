@@ -1,10 +1,15 @@
 using Microsoft.Extensions.Logging;
-using OpencodeWrap.Services.Runtime.Infrastructure;
-using OpencodeWrap.Services.Runtime.Launcher;
+using OpencodeWrap.Services.Docker;
+using OpencodeWrap.Services.Logging;
+using OpencodeWrap.Services.Profile;
+using OpencodeWrap.Services.Runtime.Core;
+using OpencodeWrap.Services.Runtime.Launch;
+using OpencodeWrap.Services.Runtime.Lifecycle;
+using OpencodeWrap.Services.Runtime.Networking;
 using System.Globalization;
 using System.Runtime.InteropServices;
 
-namespace OpencodeWrap.Services.Runtime;
+namespace OpencodeWrap.Services.Runtime.Core;
 
 internal sealed partial class OpencodeLauncherService : Singleton
 {
@@ -101,7 +106,7 @@ internal sealed partial class OpencodeLauncherService : Singleton
                 return 1;
             }
 
-            if(selectedDockerNetworks.Count > 0 && !DockerNetworkModeSupportsAdditionalNetworks(selectedDockerNetworkMode))
+            if(selectedDockerNetworks.Count > 0 && !DockerNetworkModeExtensionsSupportsAdditionalNetworks(selectedDockerNetworkMode))
             {
                 _deferredSessionLogService.WriteErrorOrConsole("startup", $"Docker network mode '{selectedDockerNetworkMode.GetLabel()}' does not support additional network attachments.");
                 return 1;
@@ -811,7 +816,7 @@ internal sealed partial class OpencodeLauncherService : Singleton
         return true;
     }
 
-    private static bool DockerNetworkModeSupportsAdditionalNetworks(DockerNetworkMode dockerNetworkMode)
+    private static bool DockerNetworkModeExtensionsSupportsAdditionalNetworks(DockerNetworkMode dockerNetworkMode)
         => dockerNetworkMode.SupportsAdditionalNetworks();
 
     private static string BuildUniqueContainerResourceDirectoryName(string hostPath, HashSet<string> seenContainerNames)

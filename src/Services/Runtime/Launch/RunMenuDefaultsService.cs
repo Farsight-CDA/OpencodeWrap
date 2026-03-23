@@ -1,7 +1,8 @@
-using OpencodeWrap.Services.Runtime.Infrastructure;
+using OpencodeWrap.Services.Docker;
+using OpencodeWrap.Services.Runtime.Core;
 using System.Text.Json;
 
-namespace OpencodeWrap.Services.Runtime;
+namespace OpencodeWrap.Services.Runtime.Launch;
 
 internal sealed partial class RunMenuDefaultsService : Singleton
 {

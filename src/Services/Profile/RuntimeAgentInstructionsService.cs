@@ -1,7 +1,7 @@
-using OpencodeWrap.Services.Runtime.Infrastructure;
+using OpencodeWrap.Services.Runtime.Core;
 using System.Text;
 
-namespace OpencodeWrap.Services.Runtime;
+namespace OpencodeWrap.Services.Profile;
 
 internal sealed partial class RuntimeAgentInstructionsService : Singleton
 {

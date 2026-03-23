@@ -1,4 +1,4 @@
-namespace OpencodeWrap.Services.Runtime;
+namespace OpencodeWrap.Services.Profile;
 
 internal sealed partial class BuiltInSessionAddonService : Singleton
 {

@@ -1,7 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
-namespace OpencodeWrap.Services.Runtime.Launcher;
+namespace OpencodeWrap.Services.Profile;
 
 internal static class SessionProfileOpencodeConfigFile
 {
