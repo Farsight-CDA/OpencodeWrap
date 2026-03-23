@@ -37,7 +37,16 @@ internal sealed class RunCliCommand : Command
         SetAction(async parseResult =>
         {
             bool verbose = parseResult.GetValue(_verboseOption);
-            var selection = await PromptForRunSelectionAsync();
+            RunSelection? selection;
+            try
+            {
+                selection = await PromptForRunSelectionAsync();
+            }
+            catch(OperationCanceledException)
+            {
+                return 130;
+            }
+
             return selection is null
                 ? 1
                 : await _launcherService.ExecuteAsync([], requestedProfileName: selection.ProfileName, includeProfileConfig: true, runtimeMode: OpencodeRuntimeMode.HostAttachToServe, runUiMode: selection.UiMode, workspaceMountMode: selection.MountMode, extraReadonlyMountDirs: selection.ResourceDirectories, sessionAddons: selection.SessionAddonNames, dockerNetworkMode: selection.NetworkMode, dockerNetworks: selection.NetworkNames, verboseSessionLogs: verbose);
@@ -46,6 +55,8 @@ internal sealed class RunCliCommand : Command
 
     private async Task<RunSelection?> PromptForRunSelectionAsync()
     {
+        using var controlCAsInputScope = ConsoleControlCAsInputScope.TryEnable();
+
         var (success, catalog) = _profileService.TryLoadProfileCatalog();
         if(!success)
         {
@@ -164,6 +175,12 @@ internal sealed class RunCliCommand : Command
             if(keyInfo is null)
             {
                 continue;
+            }
+
+            if(IsInterruptKey(keyInfo.Value))
+            {
+                AnsiConsole.Clear();
+                throw new OperationCanceledException("Run menu interrupted by user.");
             }
 
             if(IsDefaultToggleKey(keyInfo.Value))
@@ -587,7 +604,7 @@ internal sealed class RunCliCommand : Command
         };
 
         footerGrid.AddRow(
-            "[grey]ESC[/] [dodgerblue1]cancel[/]",
+            "[grey]ESC[/] [dodgerblue1]cancel[/] | [grey]Ctrl+C[/] [red]exit[/]",
             "[grey]M[/] [dodgerblue1]mount mode[/]",
             tabHint
         );
@@ -1001,6 +1018,10 @@ internal sealed class RunCliCommand : Command
             ? 1
             : availableNetworkNames.Count + 1;
 
+    private static bool IsInterruptKey(ConsoleKeyInfo keyInfo)
+        => ((keyInfo.Modifiers & ConsoleModifiers.Control) != 0 && keyInfo.Key is ConsoleKey.C)
+            || keyInfo.KeyChar == '\u0003';
+
     private static bool IsDefaultToggleKey(ConsoleKeyInfo keyInfo)
         => keyInfo.KeyChar == '+' || keyInfo.Key is ConsoleKey.Add or ConsoleKey.OemPlus;
 
@@ -1041,6 +1062,8 @@ internal sealed class RunCliCommand : Command
 
     private static string? BrowseForResourceDirectory(string initialDirectory)
     {
+        using var controlCAsInputScope = ConsoleControlCAsInputScope.TryEnable();
+
         string currentDirectory;
         try
         {
@@ -1099,6 +1122,12 @@ internal sealed class RunCliCommand : Command
             if(keyInfo is null)
             {
                 continue;
+            }
+
+            if(IsInterruptKey(keyInfo.Value))
+            {
+                AnsiConsole.Clear();
+                throw new OperationCanceledException("Resource browser interrupted by user.");
             }
 
             switch(keyInfo.Value.Key)
@@ -1336,6 +1365,57 @@ internal sealed class RunCliCommand : Command
     private static StringComparer GetHostPathComparer() => OperatingSystem.IsWindows()
         ? StringComparer.OrdinalIgnoreCase
         : StringComparer.Ordinal;
+
+    private sealed class ConsoleControlCAsInputScope : IDisposable
+    {
+        private readonly bool _restoreTreatControlCAsInput;
+        private readonly bool _previousTreatControlCAsInput;
+
+        private ConsoleControlCAsInputScope(bool restoreTreatControlCAsInput, bool previousTreatControlCAsInput)
+        {
+            _restoreTreatControlCAsInput = restoreTreatControlCAsInput;
+            _previousTreatControlCAsInput = previousTreatControlCAsInput;
+        }
+
+        public static ConsoleControlCAsInputScope TryEnable()
+        {
+            try
+            {
+                bool previousTreatControlCAsInput = Console.TreatControlCAsInput;
+                Console.TreatControlCAsInput = true;
+                return new ConsoleControlCAsInputScope(restoreTreatControlCAsInput: true, previousTreatControlCAsInput);
+            }
+            catch(IOException)
+            {
+                return new ConsoleControlCAsInputScope(restoreTreatControlCAsInput: false, previousTreatControlCAsInput: false);
+            }
+            catch(PlatformNotSupportedException)
+            {
+                return new ConsoleControlCAsInputScope(restoreTreatControlCAsInput: false, previousTreatControlCAsInput: false);
+            }
+        }
+
+        public void Dispose()
+        {
+            if(!_restoreTreatControlCAsInput)
+            {
+                return;
+            }
+
+            try
+            {
+                Console.TreatControlCAsInput = _previousTreatControlCAsInput;
+            }
+            catch(IOException)
+            {
+                // Best effort only.
+            }
+            catch(PlatformNotSupportedException)
+            {
+                // Best effort only.
+            }
+        }
+    }
 
     private sealed record RunSelection(string ProfileName, RunUiMode UiMode, WorkspaceMountMode MountMode, IReadOnlyList<string> ResourceDirectories, IReadOnlyList<string> SessionAddonNames, DockerNetworkMode NetworkMode, IReadOnlyList<string> NetworkNames);
     private sealed record ProfileChoice(string Name, bool IsDefault);
