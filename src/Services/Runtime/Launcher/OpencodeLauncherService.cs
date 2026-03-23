@@ -586,6 +586,14 @@ internal sealed partial class OpencodeLauncherService : Singleton
 
             Directory.CreateDirectory(sessionConfigDirectoryPath);
 
+            if(!SessionProfileOpencodeConfigFile.TryPrepareForLaunch(profile, sessionProfileDirectoryPath, sessionAddons, out string? configErrorMessage))
+            {
+                _deferredSessionLogService.WriteErrorOrConsole("profile", configErrorMessage ?? $"Failed to prepare merged opencode config in '{sessionProfileDirectoryPath}'.");
+                sessionProfile = profile;
+                AppIO.TryDeleteDirectory(sessionProfileDirectoryPath);
+                return false;
+            }
+
             string agentsPath = Path.Combine(sessionConfigDirectoryPath, OpencodeWrapConstants.AGENTS_FILE_NAME);
             SessionProfileAgentsFile.EnsureForLaunch(agentsPath, includeProfileConfig, runtimeAgentInstructions);
 
@@ -660,6 +668,11 @@ internal sealed partial class OpencodeLauncherService : Singleton
                         continue;
                     }
 
+                    if(IsSessionOpencodeConfigFile(relativePath))
+                    {
+                        continue;
+                    }
+
                     string destinationPath = Path.Combine(sessionProfileDirectoryPath, relativePath);
                     if(Directory.Exists(destinationPath))
                     {
@@ -706,6 +719,12 @@ internal sealed partial class OpencodeLauncherService : Singleton
 
     private static bool IsSessionEnvFile(string relativePath)
         => String.Equals(NormalizeDisplayPath(relativePath), OpencodeWrapConstants.PROFILE_ENV_FILE_NAME, StringComparison.OrdinalIgnoreCase);
+
+    private static bool IsSessionOpencodeConfigFile(string relativePath)
+        => String.Equals(
+            NormalizeDisplayPath(relativePath),
+            $"{OpencodeWrapConstants.PROFILE_OPENCODE_DIRECTORY_NAME}/{OpencodeWrapConstants.PROFILE_OPENCODE_CONFIG_FILE_NAME}",
+            StringComparison.OrdinalIgnoreCase);
 
     private static string NormalizeDisplayPath(string path)
         => path.Replace('\\', '/');

@@ -27,6 +27,7 @@ internal static class OpencodeWrapConstants
     public const string PROFILE_BIN_DIRECTORY_NAME = "bin";
     public const string PROFILE_ENV_FILE_NAME = ".env";
     public const string PROFILE_OPENCODE_DIRECTORY_NAME = "opencode";
+    public const string PROFILE_OPENCODE_CONFIG_FILE_NAME = "opencode.json";
     public const string PROFILE_ENTRYPOINT_FILE_NAME = "entrypoint.sh";
     public const string XDG_VOLUME_NAME = "opencode-wrap-xdg";
     public const string CONTAINER_XDG_ROOT = CONTAINER_PERSISTENT_ROOT;

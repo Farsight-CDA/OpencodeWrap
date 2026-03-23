@@ -799,7 +799,7 @@ internal sealed class RunCliCommand : Command
         if(availableAddonNames.Count == 0)
         {
             content.AppendLine($"[grey]Create addon folders under {Markup.Escape(addonsRootPath)} to make them available here.[/]");
-            content.AppendLine("[grey]Conflicting files stop launch, except AGENTS.md and root .env which are merged.[/]");
+            content.AppendLine("[grey]Conflicting files stop launch, except AGENTS.md, root .env, and opencode/opencode.json which are merged.[/]");
             return new Markup(content.ToString());
         }
 

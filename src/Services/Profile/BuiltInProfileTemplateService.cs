@@ -57,7 +57,7 @@ internal sealed partial class BuiltInProfileTemplateService : Singleton
             Directory.CreateDirectory(temporaryDirectoryPath);
             await File.WriteAllTextAsync(Path.Combine(temporaryDirectoryPath, OpencodeWrapConstants.PROFILE_DOCKERFILE_NAME), builtInProfile.Dockerfile);
             string opencodeDirectoryPath = await EnsureProfileSupportDirectoriesAsync(temporaryDirectoryPath);
-            await File.WriteAllTextAsync(Path.Combine(opencodeDirectoryPath, "opencode.json"), builtInProfile.OpencodeConfig);
+            await File.WriteAllTextAsync(Path.Combine(opencodeDirectoryPath, OpencodeWrapConstants.PROFILE_OPENCODE_CONFIG_FILE_NAME), builtInProfile.OpencodeConfig);
             await WriteDefaultEntrypointAsync(temporaryDirectoryPath);
             return (true, temporaryDirectoryPath);
         }

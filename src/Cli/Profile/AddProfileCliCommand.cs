@@ -56,7 +56,7 @@ internal sealed class AddProfileCliCommand : Command
 
         string dockerfilePath = Path.Combine(profileDirectoryPath, OpencodeWrapConstants.PROFILE_DOCKERFILE_NAME);
         string profileBinDirectoryPath = Path.Combine(profileDirectoryPath, OpencodeWrapConstants.PROFILE_BIN_DIRECTORY_NAME);
-        string opencodeConfigPath = Path.Combine(profileDirectoryPath, OpencodeWrapConstants.PROFILE_OPENCODE_DIRECTORY_NAME, "opencode.json");
+        string opencodeConfigPath = Path.Combine(profileDirectoryPath, OpencodeWrapConstants.PROFILE_OPENCODE_DIRECTORY_NAME, OpencodeWrapConstants.PROFILE_OPENCODE_CONFIG_FILE_NAME);
 
         try
         {

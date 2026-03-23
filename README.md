@@ -60,6 +60,7 @@ Enhance your sessions with custom configurations:
 
 - Drop addon folders in `~/.opencode-wrap/addons/`
 - Enable them when running `ocw run`
+- `AGENTS.md`, root `.env`, and `opencode/opencode.json` are merged across the profile and active addons
 - Built-in addons include **Question Affinity** (AGENTS.md behavior instructions) and **Web Search** (enable Exa search)
 
 ---
