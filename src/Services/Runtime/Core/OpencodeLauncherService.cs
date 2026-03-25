@@ -53,6 +53,7 @@ internal sealed partial class OpencodeLauncherService : Singleton
     {
         bool useServeSession = runtimeMode is OpencodeRuntimeMode.HostAttachToServe;
         bool useManagedHostClient = useServeSession && runUiMode is RunUiMode.Tui;
+        bool clearConsoleOnSessionLogFlush = true;
         var sessionLog = includeProfileConfig
             ? _deferredSessionLogService.BeginSession(verboseSessionLogs ? LogLevel.Debug : LogLevel.Information)
             : null;
@@ -378,6 +379,11 @@ internal sealed partial class OpencodeLauncherService : Singleton
                 }
 
                 var launchResult = await _runUiLauncherService.LaunchAsync(runUiMode, session.AttachUrl!, containerWorkDir, managedHostExecutablePath);
+                if(useManagedHostClient && (!launchResult.Success || launchResult.ExitCode != 0))
+                {
+                    clearConsoleOnSessionLogFlush = false;
+                }
+
                 if(!launchResult.Success)
                 {
                     if(!String.IsNullOrWhiteSpace(session.AttachUrl))
@@ -431,7 +437,7 @@ internal sealed partial class OpencodeLauncherService : Singleton
                 AppIO.TryDeleteDirectory(_hostSessionDirectory);
             }
 
-            sessionLog?.FlushToConsole();
+            sessionLog?.FlushToConsole(clearConsoleOnSessionLogFlush);
             sessionLog?.Dispose();
         }
 

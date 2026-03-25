@@ -76,8 +76,8 @@ internal sealed partial class DeferredSessionLogService : Singleton
             _session = session;
         }
 
-        public void FlushToConsole()
-            => _session.FlushToConsole();
+        public void FlushToConsole(bool clearConsole = true)
+            => _session.FlushToConsole(clearConsole);
 
         internal IReadOnlyList<SessionBuffer.SessionLogEntry> GetEntriesSnapshot()
             => _session.GetEntriesSnapshot();
@@ -124,7 +124,7 @@ internal sealed partial class DeferredSessionLogService : Singleton
             }
         }
 
-        public void FlushToConsole()
+        public void FlushToConsole(bool clearConsole = true)
         {
             SessionLogEntry[] entries;
 
@@ -139,7 +139,7 @@ internal sealed partial class DeferredSessionLogService : Singleton
                 _entries.Clear();
             }
 
-            if(AnsiConsole.Profile.Capabilities.Interactive)
+            if(clearConsole && AnsiConsole.Profile.Capabilities.Interactive)
             {
                 AnsiConsole.Clear();
             }
