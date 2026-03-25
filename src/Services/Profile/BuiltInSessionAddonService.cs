@@ -4,6 +4,7 @@ internal sealed partial class BuiltInSessionAddonService : Singleton
 {
     private const string QUESTION_AFFINITY_NAME = "Question Affinity";
     private const string WEB_SEARCH_NAME = "Web Search";
+    private const string CURSOR_AUTH_NAME = "cursor-auth";
     private const string QUESTION_AFFINITY_INSTRUCTIONS = """
         # Agent Behavior
 
@@ -12,6 +13,19 @@ internal sealed partial class BuiltInSessionAddonService : Singleton
         - When asking questions always use the questions tool.
         """;
     private const string WEB_SEARCH_ENVIRONMENT = "OPENCODE_ENABLE_EXA=1\n";
+    private const string CURSOR_AUTH_OPENCODE_JSON = """
+        {
+            "$schema": "https://opencode.ai/config.json",
+            "plugin": [
+                "@playwo/opencode-cursor-oauth@latest"
+            ],
+            "provider": {
+                "cursor": {
+                    "name": "Cursor"
+                }
+            }
+        }
+        """;
 
     [Inject]
     private readonly DeferredSessionLogService _deferredSessionLogService;
@@ -29,6 +43,12 @@ internal sealed partial class BuiltInSessionAddonService : Singleton
             new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
             {
                 [OpencodeWrapConstants.PROFILE_ENV_FILE_NAME] = WEB_SEARCH_ENVIRONMENT
+            }),
+        new(
+            CURSOR_AUTH_NAME,
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                [$"{OpencodeWrapConstants.PROFILE_OPENCODE_DIRECTORY_NAME}/{OpencodeWrapConstants.PROFILE_OPENCODE_CONFIG_FILE_NAME}"] = CURSOR_AUTH_OPENCODE_JSON
             })
     ];
 
