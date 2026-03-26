@@ -1,0 +1,11 @@
+{
+    "$schema": "https://opencode.ai/config.json",
+    "plugin": [
+        "@playwo/opencode-cursor-oauth@latest"
+    ],
+    "provider": {
+        "cursor": {
+            "name": "Cursor"
+        }
+    }
+}

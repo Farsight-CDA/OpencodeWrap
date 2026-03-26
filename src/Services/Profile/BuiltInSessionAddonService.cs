@@ -1,56 +1,22 @@
+using System.Reflection;
+
 namespace OpencodeWrap.Services.Profile;
 
 internal sealed partial class BuiltInSessionAddonService : Singleton
 {
-    private const string QUESTION_AFFINITY_NAME = "Question Affinity";
-    private const string WEB_SEARCH_NAME = "Web Search";
-    private const string CURSOR_AUTH_NAME = "cursor-auth";
-    private const string QUESTION_AFFINITY_INSTRUCTIONS = """
-        # Agent Behavior
+    private const string SessionAddonTemplatesMarker = ".SessionAddonTemplates.";
 
-        - Whenever you think you can improve your solution by asking additional questions for clarification please do so.
-        - If a user request contains any ambiguity please use questions to clarify further.
-        - When asking questions always use the questions tool.
-        """;
-    private const string WEB_SEARCH_ENVIRONMENT = "OPENCODE_ENABLE_EXA=1\n";
-    private const string CURSOR_AUTH_OPENCODE_JSON = """
-        {
-            "$schema": "https://opencode.ai/config.json",
-            "plugin": [
-                "@playwo/opencode-cursor-oauth@latest"
-            ],
-            "provider": {
-                "cursor": {
-                    "name": "Cursor"
-                }
-            }
-        }
-        """;
+    private static readonly (string ResourceFolderSlug, string Name)[] AddonDefinitions =
+    [
+        ("question_affinity", "Question Affinity"),
+        ("web_search", "Web Search"),
+        ("cursor_auth", "cursor-auth")
+    ];
 
     [Inject]
     private readonly DeferredSessionLogService _deferredSessionLogService;
 
-    private static readonly BuiltInSessionAddon[] _builtInAddons =
-    [
-        new(
-            QUESTION_AFFINITY_NAME,
-            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-            {
-                [$"{OpencodeWrapConstants.PROFILE_OPENCODE_DIRECTORY_NAME}/{OpencodeWrapConstants.AGENTS_FILE_NAME}"] = QUESTION_AFFINITY_INSTRUCTIONS
-            }),
-        new(
-            WEB_SEARCH_NAME,
-            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-            {
-                [OpencodeWrapConstants.PROFILE_ENV_FILE_NAME] = WEB_SEARCH_ENVIRONMENT
-            }),
-        new(
-            CURSOR_AUTH_NAME,
-            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-            {
-                [$"{OpencodeWrapConstants.PROFILE_OPENCODE_DIRECTORY_NAME}/{OpencodeWrapConstants.PROFILE_OPENCODE_CONFIG_FILE_NAME}"] = CURSOR_AUTH_OPENCODE_JSON
-            })
-    ];
+    private static readonly BuiltInSessionAddon[] _builtInAddons = BuildBuiltInAddons();
 
     public IReadOnlyList<BuiltInSessionAddon> BuiltInAddons { get; } = _builtInAddons;
 
@@ -85,5 +51,89 @@ internal sealed partial class BuiltInSessionAddonService : Singleton
             addonDirectoryPath = "";
             return false;
         }
+    }
+
+    private static BuiltInSessionAddon[] BuildBuiltInAddons()
+    {
+        Assembly assembly = typeof(BuiltInSessionAddonService).Assembly;
+        var filesByFolder = new Dictionary<string, Dictionary<string, string>>(StringComparer.OrdinalIgnoreCase);
+
+        foreach(string fullName in assembly.GetManifestResourceNames())
+        {
+            int markerIndex = fullName.IndexOf(SessionAddonTemplatesMarker, StringComparison.Ordinal);
+            if(markerIndex < 0)
+            {
+                continue;
+            }
+
+            string afterMarker = fullName[(markerIndex + SessionAddonTemplatesMarker.Length)..];
+            int folderSeparatorIndex = afterMarker.IndexOf('.');
+            if(folderSeparatorIndex < 0)
+            {
+                continue;
+            }
+
+            string resourceFolderSlug = afterMarker[..folderSeparatorIndex];
+            string remainder = afterMarker[(folderSeparatorIndex + 1)..];
+            string relativePath = RemainderToAddonRelativePath(remainder);
+            string text = ReadManifestResourceText(assembly, fullName);
+
+            if(!filesByFolder.TryGetValue(resourceFolderSlug, out Dictionary<string, string>? folderFiles))
+            {
+                folderFiles = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                filesByFolder[resourceFolderSlug] = folderFiles;
+            }
+
+            folderFiles[relativePath] = text;
+        }
+
+        var addons = new BuiltInSessionAddon[AddonDefinitions.Length];
+
+        for(int i = 0; i < AddonDefinitions.Length; i++)
+        {
+            (string resourceFolderSlug, string name) = AddonDefinitions[i];
+
+            if(!filesByFolder.TryGetValue(resourceFolderSlug, out Dictionary<string, string>? folderFiles) || folderFiles.Count == 0)
+            {
+                throw new InvalidOperationException($"Missing embedded files for built-in session addon '{name}' (resource folder '{resourceFolderSlug}').");
+            }
+
+            addons[i] = new BuiltInSessionAddon(name, new Dictionary<string, string>(folderFiles, StringComparer.OrdinalIgnoreCase));
+        }
+
+        return addons;
+    }
+
+    private static string RemainderToAddonRelativePath(string remainder)
+    {
+        if(remainder.Length == 0 || remainder[0] == '.')
+        {
+            return remainder;
+        }
+
+        int firstDotIndex = remainder.IndexOf('.');
+        if(firstDotIndex < 0)
+        {
+            return remainder;
+        }
+
+        if(remainder.IndexOf('.', firstDotIndex + 1) < 0)
+        {
+            return remainder;
+        }
+
+        return $"{remainder[..firstDotIndex]}/{remainder[(firstDotIndex + 1)..]}";
+    }
+
+    private static string ReadManifestResourceText(Assembly assembly, string fullName)
+    {
+        using Stream? stream = assembly.GetManifestResourceStream(fullName);
+        if(stream is null)
+        {
+            throw new InvalidOperationException($"Cannot open embedded resource '{fullName}'.");
+        }
+
+        using var reader = new StreamReader(stream);
+        return reader.ReadToEnd();
     }
 }
