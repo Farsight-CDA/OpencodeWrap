@@ -465,7 +465,7 @@ internal sealed partial class OpencodeLauncherService : Singleton
         return $$"""
         set -e
         mkdir -p "$XDG_CONFIG_HOME" "$XDG_CONFIG_HOME/opencode" "$XDG_DATA_HOME/opencode" "$XDG_STATE_HOME/opencode" "{{ocwBinPath}}"
-        export PATH="/opt/opencode/bin:$XDG_DATA_HOME/opencode/bin:{{ocwBinPath}}:{{profileBinPath}}${HOME:+:$HOME/.local/share/opencode/bin:$HOME/.local/bin}:$PATH"
+        export PATH="/opt/opencode/bin:$XDG_DATA_HOME/opencode/bin:{{ocwBinPath}}:{{profileBinPath}}${HOME:+:$HOME/.cache/opencode/bin:$HOME/.local/share/opencode/bin:$HOME/.local/bin}:$PATH"
         if [ -f "{{profileEntrypointPath}}" ]; then printf '[ocw] starting profile entrypoint...\n' >&2; exec bash "{{profileEntrypointPath}}" "$@"; fi
         printf '[ocw] launching opencode...\n' >&2
         exec opencode "$@"
