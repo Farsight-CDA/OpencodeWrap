@@ -7,7 +7,6 @@ internal static class OpencodeWrapConstants
     public const string CONTAINER_OCW_ROOT = "/ocw";
     public const string CONTAINER_PERSISTENT_ROOT = $"{CONTAINER_OCW_ROOT}/state";
     public const string CONTAINER_SESSION_ROOT = $"{CONTAINER_OCW_ROOT}/session";
-    public const string CONTAINER_TOOL_BIN_ROOT = $"{CONTAINER_SESSION_ROOT}/bin";
     public const string HOST_GLOBAL_CONFIG_DIRECTORY_NAME = ".opencode-wrap";
     public const string AGENTS_FILE_NAME = "AGENTS.md";
     public const string HOST_ADDON_ROOT_DIRECTORY_NAME = "addons";
@@ -34,6 +33,7 @@ internal static class OpencodeWrapConstants
     public const string CONTAINER_XDG_CONFIG_HOME = $"{CONTAINER_PERSISTENT_ROOT}/.config";
     public const string CONTAINER_XDG_DATA_HOME = $"{CONTAINER_PERSISTENT_ROOT}/.local/share";
     public const string CONTAINER_XDG_STATE_HOME = $"{CONTAINER_PERSISTENT_ROOT}/.local/state";
+    public const string CONTAINER_XDG_CACHE_HOME = $"{CONTAINER_PERSISTENT_ROOT}/.cache";
     public const string CONTAINER_PROFILE_ROOT = $"{CONTAINER_SESSION_ROOT}/profile";
     public const string VOLUME_SHARE_SUBDIRECTORY = ".local/share/opencode";
     public const string VOLUME_STATE_SUBDIRECTORY = ".local/state/opencode";

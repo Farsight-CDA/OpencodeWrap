@@ -1,11 +1,4 @@
 using Microsoft.Extensions.Logging;
-using OpencodeWrap.Services.Docker;
-using OpencodeWrap.Services.Logging;
-using OpencodeWrap.Services.Profile;
-using OpencodeWrap.Services.Runtime.Core;
-using OpencodeWrap.Services.Runtime.Launch;
-using OpencodeWrap.Services.Runtime.Lifecycle;
-using OpencodeWrap.Services.Runtime.Networking;
 using System.Globalization;
 using System.Runtime.InteropServices;
 
@@ -270,6 +263,7 @@ internal sealed partial class OpencodeLauncherService : Singleton
                 "-e", $"XDG_CONFIG_HOME={containerXdgConfigHome}",
                 "-e", $"XDG_DATA_HOME={OpencodeWrapConstants.CONTAINER_XDG_DATA_HOME}",
                 "-e", $"XDG_STATE_HOME={OpencodeWrapConstants.CONTAINER_XDG_STATE_HOME}",
+                "-e", $"XDG_CACHE_HOME={OpencodeWrapConstants.CONTAINER_XDG_CACHE_HOME}",
                 "-e", $"OCW_PROFILE_ROOT={OpencodeWrapConstants.CONTAINER_PROFILE_ROOT}"
             ]);
 
@@ -461,11 +455,19 @@ internal sealed partial class OpencodeLauncherService : Singleton
     {
         string profileEntrypointPath = $"{OpencodeWrapConstants.CONTAINER_PROFILE_ROOT}/{OpencodeWrapConstants.PROFILE_ENTRYPOINT_FILE_NAME}";
         string profileBinPath = $"{OpencodeWrapConstants.CONTAINER_PROFILE_ROOT}/{OpencodeWrapConstants.PROFILE_BIN_DIRECTORY_NAME}";
-        string ocwBinPath = OpencodeWrapConstants.CONTAINER_TOOL_BIN_ROOT;
         return $$"""
         set -e
-        mkdir -p "$XDG_CONFIG_HOME" "$XDG_CONFIG_HOME/opencode" "$XDG_DATA_HOME/opencode" "$XDG_STATE_HOME/opencode" "{{ocwBinPath}}"
-        export PATH="/opt/opencode/bin:$XDG_DATA_HOME/opencode/bin:{{ocwBinPath}}:{{profileBinPath}}${HOME:+:$HOME/.cache/opencode/bin:$HOME/.local/share/opencode/bin:$HOME/.local/bin}:$PATH"
+        mkdir -p \
+          "$XDG_CONFIG_HOME" \
+          "$XDG_CONFIG_HOME/opencode" \
+          "$XDG_DATA_HOME/opencode" \
+          "$XDG_STATE_HOME/opencode" \
+          "$XDG_CACHE_HOME" \
+          "$XDG_CACHE_HOME/opencode"
+        ocw_prepended_paths="/opt/opencode/bin"
+        ocw_prepended_paths="$ocw_prepended_paths:$XDG_CACHE_HOME/opencode/bin"
+        ocw_prepended_paths="$ocw_prepended_paths:{{profileBinPath}}"
+        export PATH="$ocw_prepended_paths:$PATH"
         if [ -f "{{profileEntrypointPath}}" ]; then printf '[ocw] starting profile entrypoint...\n' >&2; exec bash "{{profileEntrypointPath}}" "$@"; fi
         printf '[ocw] launching opencode...\n' >&2
         exec opencode "$@"
