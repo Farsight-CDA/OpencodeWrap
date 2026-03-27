@@ -30,13 +30,13 @@ internal static class SessionProfileOpencodeConfigFile
         JsonObject? mergedRoot = null;
         foreach(var source in sources)
         {
-            if(!TryParseSource(source, out JsonObject? sourceRoot, out errorMessage))
+            if(!TryParseSource(source, out var sourceRoot, out errorMessage))
             {
                 return false;
             }
 
             mergedRoot = mergedRoot is null
-                ? (JsonObject)sourceRoot!.DeepClone()
+                ? (JsonObject) sourceRoot!.DeepClone()
                 : MergeObjects(mergedRoot, sourceRoot!);
         }
 
@@ -91,7 +91,7 @@ internal static class SessionProfileOpencodeConfigFile
 
         try
         {
-            JsonNode? rootNode = JsonNode.Parse(File.ReadAllText(source.FilePath));
+            var rootNode = JsonNode.Parse(File.ReadAllText(source.FilePath));
             if(rootNode is null)
             {
                 errorMessage = $"{source.Label} at '{source.FilePath}' is empty. Expected a JSON object.";

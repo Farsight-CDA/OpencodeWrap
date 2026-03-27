@@ -191,7 +191,6 @@ internal static class SessionProfileEnvFile
 
     private static bool TryParseSingleQuotedValue(string rawValue, out string value, out string? errorMessage)
     {
-        errorMessage = null;
         int closingQuoteIndex = rawValue.IndexOf('\'', 1);
         if(closingQuoteIndex < 0)
         {
@@ -301,7 +300,7 @@ internal static class SessionProfileEnvFile
             && !key.Any(Char.IsWhiteSpace)
             && !key.Contains('\0');
 
-    private static string BuildFileContents(IReadOnlyList<SessionEnvironmentVariable> variables)
+    private static string BuildFileContents(List<SessionEnvironmentVariable> variables)
     {
         var builder = new StringBuilder();
         for(int index = 0; index < variables.Count; index++)
