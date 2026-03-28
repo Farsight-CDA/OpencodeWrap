@@ -23,7 +23,7 @@ internal sealed record ResolvedOpencodeBinaryAsset(
 internal sealed partial class OpencodeReleaseMetadataService : Singleton
 {
     private const string LATEST_RELEASE_ENDPOINT = "https://api.github.com/repos/anomalyco/opencode/releases/latest";
-    private static readonly TimeSpan _cacheTtl = TimeSpan.FromMinutes(1);
+    private static readonly TimeSpan _cacheTtl = TimeSpan.FromMinutes(5);
     private static readonly HttpClient _httpClient = CreateHttpClient();
 
     [Inject]

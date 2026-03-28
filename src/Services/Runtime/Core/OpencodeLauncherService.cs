@@ -1,6 +1,8 @@
 using Microsoft.Extensions.Logging;
 using System.Globalization;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace OpencodeWrap.Services.Runtime.Core;
 
@@ -59,6 +61,7 @@ internal sealed partial class OpencodeLauncherService : Singleton
         Task<(bool Success, LatestOpencodeRelease Release)>? latestReleaseTask = null;
         Task<(bool Success, string ImageTag)>? baseImageTask = null;
         Task<(bool Success, ManagedHostOpencodeService.ManagedHostOpencodeLease? Lease)>? hostLeaseTask = null;
+        string? resolvedOpencodeVersion = null;
         try
         {
             LogStartupPhase("starting ocw run startup", LogLevel.Debug);
@@ -165,6 +168,7 @@ internal sealed partial class OpencodeLauncherService : Singleton
             }
 
             LogStartupPhase($"resolved latest OpenCode version {latestRelease.Version}", LogLevel.Debug);
+            resolvedOpencodeVersion = latestRelease.Version;
 
             if(useServeSession)
             {
@@ -241,8 +245,13 @@ internal sealed partial class OpencodeLauncherService : Singleton
             LogStartupPhase($"OpenCode runtime image ready: '{runtimeImageTag}'", LogLevel.Debug);
 
             string containerXdgConfigHome = includeProfileConfig
-                ? OpencodeWrapConstants.CONTAINER_PROFILE_ROOT
+                ? (await ResolvePersistentConfigHomeAsync(profile.ConfigDirectoryPath, resolvedOpencodeVersion)) ?? OpencodeWrapConstants.CONTAINER_PROFILE_ROOT
                 : OpencodeWrapConstants.CONTAINER_XDG_CONFIG_HOME;
+
+            if(includeProfileConfig)
+            {
+                LogStartupPhase($"using OpenCode config home '{containerXdgConfigHome}'", LogLevel.Debug);
+            }
 
             string? userSpec = await _hostService.GetContainerUserSpecAsync();
             var containerArgs = new List<string>();
@@ -464,6 +473,9 @@ internal sealed partial class OpencodeLauncherService : Singleton
           "$XDG_STATE_HOME/opencode" \
           "$XDG_CACHE_HOME" \
           "$XDG_CACHE_HOME/opencode"
+        if [ -d "$OCW_PROFILE_ROOT/opencode" ] && [ "$XDG_CONFIG_HOME" != "{{OpencodeWrapConstants.CONTAINER_PROFILE_ROOT}}" ]; then
+          cp -a "$OCW_PROFILE_ROOT/opencode/." "$XDG_CONFIG_HOME/opencode/"
+        fi
         ocw_prepended_paths="/opt/opencode/bin"
         ocw_prepended_paths="$ocw_prepended_paths:$XDG_CACHE_HOME/opencode/bin"
         ocw_prepended_paths="$ocw_prepended_paths:{{profileBinPath}}"
@@ -741,6 +753,43 @@ internal sealed partial class OpencodeLauncherService : Singleton
 
     private static string NormalizeDisplayPath(string path)
         => path.Replace('\\', '/');
+
+    private static async Task<string?> ResolvePersistentConfigHomeAsync(string? sessionConfigDirectoryPath, string? opencodeVersion)
+    {
+        if(String.IsNullOrWhiteSpace(sessionConfigDirectoryPath)
+            || String.IsNullOrWhiteSpace(opencodeVersion)
+            || !Directory.Exists(sessionConfigDirectoryPath))
+        {
+            return null;
+        }
+
+        string configKey = await ComputePersistentConfigKeyAsync(sessionConfigDirectoryPath, opencodeVersion);
+        return $"{OpencodeWrapConstants.CONTAINER_XDG_CONFIG_HOME}/ocw/{configKey}";
+    }
+
+    private static async Task<string> ComputePersistentConfigKeyAsync(string sessionConfigDirectoryPath, string opencodeVersion)
+    {
+        string[] filePaths = [.. Directory.EnumerateFiles(sessionConfigDirectoryPath, "*", SearchOption.AllDirectories)
+            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
+
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        AppendHashString(hash, opencodeVersion);
+
+        foreach(string filePath in filePaths)
+        {
+            string relativePath = NormalizeDisplayPath(Path.GetRelativePath(sessionConfigDirectoryPath, filePath));
+            AppendHashString(hash, relativePath);
+            hash.AppendData(await File.ReadAllBytesAsync(filePath));
+        }
+
+        return Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant()[..16];
+    }
+
+    private static void AppendHashString(IncrementalHash hash, string value)
+    {
+        hash.AppendData(Encoding.UTF8.GetBytes(value));
+        hash.AppendData([(byte)'\n']);
+    }
 
     private static string ResolveContainerWorkspacePath(string hostWorkDir)
     {
