@@ -26,6 +26,10 @@ internal sealed partial class BuiltInProfileTemplateService : Singleton
             LoadEmbeddedTextResource("ProfileTemplates.data-science.Dockerfile"),
             LoadEmbeddedTextResource("ProfileTemplates.data-science.opencode.json")),
         new BuiltInProfileTemplate(
+            "all-in-one",
+            LoadEmbeddedTextResource("ProfileTemplates.all-in-one.Dockerfile"),
+            LoadEmbeddedTextResource("ProfileTemplates.all-in-one.opencode.json")),
+        new BuiltInProfileTemplate(
             "solidity",
             LoadEmbeddedTextResource("ProfileTemplates.solidity.Dockerfile"),
             LoadEmbeddedTextResource("ProfileTemplates.solidity.opencode.json"))

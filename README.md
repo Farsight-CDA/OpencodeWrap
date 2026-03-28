@@ -48,6 +48,7 @@ Pick a profile, choose your UI, start coding.
 | `frontend` | React, Vue, Angular |
 | `dotnet` | .NET/C# projects |
 | `data-science` | Python, ML, notebooks |
+| `all-in-one` | Combined frontend, .NET, data, and Solidity tooling |
 | `solidity` | Blockchain/Web3 |
 
 Create your own with `ocw profile add <name>`.
