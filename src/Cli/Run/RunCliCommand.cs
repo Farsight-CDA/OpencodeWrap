@@ -3,6 +3,7 @@ using OpencodeWrap.Services.Profile;
 using OpencodeWrap.Services.Runtime.Core;
 using OpencodeWrap.Services.Runtime.Launch;
 using Spectre.Console;
+using Spectre.Console.Rendering;
 using System.CommandLine;
 using System.Text;
 
@@ -103,8 +104,6 @@ internal sealed class RunCliCommand : Command
             return null;
         }
 
-        var desktopAppStatus = await _dockerHostService.GetOpenCodeDesktopAppStatusAsync();
-
         string defaultProfileName = profileNames.Contains(runMenuDefaults.DefaultProfileName ?? "")
             ? runMenuDefaults.DefaultProfileName!
             : catalog.DefaultProfileName;
@@ -184,7 +183,7 @@ internal sealed class RunCliCommand : Command
 
         var selectedTab = RunSelectionTab.Profile;
         var defaultUiMode = runMenuDefaults.DefaultUiMode;
-        var uiChoices = BuildUiChoices(desktopAppStatus, defaultUiMode);
+        var uiChoices = BuildUiChoices(defaultUiMode);
         int selectedUiIndex = GetInitialSelectableUiIndex(uiChoices);
         int selectedVolumeIndex = selectedContainerMounts.Count > 0 ? 1 : 0;
         int selectedAddonIndex = 0;
@@ -480,14 +479,7 @@ internal sealed class RunCliCommand : Command
 
                     if(selectedTab is RunSelectionTab.Volumes && selectedVolumeIndex == 0)
                     {
-                        ContainerMount? selectedContainerMount = PromptForContainerMount(currentWorkspacePath, availableVolumeNames, selectedContainerMounts);
-                        if(selectedContainerMount is null)
-                        {
-                            break;
-                        }
-
-                        selectedContainerMounts.Add(selectedContainerMount);
-                        selectedVolumeIndex = selectedContainerMounts.Count;
+                        TryPromptAppendContainerMount(currentWorkspacePath, availableVolumeNames, selectedContainerMounts, ref selectedVolumeIndex);
                     }
 
                     break;
@@ -513,6 +505,12 @@ internal sealed class RunCliCommand : Command
 
                     break;
                 case ConsoleKey.Enter:
+                    if(selectedTab is RunSelectionTab.Volumes && selectedVolumeIndex == 0)
+                    {
+                        TryPromptAppendContainerMount(currentWorkspacePath, availableVolumeNames, selectedContainerMounts, ref selectedVolumeIndex);
+                        break;
+                    }
+
                     if(!uiChoices[selectedUiIndex].IsSelectable)
                     {
                         break;
@@ -539,6 +537,78 @@ internal sealed class RunCliCommand : Command
         WorkspaceMountMode.ReadWrite => WorkspaceMountMode.None,
         _ => WorkspaceMountMode.ReadWrite
     };
+
+    private static readonly Style RunMenuAccentBorderStyle = new(Color.DodgerBlue1);
+    private static readonly Style RunMenuPanelBorderStyle = new(Color.Grey39);
+    private static readonly Style RunMenuFooterBorderStyle = new(Color.Grey23);
+
+    private const string RunMenuSubmenuFooterHintMarkup = "[grey]ESC[/] [dodgerblue1]back[/] · [grey]Ctrl+C[/] [red]exit[/]";
+
+    private static int GetRunMenuPanelWidth()
+    {
+        try
+        {
+            int consoleWidth = Console.WindowWidth;
+            return Math.Max(40, consoleWidth - 4);
+        }
+        catch
+        {
+            return 80;
+        }
+    }
+
+    private static string GetRunSelectionTabPanelTitle(RunSelectionTab selectedTab) => selectedTab switch
+    {
+        RunSelectionTab.Profile => "[bold dodgerblue1]Profile[/]",
+        RunSelectionTab.Ui => "[bold dodgerblue1]User interface[/]",
+        RunSelectionTab.Volumes => "[bold dodgerblue1]Extra mounts[/]",
+        RunSelectionTab.Addons => "[bold dodgerblue1]Session addons[/]",
+        RunSelectionTab.Networks => "[bold dodgerblue1]Docker networks[/]",
+        _ => "[bold dodgerblue1]Run setup[/]"
+    };
+
+    private static Panel CreateRunMenuContentPanel(IRenderable content, string? headerMarkup = null, int? height = null)
+    {
+        var paddedContent = new Padder(content)
+            .PadLeft(1)
+            .PadRight(1)
+            .PadTop(1)
+            .PadBottom(1);
+        var panel = new Panel(paddedContent)
+        {
+            Border = BoxBorder.Rounded,
+            BorderStyle = RunMenuPanelBorderStyle,
+            Width = GetRunMenuPanelWidth(),
+            Padding = new Padding(0)
+        };
+
+        if(!String.IsNullOrWhiteSpace(headerMarkup))
+        {
+            panel.Header = new PanelHeader(headerMarkup, Justify.Left);
+        }
+
+        if(height is not null)
+        {
+            panel.Height = height.Value;
+        }
+
+        return panel;
+    }
+
+    private static Panel CreateRunMenuFooterPanel(string hintMarkup) => new Panel(new Markup(hintMarkup))
+    {
+        Border = BoxBorder.Rounded,
+        BorderStyle = RunMenuFooterBorderStyle,
+        Padding = new Padding(1, 1),
+        Width = GetRunMenuPanelWidth()
+    };
+
+    private static void WriteRunMenuSubmenuLayout(Markup body, int bodyHeight = 14, string? bodyHeaderMarkup = null)
+    {
+        AnsiConsole.Write(CreateRunMenuContentPanel(body, bodyHeaderMarkup, bodyHeight));
+        AnsiConsole.WriteLine();
+        AnsiConsole.Write(CreateRunMenuFooterPanel(RunMenuSubmenuFooterHintMarkup));
+    }
 
     private static void RenderRunSelectionScreen(
         IReadOnlyList<ProfileChoice> profileChoices,
@@ -578,15 +648,16 @@ internal sealed class RunCliCommand : Command
         var mountGrid = new Grid();
         mountGrid.AddColumn(new GridColumn().Width(12));
         mountGrid.AddColumn();
-        mountGrid.AddRow("[grey58]Mode[/]", mountModeLabel);
-        mountGrid.AddRow("[grey58]Workspace[/]", $"[white]{Markup.Escape(currentWorkspacePath)}[/]");
+        mountGrid.AddRow("[grey58]Mount mode[/]", mountModeLabel);
+        mountGrid.AddRow("[grey58]Host folder[/]", $"[white]{Markup.Escape(currentWorkspacePath)}[/]");
 
         var mountPanel = new Panel(mountGrid)
         {
             Border = BoxBorder.Rounded,
-            BorderStyle = new Style(Color.DodgerBlue1),
-            Header = new PanelHeader("[bold dodgerblue1]Primary Mount[/]", Justify.Left),
-            Padding = new Padding(1, 0, 1, 0)
+            BorderStyle = RunMenuAccentBorderStyle,
+            Header = new PanelHeader("[bold dodgerblue1]Workspace[/]", Justify.Left),
+            Padding = new Padding(1, 1, 1, 0),
+            Width = GetRunMenuPanelWidth()
         };
         AnsiConsole.Write(mountPanel);
 
@@ -602,46 +673,20 @@ internal sealed class RunCliCommand : Command
             _ => CreateProfileSelectionContent(profileChoices, selectedIndex)
         };
 
-        // Wrap content in a panel for consistent styling
-        var contentPanel = new Panel(activeContent)
-        {
-            Border = BoxBorder.Rounded,
-            BorderStyle = new Style(Color.Grey39),
-            Padding = new Padding(2, 1),
-            Height = 16
-        };
-        AnsiConsole.Write(contentPanel);
+        AnsiConsole.Write(CreateRunMenuContentPanel(activeContent, GetRunSelectionTabPanelTitle(selectedTab), 14));
 
-        // Footer with key hints
         AnsiConsole.WriteLine();
-        var footerGrid = new Grid();
-        footerGrid.AddColumn(new GridColumn().Width(20));
-        footerGrid.AddColumn(new GridColumn().Width(20));
-        footerGrid.AddColumn(new GridColumn());
-
         string tabHint = selectedTab switch
         {
-            RunSelectionTab.Profile => "[grey]Enter[/] [dodgerblue1]start[/] | [grey]+[/] [dodgerblue1]default[/] | [grey]↑↓[/] [dodgerblue1]navigate[/] | [grey]←→[/] [dodgerblue1]tabs[/]",
-            RunSelectionTab.Ui => "[grey]Enter[/] [dodgerblue1]start[/] | [grey]+[/] [dodgerblue1]default[/] | [grey]↑↓[/] [dodgerblue1]choose ui[/] | [grey]←→[/] [dodgerblue1]tabs[/]",
-            RunSelectionTab.Volumes => "[grey]Enter[/] [dodgerblue1]start[/] | [grey]Space[/] [dodgerblue1]add[/] | [grey]+[/] [dodgerblue1]default[/] | [grey]Del[/] [dodgerblue1]remove[/]",
-            RunSelectionTab.Addons => "[grey]Enter[/] [dodgerblue1]start[/] | [grey]Space[/] [dodgerblue1]toggle[/] | [grey]+[/] [dodgerblue1]default[/] | [grey]←→[/] [dodgerblue1]tabs[/]",
-            RunSelectionTab.Networks => "[grey]Enter[/] [dodgerblue1]start[/] | [grey]Space[/] [dodgerblue1]toggle[/] | [grey]+[/] [dodgerblue1]default[/] | [grey]←→[/] [dodgerblue1]tabs[/]",
+            RunSelectionTab.Profile => "[grey]Enter[/]/[grey]+[/] · [grey]↑↓[/] · [grey]←→[/]",
+            RunSelectionTab.Ui => "[grey]Enter[/]/[grey]+[/] · [grey]↑↓[/] · [grey]←→[/]",
+            RunSelectionTab.Volumes => "[grey]Enter[/]/[grey]+[/] · [grey]Space[/] · [grey]Del[/] · [grey]←→[/]",
+            RunSelectionTab.Addons => "[grey]Enter[/]/[grey]+[/] · [grey]Space[/] · [grey]←→[/]",
+            RunSelectionTab.Networks => "[grey]Enter[/]/[grey]+[/] · [grey]Space[/] · [grey]←→[/]",
             _ => ""
         };
 
-        footerGrid.AddRow(
-            "[grey]ESC[/] [dodgerblue1]cancel[/] | [grey]Ctrl+C[/] [red]exit[/]",
-            "[grey]M[/] [dodgerblue1]mount mode[/]",
-            tabHint
-        );
-
-        var footerPanel = new Panel(footerGrid)
-        {
-            Border = BoxBorder.Rounded,
-            BorderStyle = new Style(Color.Grey23),
-            Padding = new Padding(1, 0)
-        };
-        AnsiConsole.Write(footerPanel);
+        AnsiConsole.Write(CreateRunMenuFooterPanel($"[grey]ESC[/] · [grey]Ctrl+C[/] · [grey]M[/] workspace · {tabHint}"));
     }
 
     private static Panel CreateTabStrip(RunSelectionTab selectedTab, int volumeCount, int activeAddonCount, int activeNetworkCount, DockerNetworkMode selectedNetworkMode, ProfileChoice selectedProfileChoice, UiChoice selectedUiChoice)
@@ -699,8 +744,10 @@ internal sealed class RunCliCommand : Command
 
         return new Panel(tabGrid)
         {
-            Border = BoxBorder.None,
-            Padding = new Padding(0)
+            Border = BoxBorder.Rounded,
+            BorderStyle = RunMenuFooterBorderStyle,
+            Padding = new Padding(1, 1),
+            Width = GetRunMenuPanelWidth()
         };
     }
 
@@ -714,9 +761,6 @@ internal sealed class RunCliCommand : Command
             return new Markup(content.ToString());
         }
 
-        content.AppendLine("[grey58]Select a profile to run with opencode:[/]");
-        content.AppendLine();
-
         for(int i = 0; i < profileChoices.Count; i++)
         {
             var choice = profileChoices[i];
@@ -728,7 +772,7 @@ internal sealed class RunCliCommand : Command
             {
                 content.Append($"[dodgerblue1]▶[/] [bold white]{escapedName}[/]");
                 content.Append(defaultMarker);
-                content.AppendLine(" [grey]<--[/]");
+                content.AppendLine();
             }
             else
             {
@@ -750,7 +794,6 @@ internal sealed class RunCliCommand : Command
             bool isDefault = choice.IsDefault;
             string labelStyle = !choice.IsSelectable ? "grey35" : choice.IsUnavailable ? "red" : "white";
             string label = Markup.Escape(choice.Label);
-            string description = Markup.Escape(choice.Description);
             string defaultMarker = isDefault ? " [yellow]★[/]" : "";
 
             if(isSelected)
@@ -762,15 +805,17 @@ internal sealed class RunCliCommand : Command
                 content.Append($"  [{(!choice.IsSelectable ? "grey35" : choice.IsUnavailable ? "red" : "grey70")}]{label}[/]{defaultMarker}");
             }
 
-            content.AppendLine();
-            content.Append($"    [grey]-[/] [{(choice.IsSelectable ? (isSelected ? "grey70" : "grey58") : "grey50")}]{description}[/]");
+            if(!String.IsNullOrWhiteSpace(choice.Description))
+            {
+                content.Append($" [grey58]{Markup.Escape(choice.Description)}[/]");
+            }
 
             if(!String.IsNullOrWhiteSpace(choice.Detail))
             {
                 if(choice.IsUnavailable)
                 {
                     content.AppendLine();
-                    content.Append($"      [red](error)[/]: [red]{Markup.Escape(choice.Detail!)}[/]");
+                    content.Append($"    [red]{Markup.Escape(choice.Detail!)}[/]");
                 }
                 else
                 {
@@ -792,28 +837,24 @@ internal sealed class RunCliCommand : Command
     private static Markup CreateVolumeSelectionContent(IReadOnlyList<string> availableVolumeNames, List<ContainerMount> selectedContainerMounts, HashSet<ContainerMount> defaultContainerMounts, int selectedVolumeIndex)
     {
         var content = new StringBuilder();
-        content.AppendLine("[grey58]Add directory or named-volume mounts to the container:[/]");
-        content.AppendLine();
 
         if(selectedVolumeIndex == 0)
         {
-            content.AppendLine("[green]▶[/] [bold white]+ Add volume mount[/] [grey]<--[/]");
+            content.AppendLine("[dodgerblue1]▶[/] [bold white]+ Add mount[/]");
         }
         else
         {
-            content.AppendLine("  [grey70]+ Add volume mount[/]");
+            content.AppendLine("  [grey70]+ Add mount[/]");
         }
 
-        content.AppendLine("  [grey50]─────────────────────────────────────[/]");
         if(availableVolumeNames.Count == 0)
         {
-            content.AppendLine("[grey]  Docker named volumes are unavailable; directory mounts still work.[/]");
-            content.AppendLine();
+            content.AppendLine("[grey](no named volumes)[/]");
         }
 
         if(selectedContainerMounts.Count == 0)
         {
-            content.AppendLine("[grey]  (no additional mounts selected)[/]");
+            content.AppendLine("[grey](none)[/]");
         }
         else
         {
@@ -823,7 +864,7 @@ internal sealed class RunCliCommand : Command
                 ContainerMount containerMount = selectedContainerMounts[i];
                 bool isSelected = selectedVolumeIndex == i + 1;
                 string defaultMarker = defaultContainerMounts.Contains(containerMount) ? " [yellow]★[/]" : "";
-                string sourceTypeLabel = containerMount.SourceType is ContainerMountSourceType.NamedVolume ? "[blue]volume[/]" : "[green]dir[/]";
+                string sourceTypeLabel = containerMount.SourceType is ContainerMountSourceType.NamedVolume ? "[dodgerblue1]vol[/]" : "[green]dir[/]";
                 string source = Markup.Escape(containerMount.Source);
                 string containerPath = Markup.Escape(containerMount.ContainerPath);
                 string accessMode = containerMount.AccessMode is ContainerMountAccessMode.ReadOnly ? "[yellow]ro[/]" : "[green]rw[/]";
@@ -831,7 +872,7 @@ internal sealed class RunCliCommand : Command
 
                 if(isSelected)
                 {
-                    content.AppendLine($"[red]▶[/] {mountLine}{defaultMarker} [grey](press Del to remove)[/]");
+                    content.AppendLine($"[dodgerblue1]▶[/] {mountLine}{defaultMarker}");
                 }
                 else
                 {
@@ -846,13 +887,11 @@ internal sealed class RunCliCommand : Command
     private static Markup CreateAddonSelectionContent(string addonsRootPath, IReadOnlyList<string> availableAddonNames, HashSet<string> defaultAddonNames, int selectedAddonIndex, HashSet<string> activeAddonNames)
     {
         var content = new StringBuilder();
-        content.AppendLine("[grey58]Overlay selected addon directories into the session profile before launch:[/]");
-        content.AppendLine();
 
         if(availableAddonNames.Count == 0)
         {
-            content.AppendLine($"[grey]Create addon folders under {Markup.Escape(addonsRootPath)} to make them available here.[/]");
-            content.AppendLine("[grey]Conflicting files stop launch, except AGENTS.md, root .env, and opencode/opencode.json which are merged.[/]");
+            content.AppendLine($"[grey]No addons.[/] [grey58]{Markup.Escape(addonsRootPath)}[/]");
+            content.AppendLine("[grey]Conflicting files block launch except AGENTS.md, root .env, and opencode/opencode.json (merged).[/]");
             return new Markup(content.ToString());
         }
 
@@ -880,10 +919,7 @@ internal sealed class RunCliCommand : Command
     private static Markup CreateNetworkSelectionContent(IReadOnlyList<string> availableNetworkNames, HashSet<string> defaultNetworkNames, int selectedNetworkIndex, DockerNetworkMode selectedNetworkMode, DockerNetworkMode? defaultNetworkMode, HashSet<string> activeNetworkNames, bool hostNetworkAvailable, bool showWindowsHostNetworkingHint)
     {
         var content = new StringBuilder();
-        content.AppendLine("[grey58]Configure Docker networking for the container:[/]");
-        content.AppendLine();
 
-        // Network mode
         string modeLabel = GetDockerNetworkModeLabel(selectedNetworkMode);
         string defaultModeMarker = defaultNetworkMode == selectedNetworkMode ? " [yellow]★[/]" : "";
         string modeDisplay = selectedNetworkMode switch
@@ -894,18 +930,18 @@ internal sealed class RunCliCommand : Command
 
         if(selectedNetworkIndex == 0)
         {
-            content.AppendLine($"[dodgerblue1]▶[/] [bold white]Mode:[/] {modeDisplay}{defaultModeMarker}");
+            content.AppendLine($"[dodgerblue1]▶[/] [bold white]Network mode[/] {modeDisplay}{defaultModeMarker}");
         }
         else
         {
-            content.AppendLine($"  [grey70]Mode:[/] {modeDisplay}{defaultModeMarker}");
+            content.AppendLine($"  [grey70]Network mode[/] {modeDisplay}{defaultModeMarker}");
         }
 
         if(!hostNetworkAvailable)
         {
             content.AppendLine("[grey]  Host mode is unavailable on this host.[/]");
         }
-        else if(showWindowsHostNetworkingHint)
+        else if(showWindowsHostNetworkingHint && selectedNetworkMode is DockerNetworkMode.Host)
         {
             content.AppendLine("[grey]  Windows host mode requires Docker Desktop host networking to be enabled.[/]");
         }
@@ -924,7 +960,7 @@ internal sealed class RunCliCommand : Command
             return new Markup(content.ToString());
         }
 
-        content.AppendLine("[grey58]Additional networks (Space to toggle, + to save as default):[/]");
+        content.AppendLine("  [grey50]────────────────────────────────────────[/]");
         for(int i = 0; i < availableNetworkNames.Count; i++)
         {
             string networkName = availableNetworkNames[i];
@@ -960,25 +996,12 @@ internal sealed class RunCliCommand : Command
         _ => RunSelectionTab.Addons
     };
 
-    internal static List<UiChoice> BuildUiChoices(OpenCodeDesktopAppStatus desktopAppStatus, RunUiMode? defaultUiMode)
+    internal static List<UiChoice> BuildUiChoices(RunUiMode? defaultUiMode)
     {
-        string desktopDetail = desktopAppStatus.Availability switch
-        {
-            OpenCodeDesktopAvailability.UnsupportedAttachContract => desktopAppStatus.Detail ?? "installed, but backend handoff is not supported yet",
-            _ => "app not detected on this host"
-        };
-        bool desktopSelectable = desktopAppStatus.Availability switch
-        {
-            OpenCodeDesktopAvailability.NotDetected => false,
-            OpenCodeDesktopAvailability.UnsupportedAttachContract => false,
-            _ => true
-        };
-
         return
         [
-            new UiChoice(RunUiMode.Tui, "TUI", "Attach the OCW-managed terminal client.", IsDefault: defaultUiMode is RunUiMode.Tui),
-            new UiChoice(RunUiMode.Web, "Web", "Open the local browser UI and print the URL.", IsDefault: defaultUiMode is RunUiMode.Web),
-            new UiChoice(RunUiMode.Desktop, "Desktop", "Open the installed OpenCode desktop app.", desktopDetail, IsUnavailable: true, desktopSelectable, defaultUiMode is RunUiMode.Desktop)
+            new UiChoice(RunUiMode.Tui, "TUI", "", IsDefault: defaultUiMode is RunUiMode.Tui),
+            new UiChoice(RunUiMode.Web, "Web", "", IsDefault: defaultUiMode is RunUiMode.Web)
         ];
     }
 
@@ -1079,6 +1102,22 @@ internal sealed class RunCliCommand : Command
     private static string GetSelectedDefaultProfileName(IReadOnlyList<ProfileChoice> profileChoices)
         => profileChoices.FirstOrDefault(choice => choice.IsDefault)?.Name ?? profileChoices[0].Name;
 
+    private static void TryPromptAppendContainerMount(
+        string currentWorkspacePath,
+        IReadOnlyList<string> availableVolumeNames,
+        List<ContainerMount> selectedContainerMounts,
+        ref int selectedVolumeIndex)
+    {
+        ContainerMount? selectedContainerMount = PromptForContainerMount(currentWorkspacePath, availableVolumeNames, selectedContainerMounts);
+        if(selectedContainerMount is null)
+        {
+            return;
+        }
+
+        selectedContainerMounts.Add(selectedContainerMount);
+        selectedVolumeIndex = selectedContainerMounts.Count;
+    }
+
     private static ContainerMount? PromptForContainerMount(string currentWorkspacePath, IReadOnlyList<string> availableVolumeNames, IReadOnlyList<ContainerMount> selectedContainerMounts)
     {
         ContainerMountSourceType? selectedSourceType = PromptForContainerMountSourceType(availableVolumeNames.Count > 0);
@@ -1116,8 +1155,8 @@ internal sealed class RunCliCommand : Command
 
         List<ContainerMountSourceTypeChoice> choices =
         [
-            new(ContainerMountSourceType.Directory, "Directory", "Browse for a host folder to bind mount.", true),
-            new(ContainerMountSourceType.NamedVolume, "Named volume", hasNamedVolumes ? "Use an existing Docker named volume." : "No Docker named volumes found on this host.", hasNamedVolumes)
+            new(ContainerMountSourceType.Directory, "Directory", "", true),
+            new(ContainerMountSourceType.NamedVolume, "Named volume", hasNamedVolumes ? "" : "No Docker named volumes on this host.", hasNamedVolumes)
         ];
 
         int selectedIndex = 0;
@@ -1169,8 +1208,8 @@ internal sealed class RunCliCommand : Command
 
         List<ContainerMountAccessModeChoice> choices =
         [
-            new(ContainerMountAccessMode.ReadOnly, "Read-only", "The container can read from the mount but cannot modify it."),
-            new(ContainerMountAccessMode.ReadWrite, "Read-write", "The container can read from and write to the mount.")
+            new(ContainerMountAccessMode.ReadOnly, "Read-only", ""),
+            new(ContainerMountAccessMode.ReadWrite, "Read-write", "")
         ];
 
         int selectedIndex = sourceType is ContainerMountSourceType.Directory ? 0 : 1;
@@ -1332,7 +1371,7 @@ internal sealed class RunCliCommand : Command
     private static void RenderContainerMountSourceTypeSelectionScreen(IReadOnlyList<ContainerMountSourceTypeChoice> choices, int selectedIndex)
     {
         AnsiConsole.Clear();
-        AppIO.WriteHeader("Mount Type", "Choose what kind of volume mount to add.");
+        AppIO.WriteHeader("Mount Type");
 
         var content = new StringBuilder();
         for(int i = 0; i < choices.Count; i++)
@@ -1351,37 +1390,26 @@ internal sealed class RunCliCommand : Command
                 content.AppendLine($"  [{(choice.IsSelectable ? "grey70" : "grey35")}]{Markup.Escape(choice.Label)}[/]");
             }
 
-            content.AppendLine($"    [grey]-[/] [{detailStyle}]{Markup.Escape(choice.Description)}[/]");
+            if(!String.IsNullOrEmpty(choice.Description))
+            {
+                content.AppendLine($"    [grey]-[/] [{detailStyle}]{Markup.Escape(choice.Description)}[/]");
+            }
+
             if(i < choices.Count - 1)
             {
                 content.AppendLine();
             }
         }
 
-        AnsiConsole.Write(new Panel(new Markup(content.ToString()))
-        {
-            Border = BoxBorder.Rounded,
-            BorderStyle = new Style(Color.Grey39),
-            Padding = new Padding(2, 1)
-        });
-
-        AnsiConsole.WriteLine();
-        AnsiConsole.Write(new Panel(new Markup("[grey]ESC[/] [dodgerblue1]back[/] | [grey]Ctrl+C[/] [red]exit[/] | [grey]↑↓[/] [dodgerblue1]navigate[/] | [grey]Enter[/] [dodgerblue1]select[/]"))
-        {
-            Border = BoxBorder.Rounded,
-            BorderStyle = new Style(Color.Grey23),
-            Padding = new Padding(1, 0)
-        });
+        WriteRunMenuSubmenuLayout(new Markup(content.ToString()), 12, "[bold dodgerblue1]Mount type[/]");
     }
 
     private static void RenderDockerVolumeSelectionScreen(IReadOnlyList<string> availableVolumeNames, int selectedIndex)
     {
         AnsiConsole.Clear();
-        AppIO.WriteHeader("Named Volume", "Choose an existing Docker volume to mount.");
+        AppIO.WriteHeader("Named Volume");
 
         var content = new StringBuilder();
-        content.AppendLine("[grey58]Named volumes:[/]");
-        content.AppendLine();
         for(int i = 0; i < availableVolumeNames.Count; i++)
         {
             string volumeName = Markup.Escape(availableVolumeNames[i]);
@@ -1395,26 +1423,13 @@ internal sealed class RunCliCommand : Command
             }
         }
 
-        AnsiConsole.Write(new Panel(new Markup(content.ToString()))
-        {
-            Border = BoxBorder.Rounded,
-            BorderStyle = new Style(Color.Grey39),
-            Padding = new Padding(2, 1)
-        });
-
-        AnsiConsole.WriteLine();
-        AnsiConsole.Write(new Panel(new Markup("[grey]ESC[/] [dodgerblue1]back[/] | [grey]Ctrl+C[/] [red]exit[/] | [grey]↑↓[/] [dodgerblue1]navigate[/] | [grey]Enter[/] [dodgerblue1]select[/]"))
-        {
-            Border = BoxBorder.Rounded,
-            BorderStyle = new Style(Color.Grey23),
-            Padding = new Padding(1, 0)
-        });
+        WriteRunMenuSubmenuLayout(new Markup(content.ToString()), 14, "[bold dodgerblue1]Named volume[/]");
     }
 
     private static void RenderContainerMountAccessModeSelectionScreen(ContainerMountSourceType sourceType, IReadOnlyList<ContainerMountAccessModeChoice> choices, int selectedIndex)
     {
         AnsiConsole.Clear();
-        AppIO.WriteHeader("Access Mode", $"Choose how the {GetContainerMountSourceTypeLabel(sourceType).ToLowerInvariant()} should be mounted.");
+        AppIO.WriteHeader("Access Mode");
 
         var content = new StringBuilder();
         for(int i = 0; i < choices.Count; i++)
@@ -1430,44 +1445,53 @@ internal sealed class RunCliCommand : Command
                 content.AppendLine($"  [grey70]{Markup.Escape(choice.Label)}[/]");
             }
 
-            content.AppendLine($"    [grey]-[/] [grey58]{Markup.Escape(choice.Description)}[/]");
+            if(!String.IsNullOrEmpty(choice.Description))
+            {
+                content.AppendLine($"    [grey]-[/] [grey58]{Markup.Escape(choice.Description)}[/]");
+            }
+
             if(i < choices.Count - 1)
             {
                 content.AppendLine();
             }
         }
 
-        AnsiConsole.Write(new Panel(new Markup(content.ToString()))
-        {
-            Border = BoxBorder.Rounded,
-            BorderStyle = new Style(Color.Grey39),
-            Padding = new Padding(2, 1)
-        });
-
-        AnsiConsole.WriteLine();
-        AnsiConsole.Write(new Panel(new Markup("[grey]ESC[/] [dodgerblue1]back[/] | [grey]Ctrl+C[/] [red]exit[/] | [grey]↑↓[/] [dodgerblue1]navigate[/] | [grey]Enter[/] [dodgerblue1]select[/]"))
-        {
-            Border = BoxBorder.Rounded,
-            BorderStyle = new Style(Color.Grey23),
-            Padding = new Padding(1, 0)
-        });
+        WriteRunMenuSubmenuLayout(new Markup(content.ToString()), 12, "[bold dodgerblue1]Access mode[/]");
     }
 
     private static void RenderContainerMountPathPrompt(ContainerMountSourceType sourceType, string source, string workspaceContainerPath, string requestedContainerPath, string? validationMessage)
     {
         AnsiConsole.Clear();
-        AppIO.WriteHeader("Container Mount Path", "Set where the selected source should appear inside the container.");
-        AnsiConsole.MarkupLine($"[grey]Type:[/] [white]{Markup.Escape(GetContainerMountSourceTypeLabel(sourceType))}[/]");
-        AnsiConsole.MarkupLine($"[grey]Source:[/] [white]{Markup.Escape(source)}[/]");
-        AnsiConsole.MarkupLine($"[grey]Workspace:[/] [white]{Markup.Escape(workspaceContainerPath)}[/]");
-        AnsiConsole.MarkupLine("[grey]Press Enter to confirm. Press ESC on an empty prompt to go back.[/]");
+        AppIO.WriteHeader("Container Mount Path");
+
+        var summaryGrid = new Grid();
+        summaryGrid.AddColumn(new GridColumn().Width(14));
+        summaryGrid.AddColumn();
+        summaryGrid.AddRow("[grey58]Type[/]", $"[white]{Markup.Escape(GetContainerMountSourceTypeLabel(sourceType))}[/]");
+        summaryGrid.AddRow("[grey58]Source[/]", $"[white]{Markup.Escape(source)}[/]");
+        summaryGrid.AddRow("[grey58]Workspace[/]", $"[white]{Markup.Escape(workspaceContainerPath)}[/]");
+
+        AnsiConsole.Write(new Panel(summaryGrid)
+        {
+            Border = BoxBorder.Rounded,
+            BorderStyle = RunMenuPanelBorderStyle,
+            Padding = new Padding(1, 0, 1, 0),
+            Header = new PanelHeader("[bold dodgerblue1]Context[/]", Justify.Left)
+        });
+
+        AnsiConsole.WriteLine();
+        var promptBody = new StringBuilder();
+        promptBody.AppendLine("[grey]Absolute path inside the container.[/]");
         if(!String.IsNullOrWhiteSpace(validationMessage))
         {
-            AnsiConsole.MarkupLine($"[red]{Markup.Escape(validationMessage)}[/]");
+            promptBody.AppendLine();
+            promptBody.AppendLine($"[red]{Markup.Escape(validationMessage)}[/]");
         }
 
-        string displayValue = Markup.Escape(requestedContainerPath);
-        AnsiConsole.Markup($"[grey58]Container path[/] [white]{displayValue}[/]");
+        promptBody.AppendLine();
+        promptBody.Append($"[grey58]Path[/] [white]{Markup.Escape(requestedContainerPath)}[/]");
+
+        WriteRunMenuSubmenuLayout(new Markup(promptBody.ToString()), 12, "[bold dodgerblue1]Target path[/]");
     }
 
     private static string ResolveContainerWorkspacePath(string hostWorkDir)
@@ -1684,22 +1708,20 @@ internal sealed class RunCliCommand : Command
         int selectedIndex)
     {
         AnsiConsole.Clear();
-        AppIO.WriteHeader("Directory Browser", "Pick a host folder to mount.");
+        AppIO.WriteHeader("Directory Browser");
 
         string locationLine = selectingDrive
-            ? "[deepskyblue1](drive selection)[/]"
-            : $"[deepskyblue1]{Markup.Escape(currentDirectory)}[/]";
-        AnsiConsole.Write(new Panel(locationLine)
+            ? "[dodgerblue1](drive selection)[/]"
+            : $"[white]{Markup.Escape(currentDirectory)}[/]";
+        AnsiConsole.Write(new Panel(new Markup(locationLine))
         {
             Border = BoxBorder.Rounded,
-            Header = new PanelHeader("[bold]Location[/]", Justify.Left),
+            BorderStyle = RunMenuAccentBorderStyle,
+            Header = new PanelHeader("[bold dodgerblue1]Location[/]", Justify.Left),
             Padding = new Padding(1, 0, 1, 0)
         });
 
-        if(selectingDrive)
-        {
-            AnsiConsole.MarkupLine("[grey]Choose a drive, then browse and press Enter to select the current folder.[/]");
-        }
+        AnsiConsole.MarkupLine("[grey]Enter confirms this folder.[/]");
 
         var entryTable = new Table()
             .Border(TableBorder.None)
@@ -1715,16 +1737,16 @@ internal sealed class RunCliCommand : Command
             {
                 var entry = entries[i];
                 bool isSelected = i == selectedIndex;
-                string cursor = isSelected ? "[deepskyblue1]>[/]" : " ";
+                string cursor = isSelected ? "[dodgerblue1]▶[/]" : " ";
                 string label = entry.EntryType switch
                 {
-                    ExplorerEntryType.Parent => $"[grey]..[/] [silver]{Markup.Escape(entry.Label)}[/]",
-                    ExplorerEntryType.Drive => $"[deepskyblue1]{Markup.Escape(entry.Label)}[/] [grey](drive)[/]",
+                    ExplorerEntryType.Parent => $"[grey]..[/] [grey70]{Markup.Escape(entry.Label)}[/]",
+                    ExplorerEntryType.Drive => $"[dodgerblue1]{Markup.Escape(entry.Label)}[/] [grey](drive)[/]",
                     _ => Markup.Escape(entry.Label)
                 };
                 if(isSelected)
                 {
-                    label = $"[bold deepskyblue1]{label}[/]";
+                    label = $"[bold white]{label}[/]";
                 }
 
                 entryTable.AddRow($"{cursor} {label}");
@@ -1734,9 +1756,13 @@ internal sealed class RunCliCommand : Command
         AnsiConsole.Write(new Panel(entryTable)
         {
             Border = BoxBorder.Rounded,
-            Header = new PanelHeader("[bold]Directories[/]", Justify.Left),
+            BorderStyle = RunMenuPanelBorderStyle,
+            Header = new PanelHeader("[bold dodgerblue1]Browse[/]", Justify.Left),
             Padding = new Padding(1, 0, 1, 0)
         });
+
+        AnsiConsole.WriteLine();
+        AnsiConsole.Write(CreateRunMenuFooterPanel("[grey]ESC[/] [dodgerblue1]back[/] · [grey]Ctrl+C[/] [red]exit[/] · [grey]↑↓[/] [dodgerblue1]move[/] · [grey]Enter[/] [dodgerblue1]confirm[/] · [grey]←[/] [dodgerblue1]parent[/]"));
     }
 
     private static List<string> GetChildDirectories(string directory)
