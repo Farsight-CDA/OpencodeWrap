@@ -11,8 +11,7 @@ internal sealed partial class RuntimeAgentInstructionsService : Singleton
     public string Build(
         string containerWorkDir,
         WorkspaceMountMode workspaceMountMode,
-        List<(string HostPath, string ContainerPath)> additionalReadonlyMounts,
-        IReadOnlyList<NamedVolumeMount> namedVolumeMounts)
+        IReadOnlyList<ContainerMount> containerMounts)
     {
         var builder = new StringBuilder();
         builder.AppendLine("# OCW Runtime Environment");
@@ -33,28 +32,7 @@ internal sealed partial class RuntimeAgentInstructionsService : Singleton
             builder.AppendLine($"- The current workspace for this session is `{containerWorkDir}`.");
         }
 
-        if(additionalReadonlyMounts.Count == 0 && namedVolumeMounts.Count == 0)
-        {
-            builder.AppendLine("- No additional read-only reference directories or named volumes are mounted for this session.");
-            return builder.ToString().TrimEnd();
-        }
-
-        if(additionalReadonlyMounts.Count == 0)
-        {
-            builder.AppendLine("- No additional read-only reference directories are mounted for this session.");
-        }
-        else
-        {
-            builder.AppendLine($"- Additional reference directories are mounted read-only under `{OpencodeWrapConstants.CONTAINER_RESOURCE_ROOT}`.");
-            builder.AppendLine("- Treat those resource directories as reference only if instructed by the user to do so.");
-            builder.AppendLine();
-            builder.AppendLine("## Current Read-Only Resource Directories");
-            builder.AppendLine();
-            foreach(var (_, containerPath) in additionalReadonlyMounts)
-            {
-                builder.AppendLine($"- `{containerPath}`");
-            }
-        }
+        List<ContainerMount> namedVolumeMounts = [.. containerMounts.Where(mount => mount.SourceType is ContainerMountSourceType.NamedVolume)];
 
         if(namedVolumeMounts.Count == 0)
         {
@@ -67,7 +45,10 @@ internal sealed partial class RuntimeAgentInstructionsService : Singleton
         builder.AppendLine();
         foreach(var namedVolumeMount in namedVolumeMounts)
         {
-            builder.AppendLine($"- `{namedVolumeMount.VolumeName}` -> `{namedVolumeMount.ContainerPath}`");
+            string accessModeLabel = namedVolumeMount.AccessMode is ContainerMountAccessMode.ReadOnly
+                ? "read-only"
+                : "read-write";
+            builder.AppendLine($"- `{namedVolumeMount.Source}` -> `{namedVolumeMount.ContainerPath}` ({accessModeLabel})");
         }
 
         return builder.ToString().TrimEnd();

@@ -40,8 +40,7 @@ internal sealed partial class OpencodeLauncherService : Singleton
         OpencodeRuntimeMode runtimeMode,
         RunUiMode runUiMode = RunUiMode.Tui,
         WorkspaceMountMode workspaceMountMode = WorkspaceMountMode.ReadWrite,
-        IReadOnlyList<string>? extraReadonlyMountDirs = null,
-        IReadOnlyList<NamedVolumeMount>? namedVolumeMounts = null,
+        IReadOnlyList<ContainerMount>? containerMounts = null,
         IReadOnlyList<string>? sessionAddons = null,
         DockerNetworkMode dockerNetworkMode = DockerNetworkMode.Bridge,
         IReadOnlyList<string>? dockerNetworks = null,
@@ -92,12 +91,7 @@ internal sealed partial class OpencodeLauncherService : Singleton
                 containerWorkDir = ResolveContainerWorkspacePath(hostWorkDir);
             }
 
-            if(!TryResolveAdditionalReadonlyMounts(extraReadonlyMountDirs, out var additionalReadonlyMounts))
-            {
-                return 1;
-            }
-
-            if(!TryNormalizeNamedVolumeMounts(namedVolumeMounts, workspaceMountMode != WorkspaceMountMode.None ? containerWorkDir : null, additionalReadonlyMounts, out var selectedNamedVolumeMounts))
+            if(!TryNormalizeContainerMounts(containerMounts, workspaceMountMode != WorkspaceMountMode.None ? containerWorkDir : null, out var selectedContainerMounts))
             {
                 return 1;
             }
@@ -115,7 +109,7 @@ internal sealed partial class OpencodeLauncherService : Singleton
                 return 1;
             }
 
-            string runtimeAgentInstructions = _runtimeAgentInstructionsService.Build(containerWorkDir, workspaceMountMode, additionalReadonlyMounts, selectedNamedVolumeMounts);
+            string runtimeAgentInstructions = _runtimeAgentInstructionsService.Build(containerWorkDir, workspaceMountMode, selectedContainerMounts);
 
             _containerName = $"opencode-wrap-{Guid.NewGuid():N}"[..27];
 
@@ -305,14 +299,20 @@ internal sealed partial class OpencodeLauncherService : Singleton
                 containerArgs.AddRange(["--mount", workspaceMount]);
             }
 
-            foreach(var (hostPath, containerPath) in additionalReadonlyMounts)
+            foreach(var containerMount in selectedContainerMounts)
             {
-                containerArgs.AddRange(["--mount", $"{_volumeService.BuildBindMount(hostPath, containerPath)},readonly"]);
-            }
+                string mountArgument = containerMount.SourceType switch
+                {
+                    ContainerMountSourceType.NamedVolume => _volumeService.BuildVolumeMount(containerMount.Source, containerMount.ContainerPath),
+                    _ => _volumeService.BuildBindMount(containerMount.Source, containerMount.ContainerPath)
+                };
 
-            foreach(var namedVolumeMount in selectedNamedVolumeMounts)
-            {
-                containerArgs.AddRange(["--mount", _volumeService.BuildVolumeMount(namedVolumeMount.VolumeName, namedVolumeMount.ContainerPath)]);
+                if(containerMount.AccessMode is ContainerMountAccessMode.ReadOnly)
+                {
+                    mountArgument += ",readonly";
+                }
+
+                containerArgs.AddRange(["--mount", mountArgument]);
             }
 
             if(includeProfileConfig)
@@ -817,43 +817,98 @@ internal sealed partial class OpencodeLauncherService : Singleton
             : $"{OpencodeWrapConstants.CONTAINER_WORKSPACE}/{directoryName}";
     }
 
-    private bool TryResolveAdditionalReadonlyMounts(
-        IReadOnlyList<string>? requestedDirectories,
-        out List<(string HostPath, string ContainerPath)> mounts)
+    private bool TryNormalizeContainerMounts(
+        IReadOnlyList<ContainerMount>? requestedMounts,
+        string? workspaceContainerPath,
+        out List<ContainerMount> normalizedMounts)
     {
-        mounts = [];
-        if(requestedDirectories is null || requestedDirectories.Count == 0)
+        normalizedMounts = [];
+        if(requestedMounts is null || requestedMounts.Count == 0)
         {
             return true;
         }
 
-        var seenHostPaths = new HashSet<string>(GetHostPathComparer());
-        var seenContainerNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-        foreach(string requestedDirectory in requestedDirectories)
+        var seenMounts = new HashSet<ContainerMount>();
+        foreach(ContainerMount requestedMount in requestedMounts)
         {
-            if(String.IsNullOrWhiteSpace(requestedDirectory))
+            if(!TryNormalizeContainerMount(requestedMount, out var normalizedMount, out string validationMessage))
             {
-                _deferredSessionLogService.WriteErrorOrConsole("startup", "Resource directory cannot be empty.");
+                _deferredSessionLogService.WriteErrorOrConsole("startup", validationMessage);
                 return false;
             }
 
-            string fullPath = Path.TrimEndingDirectorySeparator(Path.GetFullPath(requestedDirectory));
-            if(!Directory.Exists(fullPath))
-            {
-                _deferredSessionLogService.WriteErrorOrConsole("startup", $"Resource directory not found: '{fullPath}'.");
-                return false;
-            }
-
-            if(!seenHostPaths.Add(fullPath))
+            if(!seenMounts.Add(normalizedMount))
             {
                 continue;
             }
 
-            string containerName = BuildUniqueContainerResourceDirectoryName(fullPath, seenContainerNames);
-            mounts.Add((fullPath, $"{OpencodeWrapConstants.CONTAINER_RESOURCE_ROOT}/{containerName}"));
+            ContainerMount? conflictingMount = normalizedMounts.FirstOrDefault(mount => String.Equals(mount.ContainerPath, normalizedMount.ContainerPath, StringComparison.Ordinal));
+            if(conflictingMount is not null)
+            {
+                _deferredSessionLogService.WriteErrorOrConsole("startup", $"Container mount path '{normalizedMount.ContainerPath}' conflicts with another selected mount at '{conflictingMount.ContainerPath}'.");
+                return false;
+            }
+
+            normalizedMounts.Add(normalizedMount);
         }
 
+        return true;
+    }
+
+    private bool TryNormalizeContainerMount(ContainerMount requestedMount, out ContainerMount normalizedMount, out string validationMessage)
+    {
+        normalizedMount = requestedMount;
+        validationMessage = String.Empty;
+
+        if(!ContainerPathUtility.TryNormalizeAbsolutePath(requestedMount.ContainerPath, out string normalizedContainerPath))
+        {
+            validationMessage = $"Container mount path '{requestedMount.ContainerPath}' is invalid. Use an absolute container path other than '/' and avoid commas.";
+            return false;
+        }
+
+        string normalizedSource;
+        switch(requestedMount.SourceType)
+        {
+            case ContainerMountSourceType.Directory:
+                string requestedDirectory = requestedMount.Source?.Trim() ?? String.Empty;
+                if(requestedDirectory.Length == 0)
+                {
+                    validationMessage = "Directory mounts must include a source directory.";
+                    return false;
+                }
+
+                try
+                {
+                    normalizedSource = Path.TrimEndingDirectorySeparator(Path.GetFullPath(requestedDirectory));
+                }
+                catch(Exception)
+                {
+                    validationMessage = $"Directory mount source '{requestedMount.Source}' is invalid.";
+                    return false;
+                }
+
+                if(!Directory.Exists(normalizedSource))
+                {
+                    validationMessage = $"Directory mount source not found: '{normalizedSource}'.";
+                    return false;
+                }
+
+                break;
+            case ContainerMountSourceType.NamedVolume:
+                normalizedSource = requestedMount.Source?.Trim() ?? String.Empty;
+                if(normalizedSource.Length == 0)
+                {
+                    validationMessage = "Docker named volume mounts must include a volume name.";
+                    return false;
+                }
+
+                break;
+            default:
+                validationMessage = $"Unsupported container mount source type '{requestedMount.SourceType}'.";
+                return false;
+        }
+
+        normalizedMount = new ContainerMount(requestedMount.SourceType, normalizedSource, normalizedContainerPath, requestedMount.AccessMode);
         return true;
     }
 
@@ -884,96 +939,8 @@ internal sealed partial class OpencodeLauncherService : Singleton
         return true;
     }
 
-    private bool TryNormalizeNamedVolumeMounts(
-        IReadOnlyList<NamedVolumeMount>? requestedMounts,
-        string? workspaceContainerPath,
-        IReadOnlyList<(string HostPath, string ContainerPath)> additionalReadonlyMounts,
-        out List<NamedVolumeMount> normalizedMounts)
-    {
-        normalizedMounts = [];
-        if(requestedMounts is null || requestedMounts.Count == 0)
-        {
-            return true;
-        }
-
-        var reservedContainerPaths = new List<string> { OpencodeWrapConstants.CONTAINER_OCW_ROOT };
-        if(!String.IsNullOrWhiteSpace(workspaceContainerPath))
-        {
-            reservedContainerPaths.Add(workspaceContainerPath);
-        }
-
-        reservedContainerPaths.AddRange(additionalReadonlyMounts.Select(mount => mount.ContainerPath));
-
-        var seenMounts = new HashSet<NamedVolumeMount>();
-        foreach(NamedVolumeMount requestedMount in requestedMounts)
-        {
-            string trimmedVolumeName = requestedMount.VolumeName?.Trim() ?? String.Empty;
-            if(trimmedVolumeName.Length == 0)
-            {
-                _deferredSessionLogService.WriteErrorOrConsole("startup", "Docker named volume mounts must include a volume name.");
-                return false;
-            }
-
-            if(!ContainerPathUtility.TryNormalizeAbsolutePath(requestedMount.ContainerPath, out string normalizedContainerPath))
-            {
-                _deferredSessionLogService.WriteErrorOrConsole("startup", $"Docker named volume mount path '{requestedMount.ContainerPath}' is invalid. Use an absolute container path other than '/'.");
-                return false;
-            }
-
-            var normalizedMount = new NamedVolumeMount(trimmedVolumeName, normalizedContainerPath);
-            if(!seenMounts.Add(normalizedMount))
-            {
-                continue;
-            }
-
-            string? conflictingReservedPath = reservedContainerPaths.FirstOrDefault(path => ContainerPathUtility.PathsOverlap(path, normalizedContainerPath));
-            if(conflictingReservedPath is not null)
-            {
-                _deferredSessionLogService.WriteErrorOrConsole("startup", $"Docker named volume mount path '{normalizedContainerPath}' conflicts with OCW-managed path '{conflictingReservedPath}'.");
-                return false;
-            }
-
-            NamedVolumeMount? conflictingMount = normalizedMounts.FirstOrDefault(mount => ContainerPathUtility.PathsOverlap(mount.ContainerPath, normalizedContainerPath));
-            if(conflictingMount is not null)
-            {
-                _deferredSessionLogService.WriteErrorOrConsole("startup", $"Docker named volume mount path '{normalizedContainerPath}' conflicts with another selected mount at '{conflictingMount.ContainerPath}'.");
-                return false;
-            }
-
-            normalizedMounts.Add(normalizedMount);
-        }
-
-        return true;
-    }
-
     private static bool DockerNetworkModeExtensionsSupportsAdditionalNetworks(DockerNetworkMode dockerNetworkMode)
         => dockerNetworkMode.SupportsAdditionalNetworks();
-
-    private static string BuildUniqueContainerResourceDirectoryName(string hostPath, HashSet<string> seenContainerNames)
-    {
-        string baseName = Path.GetFileName(hostPath);
-        if(String.IsNullOrWhiteSpace(baseName))
-        {
-            baseName = "resource";
-        }
-
-        char[] sanitizedChars = [.. baseName.Select(ch => Char.IsLetterOrDigit(ch) || ch is '-' or '_' or '.' ? ch : '-')];
-        string sanitizedName = new string(sanitizedChars).Trim('-', '.', '_');
-        if(String.IsNullOrWhiteSpace(sanitizedName))
-        {
-            sanitizedName = "resource";
-        }
-
-        string candidateName = sanitizedName;
-        int suffix = 2;
-        while(!seenContainerNames.Add(candidateName))
-        {
-            candidateName = $"{sanitizedName}-{suffix}";
-            suffix++;
-        }
-
-        return candidateName;
-    }
 
     private static StringComparer GetHostPathComparer() => OperatingSystem.IsWindows()
         ? StringComparer.OrdinalIgnoreCase

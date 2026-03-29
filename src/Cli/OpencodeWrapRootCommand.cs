@@ -23,7 +23,6 @@ internal sealed class OpencodeWrapRootCommand : RootCommand
         IReadOnlyList<string> opencodeArgs,
         string? requestedProfileName,
         bool includeProfileConfig,
-        WorkspaceMountMode workspaceMountMode = WorkspaceMountMode.ReadWrite,
-        IReadOnlyList<string>? extraReadonlyMountDirs = null)
-        => _launcherService.ExecuteAsync(opencodeArgs, requestedProfileName, includeProfileConfig, OpencodeRuntimeMode.AttachedContainer, workspaceMountMode: workspaceMountMode, extraReadonlyMountDirs: extraReadonlyMountDirs);
+        WorkspaceMountMode workspaceMountMode = WorkspaceMountMode.ReadWrite)
+        => _launcherService.ExecuteAsync(opencodeArgs, requestedProfileName, includeProfileConfig, OpencodeRuntimeMode.AttachedContainer, workspaceMountMode: workspaceMountMode);
 }
