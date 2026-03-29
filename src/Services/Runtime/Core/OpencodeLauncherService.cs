@@ -41,6 +41,7 @@ internal sealed partial class OpencodeLauncherService : Singleton
         RunUiMode runUiMode = RunUiMode.Tui,
         WorkspaceMountMode workspaceMountMode = WorkspaceMountMode.ReadWrite,
         IReadOnlyList<string>? extraReadonlyMountDirs = null,
+        IReadOnlyList<NamedVolumeMount>? namedVolumeMounts = null,
         IReadOnlyList<string>? sessionAddons = null,
         DockerNetworkMode dockerNetworkMode = DockerNetworkMode.Bridge,
         IReadOnlyList<string>? dockerNetworks = null,
@@ -96,6 +97,11 @@ internal sealed partial class OpencodeLauncherService : Singleton
                 return 1;
             }
 
+            if(!TryNormalizeNamedVolumeMounts(namedVolumeMounts, workspaceMountMode != WorkspaceMountMode.None ? containerWorkDir : null, additionalReadonlyMounts, out var selectedNamedVolumeMounts))
+            {
+                return 1;
+            }
+
             var selectedDockerNetworkMode = dockerNetworkMode;
 
             if(!TryNormalizeDockerNetworks(dockerNetworks, out var selectedDockerNetworks))
@@ -109,7 +115,7 @@ internal sealed partial class OpencodeLauncherService : Singleton
                 return 1;
             }
 
-            string runtimeAgentInstructions = _runtimeAgentInstructionsService.Build(containerWorkDir, workspaceMountMode, additionalReadonlyMounts);
+            string runtimeAgentInstructions = _runtimeAgentInstructionsService.Build(containerWorkDir, workspaceMountMode, additionalReadonlyMounts, selectedNamedVolumeMounts);
 
             _containerName = $"opencode-wrap-{Guid.NewGuid():N}"[..27];
 
@@ -302,6 +308,11 @@ internal sealed partial class OpencodeLauncherService : Singleton
             foreach(var (hostPath, containerPath) in additionalReadonlyMounts)
             {
                 containerArgs.AddRange(["--mount", $"{_volumeService.BuildBindMount(hostPath, containerPath)},readonly"]);
+            }
+
+            foreach(var namedVolumeMount in selectedNamedVolumeMounts)
+            {
+                containerArgs.AddRange(["--mount", _volumeService.BuildVolumeMount(namedVolumeMount.VolumeName, namedVolumeMount.ContainerPath)]);
             }
 
             if(includeProfileConfig)
@@ -868,6 +879,68 @@ internal sealed partial class OpencodeLauncherService : Singleton
             {
                 normalizedNetworks.Add(trimmedNetwork);
             }
+        }
+
+        return true;
+    }
+
+    private bool TryNormalizeNamedVolumeMounts(
+        IReadOnlyList<NamedVolumeMount>? requestedMounts,
+        string? workspaceContainerPath,
+        IReadOnlyList<(string HostPath, string ContainerPath)> additionalReadonlyMounts,
+        out List<NamedVolumeMount> normalizedMounts)
+    {
+        normalizedMounts = [];
+        if(requestedMounts is null || requestedMounts.Count == 0)
+        {
+            return true;
+        }
+
+        var reservedContainerPaths = new List<string> { OpencodeWrapConstants.CONTAINER_OCW_ROOT };
+        if(!String.IsNullOrWhiteSpace(workspaceContainerPath))
+        {
+            reservedContainerPaths.Add(workspaceContainerPath);
+        }
+
+        reservedContainerPaths.AddRange(additionalReadonlyMounts.Select(mount => mount.ContainerPath));
+
+        var seenMounts = new HashSet<NamedVolumeMount>();
+        foreach(NamedVolumeMount requestedMount in requestedMounts)
+        {
+            string trimmedVolumeName = requestedMount.VolumeName?.Trim() ?? String.Empty;
+            if(trimmedVolumeName.Length == 0)
+            {
+                _deferredSessionLogService.WriteErrorOrConsole("startup", "Docker named volume mounts must include a volume name.");
+                return false;
+            }
+
+            if(!ContainerPathUtility.TryNormalizeAbsolutePath(requestedMount.ContainerPath, out string normalizedContainerPath))
+            {
+                _deferredSessionLogService.WriteErrorOrConsole("startup", $"Docker named volume mount path '{requestedMount.ContainerPath}' is invalid. Use an absolute container path other than '/'.");
+                return false;
+            }
+
+            var normalizedMount = new NamedVolumeMount(trimmedVolumeName, normalizedContainerPath);
+            if(!seenMounts.Add(normalizedMount))
+            {
+                continue;
+            }
+
+            string? conflictingReservedPath = reservedContainerPaths.FirstOrDefault(path => ContainerPathUtility.PathsOverlap(path, normalizedContainerPath));
+            if(conflictingReservedPath is not null)
+            {
+                _deferredSessionLogService.WriteErrorOrConsole("startup", $"Docker named volume mount path '{normalizedContainerPath}' conflicts with OCW-managed path '{conflictingReservedPath}'.");
+                return false;
+            }
+
+            NamedVolumeMount? conflictingMount = normalizedMounts.FirstOrDefault(mount => ContainerPathUtility.PathsOverlap(mount.ContainerPath, normalizedContainerPath));
+            if(conflictingMount is not null)
+            {
+                _deferredSessionLogService.WriteErrorOrConsole("startup", $"Docker named volume mount path '{normalizedContainerPath}' conflicts with another selected mount at '{conflictingMount.ContainerPath}'.");
+                return false;
+            }
+
+            normalizedMounts.Add(normalizedMount);
         }
 
         return true;

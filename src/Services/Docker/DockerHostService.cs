@@ -142,6 +142,28 @@ internal sealed partial class DockerHostService : Singleton
         return (true, networkNames);
     }
 
+    public async Task<(bool Success, IReadOnlyList<string> VolumeNames)> TryListVolumeNamesAsync()
+    {
+        if(!await EnsureHostAndDockerAsync())
+        {
+            return (false, []);
+        }
+
+        var volumeList = await ProcessRunner.RunAsync("docker", ["volume", "ls", "--format", "{{.Name}}"]);
+        if(!volumeList.Success)
+        {
+            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.DOCKER, "Failed to list Docker volumes.");
+            WriteDockerErrorDetails(volumeList.StdErr);
+            return (false, []);
+        }
+
+        string[] volumeNames = [.. volumeList.StdOut
+            .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)];
+        return (true, volumeNames);
+    }
+
     public async Task<OpenCodeDesktopAppStatus> GetOpenCodeDesktopAppStatusAsync()
     {
         string? launchTarget = IsWindows

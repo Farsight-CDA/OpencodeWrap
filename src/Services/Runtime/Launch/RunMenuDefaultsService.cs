@@ -85,6 +85,18 @@ internal sealed partial class RunMenuDefaultsService : Singleton
 
             writer.WriteEndArray();
 
+            writer.WritePropertyName("namedVolumeMounts");
+            writer.WriteStartArray();
+            foreach(NamedVolumeMount namedVolumeMount in normalizedDefaults.NamedVolumeMounts)
+            {
+                writer.WriteStartObject();
+                writer.WriteString("volumeName", namedVolumeMount.VolumeName);
+                writer.WriteString("containerPath", namedVolumeMount.ContainerPath);
+                writer.WriteEndObject();
+            }
+
+            writer.WriteEndArray();
+
             writer.WritePropertyName("sessionAddons");
             writer.WriteStartArray();
             foreach(string addonName in normalizedDefaults.SessionAddons)
@@ -151,6 +163,7 @@ internal sealed partial class RunMenuDefaultsService : Singleton
             defaultUiMode,
             defaultDockerNetworkMode,
             ReadStringArray(rootElement, "resourceDirectories"),
+            ReadNamedVolumeMounts(rootElement, "namedVolumeMounts"),
             ReadStringArray(rootElement, "sessionAddons"),
             ReadStringArray(rootElement, "dockerNetworks")));
     }
@@ -175,6 +188,34 @@ internal sealed partial class RunMenuDefaultsService : Singleton
         return values;
     }
 
+    private static List<NamedVolumeMount> ReadNamedVolumeMounts(JsonElement rootElement, string propertyName)
+    {
+        var mounts = new List<NamedVolumeMount>();
+        if(!rootElement.TryGetProperty(propertyName, out var propertyElement)
+            || propertyElement.ValueKind is not JsonValueKind.Array)
+        {
+            return mounts;
+        }
+
+        foreach(var item in propertyElement.EnumerateArray())
+        {
+            if(item.ValueKind is not JsonValueKind.Object
+                || !item.TryGetProperty("volumeName", out var volumeNameElement)
+                || !item.TryGetProperty("containerPath", out var containerPathElement)
+                || volumeNameElement.ValueKind is not JsonValueKind.String
+                || containerPathElement.ValueKind is not JsonValueKind.String
+                || volumeNameElement.GetString() is not { } volumeName
+                || containerPathElement.GetString() is not { } containerPath)
+            {
+                continue;
+            }
+
+            mounts.Add(new NamedVolumeMount(volumeName, containerPath));
+        }
+
+        return mounts;
+    }
+
     private static RunMenuDefaults NormalizeDefaults(RunMenuDefaults defaults)
     {
         string? defaultProfileName = String.IsNullOrWhiteSpace(defaults.DefaultProfileName)
@@ -192,13 +233,34 @@ internal sealed partial class RunMenuDefaultsService : Singleton
             .Select(name => name.Trim())
             .Where(seenNetworkNames.Add)];
 
+        var seenNamedVolumeMounts = new HashSet<NamedVolumeMount>();
+        var seenNamedVolumeMountPaths = new HashSet<string>(StringComparer.Ordinal);
+        var namedVolumeMounts = new List<NamedVolumeMount>();
+        foreach(NamedVolumeMount requestedMount in defaults.NamedVolumeMounts)
+        {
+            string trimmedVolumeName = requestedMount.VolumeName?.Trim() ?? String.Empty;
+            if(trimmedVolumeName.Length == 0
+                || !ContainerPathUtility.TryNormalizeAbsolutePath(requestedMount.ContainerPath, out string normalizedContainerPath))
+            {
+                continue;
+            }
+
+            var normalizedMount = new NamedVolumeMount(trimmedVolumeName, normalizedContainerPath);
+            if(!seenNamedVolumeMountPaths.Add(normalizedContainerPath) || !seenNamedVolumeMounts.Add(normalizedMount))
+            {
+                continue;
+            }
+
+            namedVolumeMounts.Add(normalizedMount);
+        }
+
         var seenAddonNames = new HashSet<string>(GetHostPathComparer());
         List<string> sessionAddons = [.. defaults.SessionAddons
             .Where(name => !String.IsNullOrWhiteSpace(name))
             .Select(name => name.Trim())
             .Where(seenAddonNames.Add)];
 
-        return new RunMenuDefaults(defaultProfileName, defaults.DefaultUiMode, defaults.DefaultDockerNetworkMode, resourceDirectories, sessionAddons, dockerNetworks);
+        return new RunMenuDefaults(defaultProfileName, defaults.DefaultUiMode, defaults.DefaultDockerNetworkMode, resourceDirectories, namedVolumeMounts, sessionAddons, dockerNetworks);
     }
 
     private static string GetPersistedRunUiModeValue(RunUiMode runUiMode) => runUiMode switch
@@ -235,7 +297,7 @@ internal sealed partial class RunMenuDefaultsService : Singleton
         : StringComparer.Ordinal;
 }
 
-internal sealed record RunMenuDefaults(string? DefaultProfileName, RunUiMode? DefaultUiMode, DockerNetworkMode? DefaultDockerNetworkMode, IReadOnlyList<string> ResourceDirectories, IReadOnlyList<string> SessionAddons, IReadOnlyList<string> DockerNetworks)
+internal sealed record RunMenuDefaults(string? DefaultProfileName, RunUiMode? DefaultUiMode, DockerNetworkMode? DefaultDockerNetworkMode, IReadOnlyList<string> ResourceDirectories, IReadOnlyList<NamedVolumeMount> NamedVolumeMounts, IReadOnlyList<string> SessionAddons, IReadOnlyList<string> DockerNetworks)
 {
-    public static RunMenuDefaults Empty { get; } = new(null, null, null, [], [], []);
+    public static RunMenuDefaults Empty { get; } = new(null, null, null, [], [], [], []);
 }

@@ -7,7 +7,6 @@ namespace OpencodeWrap.Services.Opencode;
 [JsonSerializable(typeof(Dictionary<string, OpencodeReleaseAsset>))]
 [JsonSerializable(typeof(LatestOpencodeRelease))]
 [JsonSerializable(typeof(CachedLatestOpencodeRelease))]
-[JsonSerializable(typeof(ManagedHostOpencodeMetadata))]
 internal sealed partial class OpencodeJsonContext : JsonSerializerContext
 {
 }

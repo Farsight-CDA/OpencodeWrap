@@ -49,7 +49,7 @@ internal sealed class RunCliCommand : Command
 
             return selection is null
                 ? 1
-                : await _launcherService.ExecuteAsync([], requestedProfileName: selection.ProfileName, includeProfileConfig: true, runtimeMode: OpencodeRuntimeMode.HostAttachToServe, runUiMode: selection.UiMode, workspaceMountMode: selection.MountMode, extraReadonlyMountDirs: selection.ResourceDirectories, sessionAddons: selection.SessionAddonNames, dockerNetworkMode: selection.NetworkMode, dockerNetworks: selection.NetworkNames, verboseSessionLogs: verbose);
+                : await _launcherService.ExecuteAsync([], requestedProfileName: selection.ProfileName, includeProfileConfig: true, runtimeMode: OpencodeRuntimeMode.HostAttachToServe, runUiMode: selection.UiMode, workspaceMountMode: selection.MountMode, extraReadonlyMountDirs: selection.ResourceDirectories, namedVolumeMounts: selection.NamedVolumeMounts, sessionAddons: selection.SessionAddonNames, dockerNetworkMode: selection.NetworkMode, dockerNetworks: selection.NetworkNames, verboseSessionLogs: verbose);
         });
     }
 
@@ -97,6 +97,12 @@ internal sealed class RunCliCommand : Command
             return null;
         }
 
+        var (volumeListSuccess, availableVolumeNames) = await _dockerHostService.TryListVolumeNamesAsync();
+        if(!volumeListSuccess)
+        {
+            return null;
+        }
+
         var desktopAppStatus = await _dockerHostService.GetOpenCodeDesktopAppStatusAsync();
 
         string defaultProfileName = profileNames.Contains(runMenuDefaults.DefaultProfileName ?? "")
@@ -131,6 +137,30 @@ internal sealed class RunCliCommand : Command
             defaultResourceDirectories.Add(normalizedPath);
         }
 
+        List<NamedVolumeMount> selectedNamedVolumeMounts = [];
+        var defaultNamedVolumeMounts = new HashSet<NamedVolumeMount>();
+        var availableVolumeNameSet = new HashSet<string>(availableVolumeNames, StringComparer.Ordinal);
+        foreach(NamedVolumeMount savedNamedVolumeMount in runMenuDefaults.NamedVolumeMounts)
+        {
+            string trimmedVolumeName = savedNamedVolumeMount.VolumeName.Trim();
+            if(trimmedVolumeName.Length == 0
+                || !availableVolumeNameSet.Contains(trimmedVolumeName)
+                || !ContainerPathUtility.TryNormalizeAbsolutePath(savedNamedVolumeMount.ContainerPath, out string normalizedContainerPath)
+                || FindConflictingNamedVolumeMountPath(selectedNamedVolumeMounts, normalizedContainerPath) is not null)
+            {
+                continue;
+            }
+
+            var normalizedNamedVolumeMount = new NamedVolumeMount(trimmedVolumeName, normalizedContainerPath);
+            if(selectedNamedVolumeMounts.Contains(normalizedNamedVolumeMount))
+            {
+                continue;
+            }
+
+            selectedNamedVolumeMounts.Add(normalizedNamedVolumeMount);
+            defaultNamedVolumeMounts.Add(normalizedNamedVolumeMount);
+        }
+
         List<string> availableAddonNames = [.. addonCatalog.Addons.Keys.OrderBy(name => name, GetHostPathComparer())];
         var activeAddonNames = new HashSet<string>(GetHostPathComparer());
         var defaultAddonNames = new HashSet<string>(GetHostPathComparer());
@@ -151,6 +181,7 @@ internal sealed class RunCliCommand : Command
         var uiChoices = BuildUiChoices(desktopAppStatus, defaultUiMode);
         int selectedUiIndex = GetInitialSelectableUiIndex(uiChoices);
         int selectedResourceIndex = selectedResourceDirectories.Count > 0 ? 1 : 0;
+        int selectedMountIndex = selectedNamedVolumeMounts.Count > 0 ? 1 : 0;
         int selectedAddonIndex = 0;
         int selectedNetworkIndex = 0;
         bool hostNetworkAvailable = true;
@@ -170,7 +201,7 @@ internal sealed class RunCliCommand : Command
 
         while(true)
         {
-            RenderRunSelectionScreen(profileChoices, selectedIndex, uiChoices, selectedUiIndex, selectedTab, mountMode, currentWorkspacePath, selectedResourceDirectories, defaultResourceDirectories, selectedResourceIndex, addonCatalog.AddonsRoot, availableAddonNames, defaultAddonNames, selectedAddonIndex, activeAddonNames, availableNetworkNames, defaultNetworkNames, selectedNetworkIndex, selectedNetworkMode, defaultNetworkMode, activeNetworkNames, hostNetworkAvailable, showWindowsHostNetworkingHint: _dockerHostService.IsWindows);
+            RenderRunSelectionScreen(profileChoices, selectedIndex, uiChoices, selectedUiIndex, selectedTab, mountMode, currentWorkspacePath, selectedResourceDirectories, defaultResourceDirectories, selectedResourceIndex, availableVolumeNames, selectedNamedVolumeMounts, defaultNamedVolumeMounts, selectedMountIndex, addonCatalog.AddonsRoot, availableAddonNames, defaultAddonNames, selectedAddonIndex, activeAddonNames, availableNetworkNames, defaultNetworkNames, selectedNetworkIndex, selectedNetworkMode, defaultNetworkMode, activeNetworkNames, hostNetworkAvailable, showWindowsHostNetworkingHint: _dockerHostService.IsWindows);
             var keyInfo = AnsiConsole.Console.Input.ReadKey(intercept: true);
             if(keyInfo is null)
             {
@@ -189,7 +220,7 @@ internal sealed class RunCliCommand : Command
                 {
                     case RunSelectionTab.Profile:
                         string selectedProfileName = profileChoices[selectedIndex].Name;
-                        if(TrySaveRunMenuDefaults(selectedProfileName, defaultUiMode, selectedResourceDirectories, defaultResourceDirectories, availableAddonNames, defaultAddonNames, defaultNetworkMode, availableNetworkNames, defaultNetworkNames))
+                        if(TrySaveRunMenuDefaults(selectedProfileName, defaultUiMode, selectedResourceDirectories, defaultResourceDirectories, selectedNamedVolumeMounts, defaultNamedVolumeMounts, availableAddonNames, defaultAddonNames, defaultNetworkMode, availableNetworkNames, defaultNetworkNames))
                         {
                             profileChoices = [.. profileChoices.Select(choice => choice with
                             {
@@ -200,7 +231,7 @@ internal sealed class RunCliCommand : Command
                         break;
                     case RunSelectionTab.Ui:
                         var selectedUiMode = uiChoices[selectedUiIndex].Mode;
-                        if(TrySaveRunMenuDefaults(GetSelectedDefaultProfileName(profileChoices), selectedUiMode, selectedResourceDirectories, defaultResourceDirectories, availableAddonNames, defaultAddonNames, defaultNetworkMode, availableNetworkNames, defaultNetworkNames))
+                        if(TrySaveRunMenuDefaults(GetSelectedDefaultProfileName(profileChoices), selectedUiMode, selectedResourceDirectories, defaultResourceDirectories, selectedNamedVolumeMounts, defaultNamedVolumeMounts, availableAddonNames, defaultAddonNames, defaultNetworkMode, availableNetworkNames, defaultNetworkNames))
                         {
                             defaultUiMode = selectedUiMode;
                             uiChoices = [.. uiChoices.Select(choice => choice with
@@ -224,7 +255,7 @@ internal sealed class RunCliCommand : Command
                                 defaultResourceDirectories.Add(selectedResourceDirectory);
                             }
 
-                            if(!TrySaveRunMenuDefaults(GetSelectedDefaultProfileName(profileChoices), defaultUiMode, selectedResourceDirectories, defaultResourceDirectories, availableAddonNames, defaultAddonNames, defaultNetworkMode, availableNetworkNames, defaultNetworkNames))
+                            if(!TrySaveRunMenuDefaults(GetSelectedDefaultProfileName(profileChoices), defaultUiMode, selectedResourceDirectories, defaultResourceDirectories, selectedNamedVolumeMounts, defaultNamedVolumeMounts, availableAddonNames, defaultAddonNames, defaultNetworkMode, availableNetworkNames, defaultNetworkNames))
                             {
                                 if(resourceWasDefault)
                                 {
@@ -233,6 +264,34 @@ internal sealed class RunCliCommand : Command
                                 else
                                 {
                                     defaultResourceDirectories.Remove(selectedResourceDirectory);
+                                }
+                            }
+                        }
+
+                        break;
+                    case RunSelectionTab.Mounts:
+                        if(selectedMountIndex > 0)
+                        {
+                            NamedVolumeMount selectedNamedVolumeMount = selectedNamedVolumeMounts[selectedMountIndex - 1];
+                            bool mountWasDefault = defaultNamedVolumeMounts.Contains(selectedNamedVolumeMount);
+                            if(mountWasDefault)
+                            {
+                                defaultNamedVolumeMounts.Remove(selectedNamedVolumeMount);
+                            }
+                            else
+                            {
+                                defaultNamedVolumeMounts.Add(selectedNamedVolumeMount);
+                            }
+
+                            if(!TrySaveRunMenuDefaults(GetSelectedDefaultProfileName(profileChoices), defaultUiMode, selectedResourceDirectories, defaultResourceDirectories, selectedNamedVolumeMounts, defaultNamedVolumeMounts, availableAddonNames, defaultAddonNames, defaultNetworkMode, availableNetworkNames, defaultNetworkNames))
+                            {
+                                if(mountWasDefault)
+                                {
+                                    defaultNamedVolumeMounts.Add(selectedNamedVolumeMount);
+                                }
+                                else
+                                {
+                                    defaultNamedVolumeMounts.Remove(selectedNamedVolumeMount);
                                 }
                             }
                         }
@@ -254,7 +313,7 @@ internal sealed class RunCliCommand : Command
                                 activeAddonNames.Add(selectedAddonName);
                             }
 
-                            if(!TrySaveRunMenuDefaults(GetSelectedDefaultProfileName(profileChoices), defaultUiMode, selectedResourceDirectories, defaultResourceDirectories, availableAddonNames, defaultAddonNames, defaultNetworkMode, availableNetworkNames, defaultNetworkNames))
+                            if(!TrySaveRunMenuDefaults(GetSelectedDefaultProfileName(profileChoices), defaultUiMode, selectedResourceDirectories, defaultResourceDirectories, selectedNamedVolumeMounts, defaultNamedVolumeMounts, availableAddonNames, defaultAddonNames, defaultNetworkMode, availableNetworkNames, defaultNetworkNames))
                             {
                                 if(addonWasDefault)
                                 {
@@ -280,7 +339,7 @@ internal sealed class RunCliCommand : Command
                                 ? null
                                 : selectedNetworkMode;
 
-                            if(!TrySaveRunMenuDefaults(GetSelectedDefaultProfileName(profileChoices), defaultUiMode, selectedResourceDirectories, defaultResourceDirectories, availableAddonNames, defaultAddonNames, defaultNetworkMode, availableNetworkNames, defaultNetworkNames))
+                            if(!TrySaveRunMenuDefaults(GetSelectedDefaultProfileName(profileChoices), defaultUiMode, selectedResourceDirectories, defaultResourceDirectories, selectedNamedVolumeMounts, defaultNamedVolumeMounts, availableAddonNames, defaultAddonNames, defaultNetworkMode, availableNetworkNames, defaultNetworkNames))
                             {
                                 defaultNetworkMode = previousDefaultNetworkMode;
                             }
@@ -300,7 +359,7 @@ internal sealed class RunCliCommand : Command
                                 activeNetworkNames.Add(selectedNetworkName);
                             }
 
-                            if(!TrySaveRunMenuDefaults(GetSelectedDefaultProfileName(profileChoices), defaultUiMode, selectedResourceDirectories, defaultResourceDirectories, availableAddonNames, defaultAddonNames, defaultNetworkMode, availableNetworkNames, defaultNetworkNames))
+                            if(!TrySaveRunMenuDefaults(GetSelectedDefaultProfileName(profileChoices), defaultUiMode, selectedResourceDirectories, defaultResourceDirectories, selectedNamedVolumeMounts, defaultNamedVolumeMounts, availableAddonNames, defaultAddonNames, defaultNetworkMode, availableNetworkNames, defaultNetworkNames))
                             {
                                 if(networkWasDefault)
                                 {
@@ -339,6 +398,10 @@ internal sealed class RunCliCommand : Command
                             int resourceEntryCount = selectedResourceDirectories.Count + 1;
                             selectedResourceIndex = selectedResourceIndex <= 0 ? resourceEntryCount - 1 : selectedResourceIndex - 1;
                             break;
+                        case RunSelectionTab.Mounts:
+                            int mountEntryCount = selectedNamedVolumeMounts.Count + 1;
+                            selectedMountIndex = selectedMountIndex <= 0 ? mountEntryCount - 1 : selectedMountIndex - 1;
+                            break;
                         case RunSelectionTab.Addons:
                             if(availableAddonNames.Count > 0)
                             {
@@ -366,6 +429,10 @@ internal sealed class RunCliCommand : Command
                         case RunSelectionTab.Resources:
                             int resourceEntryCount = selectedResourceDirectories.Count + 1;
                             selectedResourceIndex = selectedResourceIndex >= resourceEntryCount - 1 ? 0 : selectedResourceIndex + 1;
+                            break;
+                        case RunSelectionTab.Mounts:
+                            int mountEntryCount = selectedNamedVolumeMounts.Count + 1;
+                            selectedMountIndex = selectedMountIndex >= mountEntryCount - 1 ? 0 : selectedMountIndex + 1;
                             break;
                         case RunSelectionTab.Addons:
                             if(availableAddonNames.Count > 0)
@@ -462,28 +529,59 @@ internal sealed class RunCliCommand : Command
 
                         selectedResourceDirectories.Add(normalizedPath);
                         selectedResourceIndex = selectedResourceDirectories.Count;
+                        break;
+                    }
+
+                    if(selectedTab is RunSelectionTab.Mounts && selectedMountIndex == 0)
+                    {
+                        NamedVolumeMount? selectedNamedVolumeMount = PromptForNamedVolumeMount(currentWorkspacePath, availableVolumeNames, selectedNamedVolumeMounts);
+                        if(selectedNamedVolumeMount is null)
+                        {
+                            break;
+                        }
+
+                        selectedNamedVolumeMounts.Add(selectedNamedVolumeMount);
+                        selectedMountIndex = selectedNamedVolumeMounts.Count;
                     }
 
                     break;
                 case ConsoleKey.Backspace:
                 case ConsoleKey.Delete:
-                    if(selectedTab is not RunSelectionTab.Resources || selectedResourceIndex == 0)
+                    if(selectedTab is RunSelectionTab.Resources && selectedResourceIndex > 0)
+                    {
+                        int resourceDirectoryIndex = selectedResourceIndex - 1;
+                        string removedDirectory = selectedResourceDirectories[resourceDirectoryIndex];
+                        selectedResourceDirectories.RemoveAt(resourceDirectoryIndex);
+                        seenResourceDirectories.Remove(removedDirectory);
+                        if(defaultResourceDirectories.Remove(removedDirectory))
+                        {
+                            _ = TrySaveRunMenuDefaults(GetSelectedDefaultProfileName(profileChoices), defaultUiMode, selectedResourceDirectories, defaultResourceDirectories, selectedNamedVolumeMounts, defaultNamedVolumeMounts, availableAddonNames, defaultAddonNames, defaultNetworkMode, availableNetworkNames, defaultNetworkNames);
+                        }
+
+                        if(selectedResourceIndex > selectedResourceDirectories.Count)
+                        {
+                            selectedResourceIndex = selectedResourceDirectories.Count;
+                        }
+
+                        break;
+                    }
+
+                    if(selectedTab is not RunSelectionTab.Mounts || selectedMountIndex == 0)
                     {
                         break;
                     }
 
-                    int resourceDirectoryIndex = selectedResourceIndex - 1;
-                    string removedDirectory = selectedResourceDirectories[resourceDirectoryIndex];
-                    selectedResourceDirectories.RemoveAt(resourceDirectoryIndex);
-                    seenResourceDirectories.Remove(removedDirectory);
-                    if(defaultResourceDirectories.Remove(removedDirectory))
+                    int namedVolumeMountIndex = selectedMountIndex - 1;
+                    NamedVolumeMount removedNamedVolumeMount = selectedNamedVolumeMounts[namedVolumeMountIndex];
+                    selectedNamedVolumeMounts.RemoveAt(namedVolumeMountIndex);
+                    if(defaultNamedVolumeMounts.Remove(removedNamedVolumeMount))
                     {
-                        _ = TrySaveRunMenuDefaults(GetSelectedDefaultProfileName(profileChoices), defaultUiMode, selectedResourceDirectories, defaultResourceDirectories, availableAddonNames, defaultAddonNames, defaultNetworkMode, availableNetworkNames, defaultNetworkNames);
+                        _ = TrySaveRunMenuDefaults(GetSelectedDefaultProfileName(profileChoices), defaultUiMode, selectedResourceDirectories, defaultResourceDirectories, selectedNamedVolumeMounts, defaultNamedVolumeMounts, availableAddonNames, defaultAddonNames, defaultNetworkMode, availableNetworkNames, defaultNetworkNames);
                     }
 
-                    if(selectedResourceIndex > selectedResourceDirectories.Count)
+                    if(selectedMountIndex > selectedNamedVolumeMounts.Count)
                     {
-                        selectedResourceIndex = selectedResourceDirectories.Count;
+                        selectedMountIndex = selectedNamedVolumeMounts.Count;
                     }
 
                     break;
@@ -499,6 +597,7 @@ internal sealed class RunCliCommand : Command
                         uiChoices[selectedUiIndex].Mode,
                         mountMode,
                         selectedResourceDirectories,
+                        selectedNamedVolumeMounts,
                         [.. availableAddonNames.Where(activeAddonNames.Contains)],
                         selectedNetworkMode,
                         [.. availableNetworkNames.Where(activeNetworkNames.Contains)]);
@@ -526,6 +625,10 @@ internal sealed class RunCliCommand : Command
         List<string> selectedResourceDirectories,
         HashSet<string> defaultResourceDirectories,
         int selectedResourceIndex,
+        IReadOnlyList<string> availableVolumeNames,
+        List<NamedVolumeMount> selectedNamedVolumeMounts,
+        HashSet<NamedVolumeMount> defaultNamedVolumeMounts,
+        int selectedMountIndex,
         string addonsRootPath,
         IReadOnlyList<string> availableAddonNames,
         HashSet<string> defaultAddonNames,
@@ -564,13 +667,14 @@ internal sealed class RunCliCommand : Command
         };
         AnsiConsole.Write(mountPanel);
 
-        AnsiConsole.Write(CreateTabStrip(selectedTab, selectedResourceDirectories.Count, activeAddonNames.Count, activeNetworkNames.Count, selectedNetworkMode, profileChoices[selectedIndex], uiChoices[selectedUiIndex]));
+        AnsiConsole.Write(CreateTabStrip(selectedTab, selectedResourceDirectories.Count, selectedNamedVolumeMounts.Count, activeAddonNames.Count, activeNetworkNames.Count, selectedNetworkMode, profileChoices[selectedIndex], uiChoices[selectedUiIndex]));
         AnsiConsole.WriteLine();
 
         var activeContent = selectedTab switch
         {
             RunSelectionTab.Ui => CreateUiSelectionContent(uiChoices, selectedUiIndex),
             RunSelectionTab.Resources => CreateResourceSelectionContent(selectedResourceDirectories, defaultResourceDirectories, selectedResourceIndex),
+            RunSelectionTab.Mounts => CreateNamedVolumeMountSelectionContent(availableVolumeNames, selectedNamedVolumeMounts, defaultNamedVolumeMounts, selectedMountIndex),
             RunSelectionTab.Addons => CreateAddonSelectionContent(addonsRootPath, availableAddonNames, defaultAddonNames, selectedAddonIndex, activeAddonNames),
             RunSelectionTab.Networks => CreateNetworkSelectionContent(availableNetworkNames, defaultNetworkNames, selectedNetworkIndex, selectedNetworkMode, defaultNetworkMode, activeNetworkNames, hostNetworkAvailable, showWindowsHostNetworkingHint),
             _ => CreateProfileSelectionContent(profileChoices, selectedIndex)
@@ -598,6 +702,7 @@ internal sealed class RunCliCommand : Command
             RunSelectionTab.Profile => "[grey]Enter[/] [dodgerblue1]start[/] | [grey]+[/] [dodgerblue1]default[/] | [grey]↑↓[/] [dodgerblue1]navigate[/] | [grey]←→[/] [dodgerblue1]tabs[/]",
             RunSelectionTab.Ui => "[grey]Enter[/] [dodgerblue1]start[/] | [grey]+[/] [dodgerblue1]default[/] | [grey]↑↓[/] [dodgerblue1]choose ui[/] | [grey]←→[/] [dodgerblue1]tabs[/]",
             RunSelectionTab.Resources => "[grey]Enter[/] [dodgerblue1]start[/] | [grey]Space[/] [dodgerblue1]add[/] | [grey]+[/] [dodgerblue1]default[/] | [grey]Del[/] [dodgerblue1]remove[/]",
+            RunSelectionTab.Mounts => "[grey]Enter[/] [dodgerblue1]start[/] | [grey]Space[/] [dodgerblue1]add[/] | [grey]+[/] [dodgerblue1]default[/] | [grey]Del[/] [dodgerblue1]remove[/]",
             RunSelectionTab.Addons => "[grey]Enter[/] [dodgerblue1]start[/] | [grey]Space[/] [dodgerblue1]toggle[/] | [grey]+[/] [dodgerblue1]default[/] | [grey]←→[/] [dodgerblue1]tabs[/]",
             RunSelectionTab.Networks => "[grey]Enter[/] [dodgerblue1]start[/] | [grey]Space[/] [dodgerblue1]toggle[/] | [grey]+[/] [dodgerblue1]default[/] | [grey]←→[/] [dodgerblue1]tabs[/]",
             _ => ""
@@ -618,9 +723,10 @@ internal sealed class RunCliCommand : Command
         AnsiConsole.Write(footerPanel);
     }
 
-    private static Panel CreateTabStrip(RunSelectionTab selectedTab, int resourceCount, int activeAddonCount, int activeNetworkCount, DockerNetworkMode selectedNetworkMode, ProfileChoice selectedProfileChoice, UiChoice selectedUiChoice)
+    private static Panel CreateTabStrip(RunSelectionTab selectedTab, int resourceCount, int mountCount, int activeAddonCount, int activeNetworkCount, DockerNetworkMode selectedNetworkMode, ProfileChoice selectedProfileChoice, UiChoice selectedUiChoice)
     {
         var tabGrid = new Grid();
+        tabGrid.AddColumn();
         tabGrid.AddColumn();
         tabGrid.AddColumn();
         tabGrid.AddColumn();
@@ -654,6 +760,13 @@ internal sealed class RunCliCommand : Command
             ? $"[white on dodgerblue1] {resourceLabel} [/]"
             : $"[grey70 on grey19] {resourceLabel} [/]";
 
+        string mountLabel = mountCount == 0
+            ? "💾 Mounts"
+            : $"💾 Mounts ([green]{mountCount}[/])";
+        string mountTab = selectedTab is RunSelectionTab.Mounts
+            ? $"[white on dodgerblue1] {mountLabel} [/]"
+            : $"[grey70 on grey19] {mountLabel} [/]";
+
         string addonLabel = activeAddonCount == 0
             ? "🧩 Addons"
             : $"🧩 Addons ([green]{activeAddonCount}[/])";
@@ -669,7 +782,7 @@ internal sealed class RunCliCommand : Command
             ? $"[white on dodgerblue1] {networkLabel} [/]"
             : $"[grey70 on grey19] {networkLabel} [/]";
 
-        tabGrid.AddRow(profileTab, uiTab, resourceTab, addonTab, networkTab);
+        tabGrid.AddRow(profileTab, uiTab, resourceTab, mountTab, addonTab, networkTab);
 
         return new Panel(tabGrid)
         {
@@ -769,7 +882,6 @@ internal sealed class RunCliCommand : Command
         content.AppendLine("[grey58]Add read-only resource directories to mount in the container:[/]");
         content.AppendLine();
 
-        // Add button
         if(selectedResourceIndex == 0)
         {
             content.AppendLine("[green]▶[/] [bold white]+ Add resource directory[/] [grey]<--[/]");
@@ -779,7 +891,6 @@ internal sealed class RunCliCommand : Command
             content.AppendLine("  [grey70]+ Add resource directory[/]");
         }
 
-        // Visual separator between add button and actual entries
         content.AppendLine("  [grey50]─────────────────────────────────────[/]");
 
         if(selectedResourceDirectories.Count == 0)
@@ -804,6 +915,57 @@ internal sealed class RunCliCommand : Command
                 {
                     content.AppendLine($"  [grey70]{path}[/]{defaultMarker}");
                 }
+            }
+        }
+
+        return new Markup(content.ToString());
+    }
+
+    private static Markup CreateNamedVolumeMountSelectionContent(IReadOnlyList<string> availableVolumeNames, List<NamedVolumeMount> selectedNamedVolumeMounts, HashSet<NamedVolumeMount> defaultNamedVolumeMounts, int selectedMountIndex)
+    {
+        var content = new StringBuilder();
+        content.AppendLine("[grey58]Attach existing Docker named volumes inside the container:[/]");
+        content.AppendLine();
+
+        if(selectedMountIndex == 0)
+        {
+            content.AppendLine("[green]▶[/] [bold white]+ Add named volume mount[/] [grey]<--[/]");
+        }
+        else
+        {
+            content.AppendLine("  [grey70]+ Add named volume mount[/]");
+        }
+
+        content.AppendLine("  [grey50]─────────────────────────────────────[/]");
+
+        if(availableVolumeNames.Count == 0)
+        {
+            content.AppendLine("[grey]  (no Docker named volumes found)[/]");
+            return new Markup(content.ToString());
+        }
+
+        if(selectedNamedVolumeMounts.Count == 0)
+        {
+            content.AppendLine("[grey]  (no named volume mounts selected)[/]");
+            return new Markup(content.ToString());
+        }
+
+        content.AppendLine();
+        for(int i = 0; i < selectedNamedVolumeMounts.Count; i++)
+        {
+            NamedVolumeMount namedVolumeMount = selectedNamedVolumeMounts[i];
+            bool isSelected = selectedMountIndex == i + 1;
+            string defaultMarker = defaultNamedVolumeMounts.Contains(namedVolumeMount) ? " [yellow]★[/]" : "";
+            string escapedVolumeName = Markup.Escape(namedVolumeMount.VolumeName);
+            string escapedContainerPath = Markup.Escape(namedVolumeMount.ContainerPath);
+
+            if(isSelected)
+            {
+                content.AppendLine($"[red]▶[/] [bold white]{escapedVolumeName}[/] [grey]->[/] [grey70]{escapedContainerPath}[/]{defaultMarker} [grey](press Del to remove)[/]");
+            }
+            else
+            {
+                content.AppendLine($"  [grey70]{escapedVolumeName}[/] [grey]->[/] [grey58]{escapedContainerPath}[/]{defaultMarker}");
             }
         }
 
@@ -917,13 +1079,15 @@ internal sealed class RunCliCommand : Command
     {
         (RunSelectionTab.Profile, true) => RunSelectionTab.Ui,
         (RunSelectionTab.Ui, true) => RunSelectionTab.Resources,
-        (RunSelectionTab.Resources, true) => RunSelectionTab.Addons,
+        (RunSelectionTab.Resources, true) => RunSelectionTab.Mounts,
+        (RunSelectionTab.Mounts, true) => RunSelectionTab.Addons,
         (RunSelectionTab.Addons, true) => RunSelectionTab.Networks,
         (RunSelectionTab.Networks, true) => RunSelectionTab.Profile,
         (RunSelectionTab.Profile, false) => RunSelectionTab.Networks,
         (RunSelectionTab.Ui, false) => RunSelectionTab.Profile,
         (RunSelectionTab.Resources, false) => RunSelectionTab.Ui,
-        (RunSelectionTab.Addons, false) => RunSelectionTab.Resources,
+        (RunSelectionTab.Mounts, false) => RunSelectionTab.Resources,
+        (RunSelectionTab.Addons, false) => RunSelectionTab.Mounts,
         _ => RunSelectionTab.Addons
     };
 
@@ -1030,6 +1194,8 @@ internal sealed class RunCliCommand : Command
         RunUiMode? defaultUiMode,
         IReadOnlyList<string> selectedResourceDirectories,
         HashSet<string> defaultResourceDirectories,
+        IReadOnlyList<NamedVolumeMount> selectedNamedVolumeMounts,
+        HashSet<NamedVolumeMount> defaultNamedVolumeMounts,
         IReadOnlyList<string> availableAddonNames,
         HashSet<string> defaultAddonNames,
         DockerNetworkMode? defaultNetworkMode,
@@ -1037,14 +1203,221 @@ internal sealed class RunCliCommand : Command
         HashSet<string> defaultNetworkNames)
     {
         List<string> resourceDirectories = [.. selectedResourceDirectories.Where(defaultResourceDirectories.Contains)];
+        List<NamedVolumeMount> namedVolumeMounts = [.. selectedNamedVolumeMounts.Where(defaultNamedVolumeMounts.Contains)];
         List<string> sessionAddons = [.. availableAddonNames.Where(defaultAddonNames.Contains)];
         List<string> dockerNetworks = [.. availableNetworkNames.Where(defaultNetworkNames.Contains)];
 
-        return _runMenuDefaultsService.TrySaveDefaults(new RunMenuDefaults(defaultProfileName, defaultUiMode, defaultNetworkMode, resourceDirectories, sessionAddons, dockerNetworks));
+        return _runMenuDefaultsService.TrySaveDefaults(new RunMenuDefaults(defaultProfileName, defaultUiMode, defaultNetworkMode, resourceDirectories, namedVolumeMounts, sessionAddons, dockerNetworks));
     }
 
     private static string GetSelectedDefaultProfileName(IReadOnlyList<ProfileChoice> profileChoices)
         => profileChoices.FirstOrDefault(choice => choice.IsDefault)?.Name ?? profileChoices[0].Name;
+
+    private static NamedVolumeMount? PromptForNamedVolumeMount(string currentWorkspacePath, IReadOnlyList<string> availableVolumeNames, IReadOnlyList<NamedVolumeMount> selectedNamedVolumeMounts)
+    {
+        string? selectedVolumeName = PromptForDockerVolumeName(availableVolumeNames);
+        if(selectedVolumeName is null)
+        {
+            return null;
+        }
+
+        string workspaceContainerPath = ResolveContainerWorkspacePath(currentWorkspacePath);
+        string? containerPath = PromptForContainerMountPath(selectedVolumeName, workspaceContainerPath, selectedNamedVolumeMounts);
+        return containerPath is null
+            ? null
+            : new NamedVolumeMount(selectedVolumeName, containerPath);
+    }
+
+    private static string? PromptForDockerVolumeName(IReadOnlyList<string> availableVolumeNames)
+    {
+        if(availableVolumeNames.Count == 0)
+        {
+            return null;
+        }
+
+        using var controlCAsInputScope = ConsoleControlCAsInputScope.TryEnable();
+
+        int selectedIndex = 0;
+        while(true)
+        {
+            RenderDockerVolumeSelectionScreen(availableVolumeNames, selectedIndex);
+
+            var keyInfo = AnsiConsole.Console.Input.ReadKey(intercept: true);
+            if(keyInfo is null)
+            {
+                continue;
+            }
+
+            if(IsInterruptKey(keyInfo.Value))
+            {
+                AnsiConsole.Clear();
+                throw new OperationCanceledException("Docker volume selector interrupted by user.");
+            }
+
+            switch(keyInfo.Value.Key)
+            {
+                case ConsoleKey.UpArrow:
+                case ConsoleKey.W:
+                    selectedIndex = selectedIndex <= 0 ? availableVolumeNames.Count - 1 : selectedIndex - 1;
+                    break;
+                case ConsoleKey.DownArrow:
+                case ConsoleKey.S:
+                    selectedIndex = selectedIndex >= availableVolumeNames.Count - 1 ? 0 : selectedIndex + 1;
+                    break;
+                case ConsoleKey.Enter:
+                case ConsoleKey.Spacebar:
+                    AnsiConsole.Clear();
+                    return availableVolumeNames[selectedIndex];
+                case ConsoleKey.Escape:
+                    AnsiConsole.Clear();
+                    return null;
+            }
+        }
+    }
+
+    private static string? PromptForContainerMountPath(string volumeName, string workspaceContainerPath, IReadOnlyList<NamedVolumeMount> selectedNamedVolumeMounts)
+    {
+        using var controlCAsInputScope = ConsoleControlCAsInputScope.TryEnable();
+
+        string? validationMessage = null;
+        var requestedContainerPath = new StringBuilder();
+
+        while(true)
+        {
+            RenderContainerMountPathPrompt(volumeName, workspaceContainerPath, requestedContainerPath.ToString(), validationMessage);
+
+            var keyInfo = AnsiConsole.Console.Input.ReadKey(intercept: true);
+            if(keyInfo is null)
+            {
+                continue;
+            }
+
+            if(IsInterruptKey(keyInfo.Value))
+            {
+                AnsiConsole.Clear();
+                throw new OperationCanceledException("Container mount path prompt interrupted by user.");
+            }
+
+            switch(keyInfo.Value.Key)
+            {
+                case ConsoleKey.Escape:
+                    AnsiConsole.Clear();
+                    return null;
+                case ConsoleKey.Backspace:
+                    if(requestedContainerPath.Length > 0)
+                    {
+                        requestedContainerPath.Length--;
+                    }
+
+                    validationMessage = null;
+                    break;
+                case ConsoleKey.Enter:
+                    if(requestedContainerPath.Length == 0)
+                    {
+                        AnsiConsole.Clear();
+                        return null;
+                    }
+
+                    string requestedPath = requestedContainerPath.ToString();
+                    if(!ContainerPathUtility.TryNormalizeAbsolutePath(requestedPath, out string normalizedContainerPath))
+                    {
+                        validationMessage = "Use an absolute container path other than '/' and avoid commas.";
+                        break;
+                    }
+
+                    string? conflictingPath = FindConflictingNamedVolumeMountPath(selectedNamedVolumeMounts, normalizedContainerPath);
+                    if(conflictingPath is not null)
+                    {
+                        validationMessage = $"Path '{normalizedContainerPath}' conflicts with existing mount '{conflictingPath}'.";
+                        break;
+                    }
+
+                    AnsiConsole.Clear();
+                    return normalizedContainerPath;
+                default:
+                    if(!Char.IsControl(keyInfo.Value.KeyChar))
+                    {
+                        requestedContainerPath.Append(keyInfo.Value.KeyChar);
+                        validationMessage = null;
+                    }
+
+                    break;
+            }
+        }
+    }
+
+    private static void RenderDockerVolumeSelectionScreen(IReadOnlyList<string> availableVolumeNames, int selectedIndex)
+    {
+        AnsiConsole.Clear();
+        AppIO.WriteHeader("Docker Volume", "Choose an existing named volume to mount.");
+
+        var content = new StringBuilder();
+        content.AppendLine("[grey58]Named volumes:[/]");
+        content.AppendLine();
+        for(int i = 0; i < availableVolumeNames.Count; i++)
+        {
+            string volumeName = Markup.Escape(availableVolumeNames[i]);
+            if(i == selectedIndex)
+            {
+                content.AppendLine($"[dodgerblue1]▶[/] [bold white]{volumeName}[/]");
+            }
+            else
+            {
+                content.AppendLine($"  [grey70]{volumeName}[/]");
+            }
+        }
+
+        AnsiConsole.Write(new Panel(new Markup(content.ToString()))
+        {
+            Border = BoxBorder.Rounded,
+            BorderStyle = new Style(Color.Grey39),
+            Padding = new Padding(2, 1)
+        });
+
+        AnsiConsole.WriteLine();
+        AnsiConsole.Write(new Panel(new Markup("[grey]ESC[/] [dodgerblue1]back[/] | [grey]Ctrl+C[/] [red]exit[/] | [grey]↑↓[/] [dodgerblue1]navigate[/] | [grey]Enter[/] [dodgerblue1]select[/]"))
+        {
+            Border = BoxBorder.Rounded,
+            BorderStyle = new Style(Color.Grey23),
+            Padding = new Padding(1, 0)
+        });
+    }
+
+    private static void RenderContainerMountPathPrompt(string volumeName, string workspaceContainerPath, string requestedContainerPath, string? validationMessage)
+    {
+        AnsiConsole.Clear();
+        AppIO.WriteHeader("Container Mount Path", "Set where the selected Docker volume should appear inside the container.");
+        AnsiConsole.MarkupLine($"[grey]Volume:[/] [white]{Markup.Escape(volumeName)}[/]");
+        AnsiConsole.MarkupLine($"[grey]Workspace:[/] [white]{Markup.Escape(workspaceContainerPath)}[/]");
+        AnsiConsole.MarkupLine("[grey]Press Enter to confirm. Press ESC on an empty prompt to go back.[/]");
+        if(!String.IsNullOrWhiteSpace(validationMessage))
+        {
+            AnsiConsole.MarkupLine($"[red]{Markup.Escape(validationMessage)}[/]");
+        }
+
+        string displayValue = Markup.Escape(requestedContainerPath);
+        AnsiConsole.Markup($"[grey58]Container path[/] [white]{displayValue}[/]");
+    }
+
+    private static string ResolveContainerWorkspacePath(string hostWorkDir)
+    {
+        string trimmedPath = Path.TrimEndingDirectorySeparator(hostWorkDir);
+        string? rootPath = Path.GetPathRoot(trimmedPath);
+        if(!String.IsNullOrEmpty(rootPath) && String.Equals(trimmedPath, Path.TrimEndingDirectorySeparator(rootPath), StringComparison.OrdinalIgnoreCase))
+        {
+            return OpencodeWrapConstants.CONTAINER_WORKSPACE;
+        }
+
+        string directoryName = Path.GetFileName(trimmedPath);
+        return String.IsNullOrWhiteSpace(directoryName) || directoryName.Contains('/') || directoryName.Contains('\\')
+            ? OpencodeWrapConstants.CONTAINER_WORKSPACE
+            : $"{OpencodeWrapConstants.CONTAINER_WORKSPACE}/{directoryName}";
+    }
+
+    private static string? FindConflictingNamedVolumeMountPath(IReadOnlyList<NamedVolumeMount> selectedNamedVolumeMounts, string candidateContainerPath)
+        => selectedNamedVolumeMounts
+            .Select(namedVolumeMount => namedVolumeMount.ContainerPath)
+            .FirstOrDefault(existingPath => ContainerPathUtility.PathsOverlap(existingPath, candidateContainerPath));
 
     private static string? PromptForResourceDirectory(string workspacePath, List<string> selectedResourceDirectories)
     {
@@ -1417,16 +1790,16 @@ internal sealed class RunCliCommand : Command
         }
     }
 
-    private sealed record RunSelection(string ProfileName, RunUiMode UiMode, WorkspaceMountMode MountMode, IReadOnlyList<string> ResourceDirectories, IReadOnlyList<string> SessionAddonNames, DockerNetworkMode NetworkMode, IReadOnlyList<string> NetworkNames);
+    private sealed record RunSelection(string ProfileName, RunUiMode UiMode, WorkspaceMountMode MountMode, IReadOnlyList<string> ResourceDirectories, IReadOnlyList<NamedVolumeMount> NamedVolumeMounts, IReadOnlyList<string> SessionAddonNames, DockerNetworkMode NetworkMode, IReadOnlyList<string> NetworkNames);
     private sealed record ProfileChoice(string Name, bool IsDefault);
     internal sealed record UiChoice(RunUiMode Mode, string Label, string Description, string? Detail = null, bool IsUnavailable = false, bool IsSelectable = true, bool IsDefault = false);
     private sealed record ExplorerEntry(string Label, ExplorerEntryType EntryType, string? Path = null);
-
     internal enum RunSelectionTab
     {
         Profile,
         Ui,
         Resources,
+        Mounts,
         Addons,
         Networks
     }
