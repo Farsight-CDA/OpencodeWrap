@@ -2,18 +2,8 @@ using Microsoft.Extensions.Logging;
 using System.Formats.Tar;
 using System.IO.Compression;
 using System.Security.Cryptography;
-using System.Text.Json;
 
 namespace OpencodeWrap.Services.Opencode;
-
-internal sealed record ManagedHostOpencodeMetadata(
-    string Version,
-    string Target,
-    string AssetName,
-    string AssetUrl,
-    string? Sha256,
-    string ExecutableRelativePath,
-    DateTimeOffset InstalledAtUtc);
 
 internal sealed partial class ManagedHostOpencodeService : Singleton
 {
@@ -71,10 +61,12 @@ internal sealed partial class ManagedHostOpencodeService : Singleton
             return (false, null);
         }
 
-        string leasePath = Path.Combine(paths.OpencodeLeasesRoot, $"{sessionId}.lease");
+        string leaseDirectoryPath = GetLeaseVersionRoot(paths, release.Version);
+        string leasePath = Path.Combine(leaseDirectoryPath, $"{sessionId}.lease");
         try
         {
-            await File.WriteAllTextAsync(leasePath, release.Version);
+            Directory.CreateDirectory(leaseDirectoryPath);
+            await File.WriteAllTextAsync(leasePath, executablePath);
             _deferredSessionLogService.Write(LogCategories.OPENCODE_HOST, $"created managed host OpenCode lease '{leasePath}'", LogLevel.Information);
             return (true, new ManagedHostOpencodeLease(this, leasePath, executablePath));
         }
@@ -87,13 +79,8 @@ internal sealed partial class ManagedHostOpencodeService : Singleton
 
     private async Task<(bool Success, string ExecutablePath)> EnsureLatestLockedAsync(OcwHostPaths paths, LatestOpencodeRelease release)
     {
-        if(TryReadMetadata(paths.OpencodeMetadataPath, out var metadata)
-            && metadata is not null
-            && IsInstalledVersionCurrent(paths, metadata, release.Version, out string executablePath))
-        {
-            _deferredSessionLogService.Write(LogCategories.OPENCODE_HOST, $"reusing managed host OpenCode {metadata.Version}", LogLevel.Information);
-            return (true, executablePath);
-        }
+        _sessionStagingService.CleanupStaleSessions();
+        RemoveOrphanedLeaseFiles(paths);
 
         var (success, asset) = await _releaseMetadataService.TryResolveCurrentHostBinaryAsync(release);
         if(!success)
@@ -102,6 +89,21 @@ internal sealed partial class ManagedHostOpencodeService : Singleton
         }
 
         var binaryAsset = asset;
+        CleanupUnusedInstalledVersions(paths, [release.Version]);
+
+        string versionRoot = GetVersionRoot(paths, release.Version);
+        if(TryGetInstalledExecutablePath(versionRoot, binaryAsset.ExecutableFileName, out string installedExecutablePath))
+        {
+            _deferredSessionLogService.Write(LogCategories.OPENCODE_HOST, $"reusing managed host OpenCode {release.Version}", LogLevel.Information);
+            return (true, installedExecutablePath);
+        }
+
+        if(Directory.Exists(versionRoot) && HasActiveLeaseForVersion(paths, release.Version))
+        {
+            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.OPENCODE_HOST, $"Managed host OpenCode {release.Version} is in use by another active session and cannot be reinstalled in place.");
+            return (false, String.Empty);
+        }
+
         _deferredSessionLogService.Write(LogCategories.OPENCODE_HOST, $"installing managed host OpenCode {release.Version} from '{binaryAsset.Asset.Name}'", LogLevel.Information);
 
         string temporaryRoot = Path.Combine(paths.OpencodeRoot, $"install-{Guid.NewGuid():N}");
@@ -135,22 +137,17 @@ internal sealed partial class ManagedHostOpencodeService : Singleton
                 return (false, String.Empty);
             }
 
-            await WaitForLeaseDrainAsync(paths);
-
-            string executableRelativePath = Path.GetRelativePath(extractedRoot, extractedExecutablePath);
-            if(!await TryReplaceCurrentInstallAsync(paths, extractedRoot, new ManagedHostOpencodeMetadata(
-                release.Version,
-                binaryAsset.Target,
-                binaryAsset.Asset.Name,
-                binaryAsset.Asset.DownloadUrl,
-                binaryAsset.Asset.Sha256,
-                executableRelativePath.Replace('\\', '/'),
-                DateTimeOffset.UtcNow)))
+            if(!TryInstallVersion(extractedRoot, versionRoot, release.Version))
             {
                 return (false, String.Empty);
             }
 
-            string finalExecutablePath = Path.Combine(paths.OpencodeCurrentRoot, executableRelativePath);
+            if(!TryGetInstalledExecutablePath(versionRoot, binaryAsset.ExecutableFileName, out string finalExecutablePath))
+            {
+                _deferredSessionLogService.WriteErrorOrConsole(LogCategories.OPENCODE_HOST, $"Managed OpenCode {release.Version} was installed, but '{binaryAsset.ExecutableFileName}' was not found under '{versionRoot}'.");
+                return (false, String.Empty);
+            }
+
             _deferredSessionLogService.Write(LogCategories.OPENCODE_HOST, $"managed host OpenCode {release.Version} installed at '{finalExecutablePath}'", LogLevel.Information);
             return (true, finalExecutablePath);
         }
@@ -160,53 +157,13 @@ internal sealed partial class ManagedHostOpencodeService : Singleton
         }
     }
 
-    private async Task WaitForLeaseDrainAsync(OcwHostPaths paths)
-    {
-        bool waitingLogged = false;
-        while(true)
-        {
-            _sessionStagingService.CleanupStaleSessions();
-            RemoveOrphanedLeaseFiles(paths);
-
-            string[] leaseFiles;
-            try
-            {
-                leaseFiles = Directory.Exists(paths.OpencodeLeasesRoot)
-                    ? Directory.GetFiles(paths.OpencodeLeasesRoot, "*.lease", SearchOption.TopDirectoryOnly)
-                    : [];
-            }
-            catch
-            {
-                leaseFiles = [];
-            }
-
-            if(leaseFiles.Length == 0)
-            {
-                if(waitingLogged)
-                {
-                    _deferredSessionLogService.Write(LogCategories.OPENCODE_HOST, "active managed host OpenCode leases drained", LogLevel.Information);
-                }
-
-                return;
-            }
-
-            if(!waitingLogged)
-            {
-                _deferredSessionLogService.Write(LogCategories.OPENCODE_HOST, "waiting for active managed host OpenCode leases to drain", LogLevel.Information);
-                waitingLogged = true;
-            }
-
-            await Task.Delay(TimeSpan.FromMilliseconds(200));
-        }
-    }
-
     private void RemoveOrphanedLeaseFiles(OcwHostPaths paths)
     {
         string[] leaseFiles;
         try
         {
             leaseFiles = Directory.Exists(paths.OpencodeLeasesRoot)
-                ? Directory.GetFiles(paths.OpencodeLeasesRoot, "*.lease", SearchOption.TopDirectoryOnly)
+                ? Directory.GetFiles(paths.OpencodeLeasesRoot, "*.lease", SearchOption.AllDirectories)
                 : [];
         }
         catch
@@ -230,6 +187,8 @@ internal sealed partial class ManagedHostOpencodeService : Singleton
 
             TryDeleteLeaseFile(leasePath);
         }
+
+        CleanupEmptyLeaseDirectories(paths.OpencodeLeasesRoot);
     }
 
     private async Task<bool> TryDownloadArtifactAsync(OpencodeReleaseAsset asset, string destinationPath)
@@ -347,81 +306,137 @@ internal sealed partial class ManagedHostOpencodeService : Singleton
         return true;
     }
 
-    private async Task<bool> TryReplaceCurrentInstallAsync(OcwHostPaths paths, string extractedRoot, ManagedHostOpencodeMetadata metadata)
+    private bool TryInstallVersion(string extractedRoot, string versionRoot, string version)
     {
-        string backupRoot = Path.Combine(paths.OpencodeRoot, $"backup-{Guid.NewGuid():N}");
-        bool movedCurrentAside = false;
-
         try
         {
-            AppIO.TryDeleteDirectory(backupRoot);
-            if(Directory.Exists(paths.OpencodeCurrentRoot))
+            if(Directory.Exists(versionRoot))
             {
-                Directory.Move(paths.OpencodeCurrentRoot, backupRoot);
-                movedCurrentAside = true;
+                AppIO.TryDeleteDirectory(versionRoot);
             }
 
-            Directory.Move(extractedRoot, paths.OpencodeCurrentRoot);
-            string metadataJson = JsonSerializer.Serialize(metadata, OpencodeJsonContext.Default.ManagedHostOpencodeMetadata);
-            await File.WriteAllTextAsync(paths.OpencodeMetadataPath, metadataJson);
-            AppIO.TryDeleteDirectory(backupRoot);
+            Directory.CreateDirectory(Path.GetDirectoryName(versionRoot)!);
+            Directory.Move(extractedRoot, versionRoot);
             return true;
         }
         catch(Exception ex)
         {
-            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.OPENCODE_HOST, $"Failed to replace the managed host OpenCode installation: {ex.Message}");
+            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.OPENCODE_HOST, $"Failed to install managed host OpenCode {version}: {ex.Message}");
+            return false;
+        }
+    }
 
+    private void CleanupUnusedInstalledVersions(OcwHostPaths paths, IReadOnlyCollection<string> preserveVersions)
+    {
+        string[] versionDirectories;
+        try
+        {
+            versionDirectories = Directory.Exists(paths.OpencodeVersionsRoot)
+                ? Directory.GetDirectories(paths.OpencodeVersionsRoot, "*", SearchOption.TopDirectoryOnly)
+                : [];
+        }
+        catch
+        {
+            return;
+        }
+
+        var activeVersions = new HashSet<string>(EnumerateActiveLeaseVersions(paths), StringComparer.OrdinalIgnoreCase);
+        foreach(string preservedVersion in preserveVersions)
+        {
+            activeVersions.Add(GetVersionDirectoryName(preservedVersion));
+        }
+
+        foreach(string versionDirectory in versionDirectories)
+        {
+            string versionDirectoryName = Path.GetFileName(versionDirectory);
+            if(String.IsNullOrWhiteSpace(versionDirectoryName)
+                || activeVersions.Contains(versionDirectoryName))
+            {
+                continue;
+            }
+
+            AppIO.TryDeleteDirectory(versionDirectory);
+        }
+    }
+
+    private IEnumerable<string> EnumerateActiveLeaseVersions(OcwHostPaths paths)
+    {
+        string[] leaseDirectories;
+        try
+        {
+            leaseDirectories = Directory.Exists(paths.OpencodeLeasesRoot)
+                ? Directory.GetDirectories(paths.OpencodeLeasesRoot, "*", SearchOption.TopDirectoryOnly)
+                : [];
+        }
+        catch
+        {
+            yield break;
+        }
+
+        foreach(string leaseDirectory in leaseDirectories)
+        {
+            string versionDirectoryName = Path.GetFileName(leaseDirectory);
+            if(String.IsNullOrWhiteSpace(versionDirectoryName))
+            {
+                continue;
+            }
+
+            string[] leaseFiles;
             try
             {
-                if(Directory.Exists(paths.OpencodeCurrentRoot))
-                {
-                    AppIO.TryDeleteDirectory(paths.OpencodeCurrentRoot);
-                }
+                leaseFiles = Directory.GetFiles(leaseDirectory, "*.lease", SearchOption.TopDirectoryOnly);
+            }
+            catch
+            {
+                continue;
+            }
 
-                if(movedCurrentAside && Directory.Exists(backupRoot))
+            if(leaseFiles.Length > 0)
+            {
+                yield return versionDirectoryName;
+            }
+        }
+    }
+
+    private void CleanupEmptyLeaseDirectories(string leasesRoot)
+    {
+        string[] leaseDirectories;
+        try
+        {
+            leaseDirectories = Directory.Exists(leasesRoot)
+                ? Directory.GetDirectories(leasesRoot, "*", SearchOption.TopDirectoryOnly)
+                : [];
+        }
+        catch
+        {
+            return;
+        }
+
+        foreach(string leaseDirectory in leaseDirectories)
+        {
+            try
+            {
+                if(!Directory.EnumerateFileSystemEntries(leaseDirectory).Any())
                 {
-                    Directory.Move(backupRoot, paths.OpencodeCurrentRoot);
+                    Directory.Delete(leaseDirectory);
                 }
             }
             catch
             {
+                // Best effort lease directory cleanup only.
             }
-
-            return false;
         }
-    }
-
-    private bool TryReadMetadata(string metadataPath, out ManagedHostOpencodeMetadata? metadata)
-    {
-        metadata = null;
-        if(!File.Exists(metadataPath))
-        {
-            return false;
-        }
-
-        try
-        {
-            string json = File.ReadAllText(metadataPath);
-            metadata = JsonSerializer.Deserialize(json, OpencodeJsonContext.Default.ManagedHostOpencodeMetadata);
-            return metadata is not null;
-        }
-        catch(Exception ex)
-        {
-            _deferredSessionLogService.WriteWarningOrConsole(LogCategories.OPENCODE_HOST, $"Ignoring invalid managed host OpenCode metadata '{metadataPath}': {ex.Message}");
-            return false;
-        }
-    }
-
-    private static bool IsInstalledVersionCurrent(OcwHostPaths paths, ManagedHostOpencodeMetadata metadata, string expectedVersion, out string executablePath)
-    {
-        executablePath = Path.Combine(paths.OpencodeCurrentRoot, metadata.ExecutableRelativePath.Replace('/', Path.DirectorySeparatorChar));
-        return String.Equals(metadata.Version, expectedVersion, StringComparison.OrdinalIgnoreCase)
-            && File.Exists(executablePath);
     }
 
     private async ValueTask ReleaseLeaseAsync(string leasePath)
     {
         TryDeleteLeaseFile(leasePath);
+        string? leaseDirectory = Path.GetDirectoryName(leasePath);
+        if(!String.IsNullOrWhiteSpace(leaseDirectory))
+        {
+            TryDeleteDirectoryIfEmpty(leaseDirectory);
+        }
+
         await ValueTask.CompletedTask;
     }
 
@@ -438,6 +453,70 @@ internal sealed partial class ManagedHostOpencodeService : Singleton
         catch(Exception ex)
         {
             _deferredSessionLogService.WriteWarningOrConsole(LogCategories.OPENCODE_HOST, $"Failed to remove managed host OpenCode lease '{leasePath}': {ex.Message}");
+        }
+    }
+
+    private static string GetVersionRoot(OcwHostPaths paths, string version)
+        => Path.Combine(paths.OpencodeVersionsRoot, GetVersionDirectoryName(version));
+
+    private static string GetLeaseVersionRoot(OcwHostPaths paths, string version)
+        => Path.Combine(paths.OpencodeLeasesRoot, GetVersionDirectoryName(version));
+
+    private static string GetVersionDirectoryName(string version)
+    {
+        string normalizedVersion = String.IsNullOrWhiteSpace(version)
+            ? "unknown"
+            : version.Trim();
+
+        foreach(char invalidCharacter in Path.GetInvalidFileNameChars())
+        {
+            normalizedVersion = normalizedVersion.Replace(invalidCharacter, '-');
+        }
+
+        return normalizedVersion;
+    }
+
+    private bool HasActiveLeaseForVersion(OcwHostPaths paths, string version)
+    {
+        string leaseVersionRoot = GetLeaseVersionRoot(paths, version);
+        if(!Directory.Exists(leaseVersionRoot))
+        {
+            return false;
+        }
+
+        try
+        {
+            return Directory.EnumerateFiles(leaseVersionRoot, "*.lease", SearchOption.TopDirectoryOnly).Any();
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private bool TryGetInstalledExecutablePath(string versionRoot, string executableFileName, out string executablePath)
+    {
+        if(!Directory.Exists(versionRoot))
+        {
+            executablePath = String.Empty;
+            return false;
+        }
+
+        return TryFindExecutable(versionRoot, executableFileName, out executablePath);
+    }
+
+    private void TryDeleteDirectoryIfEmpty(string directoryPath)
+    {
+        try
+        {
+            if(Directory.Exists(directoryPath) && !Directory.EnumerateFileSystemEntries(directoryPath).Any())
+            {
+                Directory.Delete(directoryPath);
+            }
+        }
+        catch
+        {
+            // Best effort lease directory cleanup only.
         }
     }
 

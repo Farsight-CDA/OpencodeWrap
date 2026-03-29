@@ -788,7 +788,7 @@ internal sealed partial class OpencodeLauncherService : Singleton
     private static void AppendHashString(IncrementalHash hash, string value)
     {
         hash.AppendData(Encoding.UTF8.GetBytes(value));
-        hash.AppendData([(byte)'\n']);
+        hash.AppendData([(byte) '\n']);
     }
 
     private static string ResolveContainerWorkspacePath(string hostWorkDir)

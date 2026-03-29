@@ -16,9 +16,8 @@ internal static class OpencodeWrapConstants
     public const string HOST_SESSION_ROOT_DIRECTORY_NAME = "sessions";
     public const string HOST_TOOL_ROOT_DIRECTORY_NAME = "tools";
     public const string HOST_OPENCODE_TOOL_DIRECTORY_NAME = "opencode";
-    public const string HOST_OPENCODE_CURRENT_DIRECTORY_NAME = "current";
+    public const string HOST_OPENCODE_VERSION_DIRECTORY_NAME = "versions";
     public const string HOST_OPENCODE_LEASE_DIRECTORY_NAME = "leases";
-    public const string HOST_OPENCODE_METADATA_FILE_NAME = "metadata.json";
     public const string HOST_OPENCODE_LATEST_CACHE_FILE_NAME = "latest-release.json";
     public const string HOST_OPENCODE_LATEST_LOCK_FILE_NAME = "opencode-latest.lock";
     public const string HOST_OPENCODE_HOST_LOCK_FILE_NAME = "opencode-host.lock";

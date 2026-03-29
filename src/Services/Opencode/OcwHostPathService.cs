@@ -7,9 +7,8 @@ internal sealed record OcwHostPaths(
     string ToolsRoot,
     string LocksRoot,
     string OpencodeRoot,
-    string OpencodeCurrentRoot,
     string OpencodeLeasesRoot,
-    string OpencodeMetadataPath,
+    string OpencodeVersionsRoot,
     string OpencodeLatestCachePath,
     string OpencodeLatestLockPath,
     string OpencodeHostLockPath
@@ -25,7 +24,7 @@ internal sealed partial class OcwHostPathService : Singleton
 
     public bool TryGetPaths(out OcwHostPaths paths)
     {
-        paths = new OcwHostPaths("", "", "", "", "", "", "", "", "", "", "", "");
+        paths = new OcwHostPaths("", "", "", "", "", "", "", "", "", "", "");
         if(!_dockerHostService.TryEnsureGlobalConfigDirectory(out string configRoot))
         {
             return false;
@@ -36,8 +35,8 @@ internal sealed partial class OcwHostPathService : Singleton
         string toolsRoot = Path.Combine(configRoot, OpencodeWrapConstants.HOST_TOOL_ROOT_DIRECTORY_NAME);
         string locksRoot = Path.Combine(configRoot, OpencodeWrapConstants.HOST_LOCK_ROOT_DIRECTORY_NAME);
         string opencodeRoot = Path.Combine(toolsRoot, OpencodeWrapConstants.HOST_OPENCODE_TOOL_DIRECTORY_NAME);
-        string opencodeCurrentRoot = Path.Combine(opencodeRoot, OpencodeWrapConstants.HOST_OPENCODE_CURRENT_DIRECTORY_NAME);
         string opencodeLeasesRoot = Path.Combine(opencodeRoot, OpencodeWrapConstants.HOST_OPENCODE_LEASE_DIRECTORY_NAME);
+        string opencodeVersionsRoot = Path.Combine(opencodeRoot, OpencodeWrapConstants.HOST_OPENCODE_VERSION_DIRECTORY_NAME);
 
         try
         {
@@ -47,6 +46,7 @@ internal sealed partial class OcwHostPathService : Singleton
             Directory.CreateDirectory(locksRoot);
             Directory.CreateDirectory(opencodeRoot);
             Directory.CreateDirectory(opencodeLeasesRoot);
+            Directory.CreateDirectory(opencodeVersionsRoot);
         }
         catch(Exception ex)
         {
@@ -61,9 +61,8 @@ internal sealed partial class OcwHostPathService : Singleton
             toolsRoot,
             locksRoot,
             opencodeRoot,
-            opencodeCurrentRoot,
             opencodeLeasesRoot,
-            Path.Combine(opencodeRoot, OpencodeWrapConstants.HOST_OPENCODE_METADATA_FILE_NAME),
+            opencodeVersionsRoot,
             Path.Combine(opencodeRoot, OpencodeWrapConstants.HOST_OPENCODE_LATEST_CACHE_FILE_NAME),
             Path.Combine(locksRoot, OpencodeWrapConstants.HOST_OPENCODE_LATEST_LOCK_FILE_NAME),
             Path.Combine(locksRoot, OpencodeWrapConstants.HOST_OPENCODE_HOST_LOCK_FILE_NAME));
