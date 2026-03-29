@@ -10,7 +10,7 @@ Your data persists. Your settings follow you. Just type `ocw run`.
 
 - **Zero setup** — One npm install, then just run
 - **Your data stays** — Everything persists across sessions
-- **Smart profiles** — Pre-made setups for frontend, .NET, data science, and more
+- **Smart profiles** — Built-in all-in-one setup plus custom profiles
 - **Session addons** — Drop in custom tools and configurations
 - **Auto-updates** — Always on the latest OpenCode
 - **Your choice of UI** — TUI or web browser
@@ -34,7 +34,7 @@ Docker required.
 ocw run
 ```
 
-Pick a profile, choose your UI, start coding.
+Choose your UI and start coding with the built-in all-in-one profile or your own custom one.
 
 ![Run Setup](docs/images/run-setup.png)
 
@@ -44,12 +44,7 @@ Pick a profile, choose your UI, start coding.
 
 | Profile | Best For |
 |---------|----------|
-| `default` | General development |
-| `frontend` | React, Vue, Angular |
-| `dotnet` | .NET/C# projects |
-| `data-science` | Python, ML, notebooks |
 | `all-in-one` | Combined frontend, .NET, data, and Solidity tooling |
-| `solidity` | Blockchain/Web3 |
 
 Create your own with `ocw profile add <name>`.
 

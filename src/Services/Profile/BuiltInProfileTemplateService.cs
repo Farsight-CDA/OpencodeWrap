@@ -9,30 +9,10 @@ internal sealed partial class BuiltInProfileTemplateService : Singleton
 
     private static readonly BuiltInProfileTemplate[] _builtInProfiles = [
         new BuiltInProfileTemplate(
-            "default",
-            LoadEmbeddedTextResource("ProfileTemplates.default.Dockerfile"),
-            LoadEmbeddedTextResource("ProfileTemplates.default.opencode.json"),
-            IsDefault: true),
-        new BuiltInProfileTemplate(
-            "frontend",
-            LoadEmbeddedTextResource("ProfileTemplates.frontend.Dockerfile"),
-            LoadEmbeddedTextResource("ProfileTemplates.frontend.opencode.json")),
-        new BuiltInProfileTemplate(
-            "dotnet",
-            LoadEmbeddedTextResource("ProfileTemplates.dotnet.Dockerfile"),
-            LoadEmbeddedTextResource("ProfileTemplates.dotnet.opencode.json")),
-        new BuiltInProfileTemplate(
-            "data-science",
-            LoadEmbeddedTextResource("ProfileTemplates.data-science.Dockerfile"),
-            LoadEmbeddedTextResource("ProfileTemplates.data-science.opencode.json")),
-        new BuiltInProfileTemplate(
             "all-in-one",
             LoadEmbeddedTextResource("ProfileTemplates.all-in-one.Dockerfile"),
-            LoadEmbeddedTextResource("ProfileTemplates.all-in-one.opencode.json")),
-        new BuiltInProfileTemplate(
-            "solidity",
-            LoadEmbeddedTextResource("ProfileTemplates.solidity.Dockerfile"),
-            LoadEmbeddedTextResource("ProfileTemplates.solidity.opencode.json"))
+            LoadEmbeddedTextResource("ProfileTemplates.all-in-one.opencode.json"),
+            IsDefault: true)
     ];
 
     public IReadOnlyList<BuiltInProfileTemplate> BuiltInProfiles { get; } = _builtInProfiles;
