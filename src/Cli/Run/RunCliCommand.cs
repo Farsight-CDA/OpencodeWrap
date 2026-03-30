@@ -186,7 +186,6 @@ internal sealed class RunCliCommand : Command
 
         if(workspaceConfigExists)
         {
-            selectedContainerMounts.Clear();
             foreach(ContainerMount configuredContainerMount in workspaceConfig.ContainerMounts)
             {
                 ContainerMount normalizedContainerMount;
@@ -219,9 +218,25 @@ internal sealed class RunCliCommand : Command
                         continue;
                 }
 
-                if(FindConflictingContainerMountPath(selectedContainerMounts, normalizedContainerMount.ContainerPath) is not null
-                    || selectedContainerMounts.Contains(normalizedContainerMount))
+                if(selectedContainerMounts.Contains(normalizedContainerMount))
                 {
+                    configuredContainerMounts.Add(normalizedContainerMount);
+                    continue;
+                }
+
+                if(FindConflictingContainerMountPath(selectedContainerMounts, normalizedContainerMount.ContainerPath) is { } conflictingContainerPath)
+                {
+                    ContainerMount? conflictingContainerMount = selectedContainerMounts.FirstOrDefault(containerMount => String.Equals(containerMount.ContainerPath, conflictingContainerPath, StringComparison.Ordinal));
+                    if(conflictingContainerMount is not null)
+                    {
+                        selectedContainerMounts.Remove(conflictingContainerMount);
+                        defaultContainerMounts.Remove(conflictingContainerMount);
+                    }
+                }
+
+                if(selectedContainerMounts.Contains(normalizedContainerMount))
+                {
+                    configuredContainerMounts.Add(normalizedContainerMount);
                     continue;
                 }
 
@@ -248,7 +263,6 @@ internal sealed class RunCliCommand : Command
 
         if(workspaceConfigExists)
         {
-            activeAddonNames.Clear();
             var configuredAddonNameSet = new HashSet<string>(workspaceConfig.SessionAddons, GetHostPathComparer());
             foreach(string addonName in availableAddonNames)
             {
@@ -292,16 +306,10 @@ internal sealed class RunCliCommand : Command
             }
         }
 
-        if(workspaceConfigExists)
-        {
-            if(DoesNetworkModeSupportAdditionalNetworks(selectedNetworkMode))
-            {
-                activeNetworkNames.UnionWith(configuredNetworkNames);
-            }
-        }
-        else if(DoesNetworkModeSupportAdditionalNetworks(selectedNetworkMode))
+        if(DoesNetworkModeSupportAdditionalNetworks(selectedNetworkMode))
         {
             activeNetworkNames.UnionWith(defaultNetworkNames);
+            activeNetworkNames.UnionWith(configuredNetworkNames);
         }
 
         string? workspaceConfigStatusMarkup = null;
@@ -566,7 +574,8 @@ internal sealed class RunCliCommand : Command
                             else
                             {
                                 activeNetworkNames.Clear();
-                                activeNetworkNames.UnionWith(workspaceConfigExists ? configuredNetworkNames : defaultNetworkNames);
+                                activeNetworkNames.UnionWith(defaultNetworkNames);
+                                activeNetworkNames.UnionWith(configuredNetworkNames);
                             }
 
                             break;
