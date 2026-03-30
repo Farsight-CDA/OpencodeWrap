@@ -8,6 +8,7 @@ internal static class OpencodeWrapConstants
     public const string CONTAINER_PERSISTENT_ROOT = $"{CONTAINER_OCW_ROOT}/state";
     public const string CONTAINER_SESSION_ROOT = $"{CONTAINER_OCW_ROOT}/session";
     public const string HOST_GLOBAL_CONFIG_DIRECTORY_NAME = ".opencode-wrap";
+    public const string HOST_WORKSPACE_RUN_CONFIG_FILE_NAME = "ocw.json";
     public const string AGENTS_FILE_NAME = "AGENTS.md";
     public const string HOST_ADDON_ROOT_DIRECTORY_NAME = "addons";
     public const string HOST_RUN_MENU_DEFAULTS_FILE_NAME = "run-defaults.json";

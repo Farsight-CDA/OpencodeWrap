@@ -14,7 +14,7 @@ internal sealed class UpdateCliCommand : Command
     private readonly Option<bool> _devOption;
 
     public UpdateCliCommand()
-        : base("update", "Check for updates or self-update when installed via npm.")
+        : base("update", "Check or install updates (requires npm install).")
     {
         _checkOnlyOption = new Option<bool>("--check")
         {

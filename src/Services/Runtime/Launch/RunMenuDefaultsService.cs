@@ -118,6 +118,109 @@ internal sealed partial class RunMenuDefaultsService : Singleton
         }
     }
 
+    public bool TryLoadWorkspaceConfig(string workspacePath, out WorkspaceRunMenuConfig config, out bool exists)
+    {
+        config = WorkspaceRunMenuConfig.Empty;
+        exists = false;
+
+        string configPath = GetWorkspaceConfigPath(workspacePath);
+        if(!File.Exists(configPath))
+        {
+            return true;
+        }
+
+        exists = true;
+        try
+        {
+            using var stream = File.OpenRead(configPath);
+            using var document = JsonDocument.Parse(stream);
+            config = ReadWorkspaceConfig(document.RootElement);
+            return true;
+        }
+        catch(Exception ex)
+        {
+            _deferredSessionLogService.WriteErrorOrConsole("run", $"Failed to read workspace run config from '{configPath}': {ex.Message}");
+            return false;
+        }
+    }
+
+    public bool TrySaveWorkspaceConfig(string workspacePath, WorkspaceRunMenuConfig config)
+    {
+        string configPath = GetWorkspaceConfigPath(workspacePath);
+
+        try
+        {
+            var normalizedConfig = NormalizeWorkspaceConfig(config);
+
+            using var stream = File.Create(configPath);
+            using var writer = new Utf8JsonWriter(stream, new JsonWriterOptions
+            {
+                Indented = true
+            });
+
+            writer.WriteStartObject();
+            if(!String.IsNullOrWhiteSpace(normalizedConfig.ProfileName))
+            {
+                writer.WriteString("profileName", normalizedConfig.ProfileName);
+            }
+
+            if(normalizedConfig.UiMode is { } uiMode)
+            {
+                writer.WriteString("uiMode", GetPersistedRunUiModeValue(uiMode));
+            }
+
+            if(normalizedConfig.WorkspaceMountMode is { } workspaceMountMode)
+            {
+                writer.WriteString("workspaceMountMode", GetPersistedWorkspaceMountModeValue(workspaceMountMode));
+            }
+
+            if(normalizedConfig.DockerNetworkMode is { } dockerNetworkMode)
+            {
+                writer.WriteString("dockerNetworkMode", dockerNetworkMode.GetLabel());
+            }
+
+            writer.WritePropertyName("containerMounts");
+            writer.WriteStartArray();
+            foreach(ContainerMount containerMount in normalizedConfig.ContainerMounts)
+            {
+                writer.WriteStartObject();
+                writer.WriteString("sourceType", GetPersistedContainerMountSourceTypeValue(containerMount.SourceType));
+                writer.WriteString("source", containerMount.Source);
+                writer.WriteString("containerPath", containerMount.ContainerPath);
+                writer.WriteString("accessMode", GetPersistedContainerMountAccessModeValue(containerMount.AccessMode));
+                writer.WriteEndObject();
+            }
+
+            writer.WriteEndArray();
+
+            writer.WritePropertyName("sessionAddons");
+            writer.WriteStartArray();
+            foreach(string addonName in normalizedConfig.SessionAddons)
+            {
+                writer.WriteStringValue(addonName);
+            }
+
+            writer.WriteEndArray();
+
+            writer.WritePropertyName("dockerNetworks");
+            writer.WriteStartArray();
+            foreach(string networkName in normalizedConfig.DockerNetworks)
+            {
+                writer.WriteStringValue(networkName);
+            }
+
+            writer.WriteEndArray();
+            writer.WriteEndObject();
+            writer.Flush();
+            return true;
+        }
+        catch(Exception ex)
+        {
+            _deferredSessionLogService.WriteErrorOrConsole("run", $"Failed to save workspace run config to '{configPath}': {ex.Message}");
+            return false;
+        }
+    }
+
     private static RunMenuDefaults ReadDefaults(JsonElement rootElement)
     {
         if(rootElement.ValueKind is not JsonValueKind.Object)
@@ -155,6 +258,57 @@ internal sealed partial class RunMenuDefaultsService : Singleton
             defaultProfileName,
             defaultUiMode,
             defaultDockerNetworkMode,
+            ReadContainerMounts(rootElement),
+            ReadStringArray(rootElement, "sessionAddons"),
+            ReadStringArray(rootElement, "dockerNetworks")));
+    }
+
+    private static WorkspaceRunMenuConfig ReadWorkspaceConfig(JsonElement rootElement)
+    {
+        if(rootElement.ValueKind is not JsonValueKind.Object)
+        {
+            return WorkspaceRunMenuConfig.Empty;
+        }
+
+        string? profileName = null;
+        if(rootElement.TryGetProperty("profileName", out var profileNameElement)
+            && profileNameElement.ValueKind is JsonValueKind.String)
+        {
+            profileName = profileNameElement.GetString();
+        }
+
+        RunUiMode? uiMode = null;
+        if(rootElement.TryGetProperty("uiMode", out var uiModeElement)
+            && uiModeElement.ValueKind is JsonValueKind.String
+            && TryParseRunUiMode(uiModeElement.GetString(), out var parsedUiMode))
+        {
+            uiMode = parsedUiMode;
+        }
+
+        WorkspaceMountMode? workspaceMountMode = null;
+        if(rootElement.TryGetProperty("workspaceMountMode", out var workspaceMountModeElement)
+            && workspaceMountModeElement.ValueKind is JsonValueKind.String
+            && TryParseWorkspaceMountMode(workspaceMountModeElement.GetString(), out var parsedWorkspaceMountMode))
+        {
+            workspaceMountMode = parsedWorkspaceMountMode;
+        }
+
+        DockerNetworkMode? dockerNetworkMode = null;
+        if(rootElement.TryGetProperty("dockerNetworkMode", out var dockerNetworkModeElement)
+            && dockerNetworkModeElement.ValueKind is JsonValueKind.String)
+        {
+            string? persistedDockerNetworkMode = dockerNetworkModeElement.GetString();
+            if(DockerNetworkModeExtensions.TryParsePersistedValue(persistedDockerNetworkMode, out var parsedDockerNetworkMode))
+            {
+                dockerNetworkMode = parsedDockerNetworkMode;
+            }
+        }
+
+        return NormalizeWorkspaceConfig(new WorkspaceRunMenuConfig(
+            profileName,
+            uiMode,
+            workspaceMountMode,
+            dockerNetworkMode,
             ReadContainerMounts(rootElement),
             ReadStringArray(rootElement, "sessionAddons"),
             ReadStringArray(rootElement, "dockerNetworks")));
@@ -314,6 +468,26 @@ internal sealed partial class RunMenuDefaultsService : Singleton
         return new RunMenuDefaults(defaultProfileName, defaults.DefaultUiMode, defaults.DefaultDockerNetworkMode, containerMounts, sessionAddons, dockerNetworks);
     }
 
+    private static WorkspaceRunMenuConfig NormalizeWorkspaceConfig(WorkspaceRunMenuConfig config)
+    {
+        RunMenuDefaults normalizedDefaults = NormalizeDefaults(new RunMenuDefaults(
+            config.ProfileName,
+            config.UiMode,
+            config.DockerNetworkMode,
+            config.ContainerMounts,
+            config.SessionAddons,
+            config.DockerNetworks));
+
+        return new WorkspaceRunMenuConfig(
+            normalizedDefaults.DefaultProfileName,
+            normalizedDefaults.DefaultUiMode,
+            config.WorkspaceMountMode,
+            normalizedDefaults.DefaultDockerNetworkMode,
+            normalizedDefaults.ContainerMounts,
+            normalizedDefaults.SessionAddons,
+            normalizedDefaults.DockerNetworks);
+    }
+
     private static bool TryNormalizeContainerMount(ContainerMount requestedMount, out ContainerMount normalizedMount)
     {
         normalizedMount = requestedMount;
@@ -401,6 +575,12 @@ internal sealed partial class RunMenuDefaultsService : Singleton
         _ => "tui"
     };
 
+    private static string GetPersistedWorkspaceMountModeValue(WorkspaceMountMode workspaceMountMode) => workspaceMountMode switch
+    {
+        WorkspaceMountMode.None => "none",
+        _ => "readWrite"
+    };
+
     private static string GetPersistedContainerMountSourceTypeValue(ContainerMountSourceType sourceType) => sourceType switch
     {
         ContainerMountSourceType.NamedVolume => "namedVolume",
@@ -428,6 +608,22 @@ internal sealed partial class RunMenuDefaultsService : Singleton
                 return true;
             default:
                 runUiMode = default;
+                return false;
+        }
+    }
+
+    private static bool TryParseWorkspaceMountMode(string? persistedValue, out WorkspaceMountMode workspaceMountMode)
+    {
+        switch(persistedValue?.Trim().ToLowerInvariant())
+        {
+            case "readwrite":
+                workspaceMountMode = WorkspaceMountMode.ReadWrite;
+                return true;
+            case "none":
+                workspaceMountMode = WorkspaceMountMode.None;
+                return true;
+            default:
+                workspaceMountMode = default;
                 return false;
         }
     }
@@ -467,6 +663,9 @@ internal sealed partial class RunMenuDefaultsService : Singleton
     private static string GetDefaultsPath(string configRoot)
         => Path.Combine(configRoot, OpencodeWrapConstants.HOST_RUN_MENU_DEFAULTS_FILE_NAME);
 
+    private static string GetWorkspaceConfigPath(string workspacePath)
+        => Path.Combine(workspacePath, OpencodeWrapConstants.HOST_WORKSPACE_RUN_CONFIG_FILE_NAME);
+
     private static StringComparer GetHostPathComparer() => OperatingSystem.IsWindows()
         ? StringComparer.OrdinalIgnoreCase
         : StringComparer.Ordinal;
@@ -475,4 +674,9 @@ internal sealed partial class RunMenuDefaultsService : Singleton
 internal sealed record RunMenuDefaults(string? DefaultProfileName, RunUiMode? DefaultUiMode, DockerNetworkMode? DefaultDockerNetworkMode, IReadOnlyList<ContainerMount> ContainerMounts, IReadOnlyList<string> SessionAddons, IReadOnlyList<string> DockerNetworks)
 {
     public static RunMenuDefaults Empty { get; } = new(null, null, null, [], [], []);
+}
+
+internal sealed record WorkspaceRunMenuConfig(string? ProfileName, RunUiMode? UiMode, WorkspaceMountMode? WorkspaceMountMode, DockerNetworkMode? DockerNetworkMode, IReadOnlyList<ContainerMount> ContainerMounts, IReadOnlyList<string> SessionAddons, IReadOnlyList<string> DockerNetworks)
+{
+    public static WorkspaceRunMenuConfig Empty { get; } = new(null, null, null, null, [], [], []);
 }

@@ -9,7 +9,7 @@ internal sealed class OpencodeWrapRootCommand : RootCommand
     private readonly OpencodeLauncherService _launcherService;
 
     public OpencodeWrapRootCommand(OpencodeLauncherService launcherService, RunCliCommand runCliCommand, UpdateCliCommand updateCliCommand, DataCliCommand dataCliCommand, ProfileCliCommand profileCliCommand, AddonCliCommand addonCliCommand)
-        : base("Run OpenCode in Docker with OCW-managed host and runtime OpenCode installs. `ocw run` launches `opencode serve` in Docker and then opens the selected TUI, web, or desktop client; other top-level commands still run directly in the container.")
+        : base("Docker runner for OpenCode. Use 'run' to launch the interactive UI, or manage profiles/addons/data with other commands.")
     {
         _launcherService = launcherService;
         Add(runCliCommand);
