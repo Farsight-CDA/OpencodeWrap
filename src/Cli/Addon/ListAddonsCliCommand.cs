@@ -52,14 +52,14 @@ internal sealed class ListAddonsCliCommand : Command
             {
                 displayPath = "[grey](embedded)[/]";
             }
-            else if(_sessionAddonService.TryResolveAddonDirectoryPath(catalog.AddonsRoot, addon.Name, out string addonDirectoryPath))
+            else if(addon.DirectoryPath is { } addonDirectoryPath)
             {
                 displayPath = Markup.Escape(addonDirectoryPath);
             }
             else
             {
                 invalidPathCount++;
-                displayPath = $"[red](invalid: {Markup.Escape(addon.DirectoryPath!)})[/]";
+                displayPath = "[red](invalid addon path)[/]";
             }
 
             table.AddRow(Markup.Escape(addon.Name), Markup.Escape(typeLabel), displayPath);

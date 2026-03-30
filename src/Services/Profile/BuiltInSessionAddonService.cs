@@ -8,9 +8,10 @@ internal sealed partial class BuiltInSessionAddonService : Singleton
 
     private static readonly (string ResourceFolderSlug, string Name)[] _addonDefinitions =
     [
-        ("question_affinity", "Question Affinity"),
-        ("web_search", "Web Search"),
-        ("cursor_auth", "cursor-auth")
+        ("question_affinity", "question-affinity"),
+        ("web_search", "web-search"),
+        ("cursor_auth", "cursor-auth"),
+        ("frontend_design", "frontend-design")
     ];
 
     [Inject]

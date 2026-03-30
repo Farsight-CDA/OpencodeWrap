@@ -49,9 +49,10 @@ internal sealed class DeleteAddonCliCommand : Command
         bool hasOverrideDirectory = !String.IsNullOrWhiteSpace(addonEntry.DirectoryPath);
         bool isBuiltIn = addonEntry.BuiltInAddon is not null;
 
-        if(!_sessionAddonService.TryResolveAddonDirectoryPath(catalog.AddonsRoot, normalizedName, out string addonDirectoryPath))
+        string? addonDirectoryPath = addonEntry.DirectoryPath;
+        if(String.IsNullOrWhiteSpace(addonDirectoryPath))
         {
-            AppIO.WriteError($"Session addon '{normalizedName}' directory resolves outside '{catalog.AddonsRoot}'.");
+            AppIO.WriteError($"Session addon '{normalizedName}' does not have an override directory to delete.");
             return 1;
         }
 
