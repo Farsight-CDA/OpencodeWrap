@@ -123,13 +123,38 @@ internal static class SessionProfileOpencodeConfigFile
     {
         foreach(var entry in source)
         {
-            if(entry.Value is JsonObject sourceChildObject && destination[entry.Key] is JsonObject destinationChildObject)
-            {
-                destination[entry.Key] = MergeObjects(destinationChildObject, sourceChildObject);
-                continue;
-            }
+            destination[entry.Key] = MergeNodes(destination[entry.Key], entry.Value);
+        }
 
-            destination[entry.Key] = entry.Value?.DeepClone();
+        return destination;
+    }
+
+    private static JsonNode? MergeNodes(JsonNode? destination, JsonNode? source)
+    {
+        if(source is null)
+        {
+            return null;
+        }
+
+        if(source is JsonObject sourceObject && destination is JsonObject destinationObject)
+        {
+            return MergeObjects(destinationObject, sourceObject);
+        }
+
+        if(source is JsonArray sourceArray && destination is JsonArray destinationArray)
+        {
+            return MergeArrays(destinationArray, sourceArray);
+        }
+
+        return source.DeepClone();
+    }
+
+    private static JsonArray MergeArrays(JsonArray destination, JsonArray source)
+    {
+        // Preserve earlier entries and let later sources contribute additional items such as plugins.
+        foreach(var item in source)
+        {
+            destination.Add(item?.DeepClone());
         }
 
         return destination;
