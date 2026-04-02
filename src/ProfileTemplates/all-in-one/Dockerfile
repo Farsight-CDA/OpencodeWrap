@@ -19,6 +19,7 @@ RUN apt-get update \
         jq \
         less \
         miller \
+        postgresql-client \
         procps \
         python3 \
         python-is-python3 \
