@@ -80,12 +80,10 @@ internal sealed partial class HostOpencodeAttachService : Singleton
             }
         }
 
-        foreach(string value in new[] { "localhost", "127.0.0.1" })
+        const string loopbackAddress = "127.0.0.1";
+        if(seen.Add(loopbackAddress))
         {
-            if(seen.Add(value))
-            {
-                values.Add(value);
-            }
+            values.Add(loopbackAddress);
         }
 
         return String.Join(',', values);

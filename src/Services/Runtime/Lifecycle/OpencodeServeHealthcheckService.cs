@@ -5,9 +5,9 @@ namespace OpencodeWrap.Services.Runtime.Lifecycle;
 
 internal sealed partial class OpencodeServeHealthcheckService : Singleton
 {
-    private static readonly TimeSpan _readinessTimeout = TimeSpan.FromSeconds(20);
+    private static readonly TimeSpan _readinessTimeout = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan _pollInterval = TimeSpan.FromMilliseconds(100);
-    private static readonly TimeSpan _requestTimeout = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan _requestTimeout = TimeSpan.FromMilliseconds(500);
     private static readonly StringComparer _urlComparer = StringComparer.OrdinalIgnoreCase;
 
     [Inject] private readonly DeferredSessionLogService _deferredSessionLogService;
@@ -58,11 +58,11 @@ internal sealed partial class OpencodeServeHealthcheckService : Singleton
                         return probeAttachUrl;
                     }
 
-                    lastFailureDetail = $"HTTP {(int) response.StatusCode} {response.ReasonPhrase}";
+                    lastFailureDetail = $"{probeHealthUri}: HTTP {(int) response.StatusCode} {response.ReasonPhrase}";
                 }
                 catch(Exception ex)
                 {
-                    lastFailureDetail = ex.Message;
+                    lastFailureDetail = $"{probeHealthUri}: {ex.Message}";
                 }
             }
 
@@ -96,36 +96,6 @@ internal sealed partial class OpencodeServeHealthcheckService : Singleton
 
         AddProbeTarget(attachUri);
 
-        if(isWindows
-            && dockerNetworkMode.IsHost()
-            && TryBuildAlternateLoopbackUri(attachUri, out var alternateAttachUri))
-        {
-            AddProbeTarget(alternateAttachUri);
-        }
-
         return probeTargets;
-    }
-
-    private static bool TryBuildAlternateLoopbackUri(Uri attachUri, out Uri alternateAttachUri)
-    {
-        alternateAttachUri = attachUri;
-
-        string? alternateHost = attachUri.Host switch
-        {
-            "127.0.0.1" => "localhost",
-            "localhost" => "127.0.0.1",
-            _ => null
-        };
-
-        if(alternateHost is null)
-        {
-            return false;
-        }
-
-        alternateAttachUri = new UriBuilder(attachUri)
-        {
-            Host = alternateHost
-        }.Uri;
-        return true;
     }
 }

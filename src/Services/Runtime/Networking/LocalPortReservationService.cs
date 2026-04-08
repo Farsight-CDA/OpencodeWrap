@@ -22,7 +22,7 @@ internal sealed partial class LocalPortReservationService : Singleton
         }
         catch(Exception ex)
         {
-            _deferredSessionLogService.WriteErrorOrConsole("startup", $"Failed to reserve a localhost port for the OpenCode backend: {ex.Message}");
+            _deferredSessionLogService.WriteErrorOrConsole("startup", $"Failed to reserve a loopback port for the OpenCode backend: {ex.Message}");
             reservation = new ReservedLocalPort(0, null);
             return false;
         }

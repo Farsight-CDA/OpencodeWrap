@@ -976,9 +976,7 @@ internal sealed partial class OpencodeLauncherService : Singleton
             : "0.0.0.0";
 
     private static string ResolveAttachHostname(DockerNetworkMode dockerNetworkMode, bool isWindows)
-        => dockerNetworkMode.IsHost() && isWindows
-            ? "localhost"
-            : "127.0.0.1";
+        => "127.0.0.1";
 
     private static string FirstNonEmptyLine(params string[] values)
     {
