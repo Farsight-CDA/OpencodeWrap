@@ -112,11 +112,19 @@ internal sealed partial class BuiltInSessionAddonService : Singleton
             return remainder;
         }
 
-        int firstDotIndex = remainder.IndexOf('.');
-        return firstDotIndex < 0 || !remainder[(firstDotIndex + 1)..].Contains('.')
-            ? remainder
-            : $"{remainder[..firstDotIndex]}/{remainder[(firstDotIndex + 1)..]}";
+        string[] parts = remainder.Split('.', StringSplitOptions.RemoveEmptyEntries);
+        if(parts.Length <= 2)
+        {
+            return NormalizeEmbeddedPathSegment(remainder);
+        }
+
+        string directoryPath = String.Join('/', parts[..^2].Select(NormalizeEmbeddedPathSegment));
+        string fileName = $"{NormalizeEmbeddedPathSegment(parts[^2])}.{parts[^1]}";
+        return $"{directoryPath}/{fileName}";
     }
+
+    private static string NormalizeEmbeddedPathSegment(string value)
+        => value.Replace('_', '-');
 
     private static string ReadManifestResourceText(Assembly assembly, string fullName)
     {
