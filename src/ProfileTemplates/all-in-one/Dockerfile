@@ -69,6 +69,8 @@ RUN npm install -g --no-fund --no-audit \
 
 RUN curl -fsSL https://bun.sh/install | bash
 
+RUN curl https://sh.rustup.rs -sSf | bash -s -- -y --profile minimal
+
 RUN curl -L https://foundry.paradigm.xyz | bash \
     && /root/.foundry/bin/foundryup
 
@@ -101,6 +103,6 @@ RUN mkdir -p /ocw \
 
 WORKDIR /workspace
 
-ENV PATH="/opt/ds/bin:/root/.bun/bin:/root/.foundry/bin:${PATH}"
+ENV PATH="/opt/ds/bin:/root/.bun/bin:/root/.cargo/bin:/root/.foundry/bin:${PATH}"
 ENV BaseIntermediateOutputPath="obj/opencode-wrap/"
 ENV DefaultItemExcludesInProjectFolder="$(DefaultItemExcludesInProjectFolder);obj/**"

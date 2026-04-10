@@ -44,7 +44,7 @@ Choose your UI and start coding with the built-in all-in-one profile or your own
 
 | Profile | Best For |
 |---------|----------|
-| `all-in-one` | Combined frontend, .NET, Postgres/data, and Solidity tooling |
+| `all-in-one` | Combined frontend, .NET, Rust, Postgres/data, and Solidity tooling |
 
 Create your own with `ocw profile add <name>`.
 
