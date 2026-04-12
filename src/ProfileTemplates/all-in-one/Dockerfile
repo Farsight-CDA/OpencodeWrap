@@ -50,6 +50,18 @@ RUN corepack enable \
     && corepack prepare yarn@stable --activate \
     && corepack prepare pnpm@latest --activate
 
+RUN arch="$(dpkg --print-architecture)" \
+    && case "$arch" in \
+        amd64) go_arch='amd64' ;; \
+        arm64) go_arch='arm64' ;; \
+        *) echo "Unsupported Go architecture: $arch" >&2; exit 1 ;; \
+    esac \
+    && go_version="$(curl -fsSL https://go.dev/dl/?mode=json | jq -r 'map(select(.stable)) | first | .version')" \
+    && curl -fsSL "https://go.dev/dl/${go_version}.linux-${go_arch}.tar.gz" -o /tmp/go.tgz \
+    && rm -rf /usr/local/go \
+    && tar -C /usr/local -xzf /tmp/go.tgz \
+    && rm /tmp/go.tgz
+
 ARG SOLC_VERSION=0.8.30
 
 RUN npm install -g --no-fund --no-audit \
@@ -103,6 +115,6 @@ RUN mkdir -p /ocw \
 
 WORKDIR /workspace
 
-ENV PATH="/opt/ds/bin:/root/.bun/bin:/root/.cargo/bin:/root/.foundry/bin:${PATH}"
+ENV PATH="/opt/ds/bin:/root/.bun/bin:/root/.cargo/bin:/root/.foundry/bin:/usr/local/go/bin:${PATH}"
 ENV BaseIntermediateOutputPath="obj/opencode-wrap/"
 ENV DefaultItemExcludesInProjectFolder="$(DefaultItemExcludesInProjectFolder);obj/**"
