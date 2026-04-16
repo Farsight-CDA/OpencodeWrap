@@ -81,7 +81,8 @@ RUN npm install -g --no-fund --no-audit \
 
 RUN curl -fsSL https://bun.sh/install | bash
 
-RUN curl https://sh.rustup.rs -sSf | bash -s -- -y --profile minimal
+RUN curl https://sh.rustup.rs -sSf | bash -s -- -y --profile minimal \
+    && /root/.cargo/bin/rustup component add rustfmt
 
 RUN curl -L https://foundry.paradigm.xyz | bash \
     && /root/.foundry/bin/foundryup
