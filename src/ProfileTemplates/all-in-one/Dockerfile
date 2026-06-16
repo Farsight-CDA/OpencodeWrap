@@ -26,6 +26,7 @@ RUN apt-get update \
         python-is-python3 \
         python3-pip \
         python3-venv \
+        rsync \
         sqlite3 \
         unzip \
         xdg-utils \
