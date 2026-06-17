@@ -52,6 +52,8 @@ RUN corepack enable \
     && corepack prepare yarn@stable --activate \
     && corepack prepare pnpm@latest --activate
 
+RUN dotnet tool install --global dotnet-t4
+
 RUN arch="$(dpkg --print-architecture)" \
     && case "$arch" in \
         amd64) go_arch='amd64' ;; \
@@ -118,6 +120,6 @@ RUN mkdir -p /ocw \
 
 WORKDIR /workspace
 
-ENV PATH="/opt/ds/bin:/root/.bun/bin:/root/.cargo/bin:/root/.foundry/bin:/usr/local/go/bin:${PATH}"
+ENV PATH="/opt/ds/bin:/root/.dotnet/tools:/root/.bun/bin:/root/.cargo/bin:/root/.foundry/bin:/usr/local/go/bin:${PATH}"
 ENV BaseIntermediateOutputPath="obj/opencode-wrap/"
 ENV DefaultItemExcludesInProjectFolder="$(DefaultItemExcludesInProjectFolder);obj/**"
