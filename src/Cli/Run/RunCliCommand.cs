@@ -1393,6 +1393,11 @@ internal sealed class RunCliCommand : Command
                                 currentPage = ContainerMountWizardPage.SourceType;
                                 break;
                             case PromptNavigation.Confirm:
+                                if(!String.Equals(source, volumeResult.VolumeName, StringComparison.Ordinal))
+                                {
+                                    requestedContainerPath = "";
+                                }
+
                                 source = volumeResult.VolumeName;
                                 currentPage = ContainerMountWizardPage.TargetPath;
                                 break;
@@ -1411,6 +1416,11 @@ internal sealed class RunCliCommand : Command
                             currentPage = ContainerMountWizardPage.SourceType;
                             break;
                         case PromptNavigation.Confirm:
+                            if(!String.Equals(source, directoryResult.DirectoryPath, StringComparison.Ordinal))
+                            {
+                                requestedContainerPath = "";
+                            }
+
                             source = directoryResult.DirectoryPath;
                             currentPage = ContainerMountWizardPage.TargetPath;
                             break;
@@ -1422,6 +1432,11 @@ internal sealed class RunCliCommand : Command
                     {
                         currentPage = ContainerMountWizardPage.Source;
                         break;
+                    }
+
+                    if(requestedContainerPath.Length == 0)
+                    {
+                        requestedContainerPath = BuildDefaultContainerMountPath(source);
                     }
 
                     var containerPathResult = PromptForContainerMountPath(selectedSourceType.Value, source, workspaceContainerPath, selectedContainerMounts, requestedContainerPath);
@@ -1846,6 +1861,12 @@ internal sealed class RunCliCommand : Command
         return String.IsNullOrWhiteSpace(directoryName) || directoryName.Contains('/') || directoryName.Contains('\\')
             ? OpencodeWrapConstants.CONTAINER_WORKSPACE
             : $"{OpencodeWrapConstants.CONTAINER_WORKSPACE}/{directoryName}";
+    }
+
+    private static string BuildDefaultContainerMountPath(string source)
+    {
+        string sourceName = Path.GetFileName(Path.TrimEndingDirectorySeparator(source));
+        return $"{OpencodeWrapConstants.CONTAINER_ADDITIONAL_MOUNT_ROOT}/{sourceName}";
     }
 
     private static string? FindConflictingContainerMountPath(IReadOnlyList<ContainerMount> selectedContainerMounts, string candidateContainerPath)
