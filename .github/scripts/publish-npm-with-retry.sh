@@ -14,8 +14,8 @@ tag="$4"
 
 max_attempts="${NPM_PUBLISH_MAX_ATTEMPTS:-5}"
 delay_seconds="${NPM_PUBLISH_INITIAL_DELAY_SECONDS:-5}"
-visibility_attempts="${NPM_PUBLISH_VISIBILITY_ATTEMPTS:-12}"
-visibility_delay_seconds="${NPM_PUBLISH_VISIBILITY_DELAY_SECONDS:-5}"
+visibility_attempts="${NPM_PUBLISH_VISIBILITY_ATTEMPTS:-30}"
+visibility_delay_seconds="${NPM_PUBLISH_VISIBILITY_DELAY_SECONDS:-10}"
 
 wait_for_visibility() {
   local package_name="$1"
@@ -23,7 +23,7 @@ wait_for_visibility() {
   local attempt=1
 
   while (( attempt <= visibility_attempts )); do
-    if npm view "${package_name}@${version}" version >/dev/null 2>&1; then
+    if npm view --prefer-online "${package_name}@${version}" version >/dev/null 2>&1; then
       return 0
     fi
 
@@ -36,7 +36,7 @@ wait_for_visibility() {
   done
 }
 
-if npm view "${package_name}@${version}" version >/dev/null 2>&1; then
+if npm view --prefer-online "${package_name}@${version}" version >/dev/null 2>&1; then
   echo "${package_name}@${version} is already published; skipping."
   exit 0
 fi
@@ -53,7 +53,7 @@ while (( attempt <= max_attempts )); do
     exit 0
   fi
 
-  if npm view "${package_name}@${version}" version >/dev/null 2>&1; then
+  if npm view --prefer-online "${package_name}@${version}" version >/dev/null 2>&1; then
     echo "${package_name}@${version} is already available after a publish error; continuing."
     exit 0
   fi

@@ -192,7 +192,7 @@ jobs:
           npm version "$VERSION" --no-git-tag-version --prefix "${{ matrix.package_dir }}"
 
           PACKAGE_NAME=$(node -p "require('./${{ matrix.package_dir }}/package.json').name")
-          if npm view "${PACKAGE_NAME}@${VERSION}" version >/dev/null 2>&1; then
+          if npm view --prefer-online "${PACKAGE_NAME}@${VERSION}" version >/dev/null 2>&1; then
             echo "Skipping ${PACKAGE_NAME}@${VERSION}, already published."
             exit 0
           fi
@@ -241,7 +241,7 @@ jobs:
           node -e 'const fs=require("node:fs"); const p="npm/ocw/package.json"; const version=process.env.VERSION; const pkg=JSON.parse(fs.readFileSync(p, "utf8")); pkg.optionalDependencies["@farsight-cda/ocw-linux-x64"]=version; pkg.optionalDependencies["@farsight-cda/ocw-darwin-arm64"]=version; pkg.optionalDependencies["@farsight-cda/ocw-win32-x64"]=version; fs.writeFileSync(p, JSON.stringify(pkg, null, 2)+"\n");'
 
           PACKAGE_NAME=$(node -p "require('./npm/ocw/package.json').name")
-          if npm view "${PACKAGE_NAME}@${VERSION}" version >/dev/null 2>&1; then
+          if npm view --prefer-online "${PACKAGE_NAME}@${VERSION}" version >/dev/null 2>&1; then
             echo "Skipping ${PACKAGE_NAME}@${VERSION}, already published."
             exit 0
           fi
@@ -331,7 +331,7 @@ jobs:
           npm version "$VERSION" --no-git-tag-version --prefix "${{ matrix.package_dir }}"
 
           PACKAGE_NAME=$(node -p "require('./${{ matrix.package_dir }}/package.json').name")
-          if npm view "${PACKAGE_NAME}@${VERSION}" version >/dev/null 2>&1; then
+          if npm view --prefer-online "${PACKAGE_NAME}@${VERSION}" version >/dev/null 2>&1; then
             echo "Skipping ${PACKAGE_NAME}@${VERSION}, already published."
           else
             bash .github/scripts/publish-npm-with-retry.sh "${{ matrix.package_dir }}" "${PACKAGE_NAME}" "${VERSION}" latest
@@ -381,7 +381,7 @@ jobs:
           node -e 'const fs=require("node:fs"); const p="npm/ocw/package.json"; const version=process.env.VERSION; const pkg=JSON.parse(fs.readFileSync(p, "utf8")); pkg.optionalDependencies["@farsight-cda/ocw-linux-x64"]=version; pkg.optionalDependencies["@farsight-cda/ocw-darwin-arm64"]=version; pkg.optionalDependencies["@farsight-cda/ocw-win32-x64"]=version; fs.writeFileSync(p, JSON.stringify(pkg, null, 2)+"\n");'
 
           PACKAGE_NAME=$(node -p "require('./npm/ocw/package.json').name")
-          if npm view "${PACKAGE_NAME}@${VERSION}" version >/dev/null 2>&1; then
+          if npm view --prefer-online "${PACKAGE_NAME}@${VERSION}" version >/dev/null 2>&1; then
             echo "Skipping ${PACKAGE_NAME}@${VERSION}, already published."
             exit 0
           fi
