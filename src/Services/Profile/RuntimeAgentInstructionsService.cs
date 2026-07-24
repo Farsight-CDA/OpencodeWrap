@@ -32,23 +32,24 @@ internal sealed partial class RuntimeAgentInstructionsService : Singleton
             builder.AppendLine($"- The current workspace for this session is `{containerWorkDir}`.");
         }
 
-        List<ContainerMount> namedVolumeMounts = [.. containerMounts.Where(mount => mount.SourceType is ContainerMountSourceType.NamedVolume)];
-
-        if(namedVolumeMounts.Count == 0)
+        if(containerMounts.Count == 0)
         {
-            builder.AppendLine("- No additional Docker named volumes are mounted for this session.");
+            builder.AppendLine("- No additional directories or Docker named volumes are mounted for this session.");
             return builder.ToString().TrimEnd();
         }
 
         builder.AppendLine();
-        builder.AppendLine("## Current Named Volume Mounts");
+        builder.AppendLine("## Current Additional Mounts");
         builder.AppendLine();
-        foreach(var namedVolumeMount in namedVolumeMounts)
+        foreach(var mount in containerMounts)
         {
-            string accessModeLabel = namedVolumeMount.AccessMode is ContainerMountAccessMode.ReadOnly
+            string sourceTypeLabel = mount.SourceType is ContainerMountSourceType.Directory
+                ? "directory"
+                : "Docker named volume";
+            string accessModeLabel = mount.AccessMode is ContainerMountAccessMode.ReadOnly
                 ? "read-only"
                 : "read-write";
-            builder.AppendLine($"- `{namedVolumeMount.Source}` -> `{namedVolumeMount.ContainerPath}` ({accessModeLabel})");
+            builder.AppendLine($"- {sourceTypeLabel} `{mount.Source}` -> `{mount.ContainerPath}` ({accessModeLabel})");
         }
 
         return builder.ToString().TrimEnd();
