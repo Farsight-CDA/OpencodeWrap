@@ -23,6 +23,9 @@ internal static class OpencodeWrapConstants
     public const string HOST_OPENCODE_LATEST_CACHE_FILE_NAME = "latest-release.json";
     public const string HOST_OPENCODE_LATEST_LOCK_FILE_NAME = "opencode-latest.lock";
     public const string HOST_OPENCODE_HOST_LOCK_FILE_NAME = "opencode-host.lock";
+    public const string OPENCODE_SERVER_PASSWORD_ENVIRONMENT_VARIABLE = "OPENCODE_SERVER_PASSWORD";
+    public const string OPENCODE_SERVER_USERNAME_ENVIRONMENT_VARIABLE = "OPENCODE_SERVER_USERNAME";
+    public const string OPENCODE_SERVER_USERNAME = "opencode";
     public const string PROFILE_DOCKERFILE_NAME = "Dockerfile";
     public const string PROFILE_BIN_DIRECTORY_NAME = "bin";
     public const string PROFILE_ENV_FILE_NAME = ".env";

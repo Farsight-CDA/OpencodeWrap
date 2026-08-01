@@ -18,21 +18,21 @@ internal sealed partial class RunUiLauncherService : Singleton
     [Inject]
     private readonly SessionOutputService _sessionOutputService;
 
-    public async Task<RunUiLaunchResult> LaunchAsync(RunUiMode mode, string attachUrl, string workspaceDirectory, string? managedHostExecutablePath = null)
+    public async Task<RunUiLaunchResult> LaunchAsync(RunUiMode mode, string attachUrl, string workspaceDirectory, string serverPassword, string? managedHostExecutablePath = null)
         => mode switch
         {
-            RunUiMode.Web => await LaunchWebAsync(attachUrl, workspaceDirectory),
+            RunUiMode.Web => await LaunchWebAsync(attachUrl, workspaceDirectory, serverPassword),
             RunUiMode.Desktop => await LaunchDesktopAsync(attachUrl),
-            _ => await LaunchTuiAsync(managedHostExecutablePath, attachUrl)
+            _ => await LaunchTuiAsync(managedHostExecutablePath, attachUrl, serverPassword)
         };
 
-    private async Task<RunUiLaunchResult> LaunchTuiAsync(string? managedHostExecutablePath, string attachUrl)
+    private async Task<RunUiLaunchResult> LaunchTuiAsync(string? managedHostExecutablePath, string attachUrl, string serverPassword)
     {
-        int exitCode = await _hostOpencodeAttachService.RunAttachAsync(managedHostExecutablePath ?? String.Empty, attachUrl);
+        int exitCode = await _hostOpencodeAttachService.RunAttachAsync(managedHostExecutablePath ?? String.Empty, attachUrl, serverPassword);
         return RunUiLaunchResult.Complete(exitCode);
     }
 
-    private async Task<RunUiLaunchResult> LaunchWebAsync(string attachUrl, string workspaceDirectory)
+    private async Task<RunUiLaunchResult> LaunchWebAsync(string attachUrl, string workspaceDirectory, string serverPassword)
     {
         if(String.IsNullOrWhiteSpace(attachUrl))
         {
@@ -41,16 +41,17 @@ internal sealed partial class RunUiLauncherService : Singleton
         }
 
         string launchUrl = BuildWorkspaceLaunchUrl(attachUrl, workspaceDirectory);
+        string authenticatedLaunchUrl = BuildAuthenticatedLaunchUrl(launchUrl, serverPassword);
         _deferredSessionLogService.Write(LogCategories.ATTACH, $"launching browser against '{launchUrl}'", LogLevel.Information);
         _sessionOutputService.WriteInfo(LogCategories.ATTACH, $"OpenCode web URL: {launchUrl}");
 
         var openResult = await _sessionOutputService.RunWithLoadingStateAsync(
             LogCategories.ATTACH,
             "Launching browser...",
-            () => _dockerHostService.TryOpenUrlAsync(launchUrl));
+            () => _dockerHostService.TryOpenUrlAsync(authenticatedLaunchUrl));
         if(!openResult.Success)
         {
-            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.ATTACH, openResult.ErrorMessage ?? "Failed to open the local browser UI.");
+            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.ATTACH, "Failed to open the local browser UI.");
             _deferredSessionLogService.WriteWarningOrConsole(LogCategories.ATTACH, "Open the printed URL manually, or rerun `ocw run` and choose TUI mode.");
             return RunUiLaunchResult.Fail();
         }
@@ -103,6 +104,30 @@ internal sealed partial class RunUiLauncherService : Singleton
 
         string slug = Base64UrlEncode(workspaceDirectory);
         return new Uri(baseUri, $"/{slug}/session").ToString();
+    }
+
+    internal static string BuildAuthenticatedLaunchUrl(string launchUrl, string serverPassword)
+    {
+        if(!Uri.TryCreate(launchUrl, UriKind.Absolute, out var launchUri))
+        {
+            return launchUrl;
+        }
+
+        var builder = new UriBuilder(launchUri)
+        {
+            Query = BuildAuthenticationQuery(launchUri.Query, serverPassword)
+        };
+        return builder.Uri.ToString();
+    }
+
+    private static string BuildAuthenticationQuery(string existingQuery, string serverPassword)
+    {
+        string credentials = $"{OpencodeWrapConstants.OPENCODE_SERVER_USERNAME}:{serverPassword}";
+        string authenticationToken = Uri.EscapeDataString(Convert.ToBase64String(Encoding.UTF8.GetBytes(credentials)));
+        string query = existingQuery.TrimStart('?');
+        return query.Length == 0
+            ? $"auth_token={authenticationToken}"
+            : $"{query}&auth_token={authenticationToken}";
     }
 
     private static string Base64UrlEncode(string value)

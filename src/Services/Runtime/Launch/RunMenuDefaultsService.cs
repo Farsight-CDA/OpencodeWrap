@@ -1,5 +1,6 @@
 using OpencodeWrap.Services.Docker;
 using OpencodeWrap.Services.Runtime.Core;
+using System.Security.Cryptography;
 using System.Text.Json;
 
 namespace OpencodeWrap.Services.Runtime.Launch;
@@ -22,16 +23,26 @@ internal sealed partial class RunMenuDefaultsService : Singleton
         }
 
         string defaultsPath = GetDefaultsPath(configRoot);
-        if(!File.Exists(defaultsPath))
-        {
-            return true;
-        }
-
         try
         {
-            using var stream = File.OpenRead(defaultsPath);
-            using var document = JsonDocument.Parse(stream);
-            defaults = ReadDefaults(document.RootElement);
+            if(!File.Exists(defaultsPath))
+            {
+                defaults = EnsureServerPassword(defaults);
+                return TryWriteDefaults(defaultsPath, defaults);
+            }
+
+            using(var stream = File.OpenRead(defaultsPath))
+            using(var document = JsonDocument.Parse(stream))
+            {
+                defaults = ReadDefaults(document.RootElement);
+            }
+
+            if(String.IsNullOrWhiteSpace(defaults.ServerPassword))
+            {
+                defaults = EnsureServerPassword(defaults);
+                return TryWriteDefaults(defaultsPath, defaults);
+            }
+
             return true;
         }
         catch(Exception ex)
@@ -53,63 +64,17 @@ internal sealed partial class RunMenuDefaultsService : Singleton
         try
         {
             var normalizedDefaults = NormalizeDefaults(defaults);
-
-            using var stream = File.Create(defaultsPath);
-            using var writer = new Utf8JsonWriter(stream, new JsonWriterOptions
+            if(String.IsNullOrWhiteSpace(normalizedDefaults.ServerPassword) && File.Exists(defaultsPath))
             {
-                Indented = true
-            });
-
-            writer.WriteStartObject();
-            if(!String.IsNullOrWhiteSpace(normalizedDefaults.DefaultProfileName))
-            {
-                writer.WriteString("defaultProfileName", normalizedDefaults.DefaultProfileName);
+                using var existingStream = File.OpenRead(defaultsPath);
+                using var existingDocument = JsonDocument.Parse(existingStream);
+                normalizedDefaults = normalizedDefaults with
+                {
+                    ServerPassword = ReadDefaults(existingDocument.RootElement).ServerPassword
+                };
             }
 
-            if(normalizedDefaults.DefaultUiMode is { } defaultUiMode)
-            {
-                writer.WriteString("defaultUiMode", GetPersistedRunUiModeValue(defaultUiMode));
-            }
-
-            if(normalizedDefaults.DefaultDockerNetworkMode is { } defaultDockerNetworkMode)
-            {
-                writer.WriteString("defaultDockerNetworkMode", defaultDockerNetworkMode.GetLabel());
-            }
-
-            writer.WritePropertyName("containerMounts");
-            writer.WriteStartArray();
-            foreach(ContainerMount containerMount in normalizedDefaults.ContainerMounts)
-            {
-                writer.WriteStartObject();
-                writer.WriteString("sourceType", GetPersistedContainerMountSourceTypeValue(containerMount.SourceType));
-                writer.WriteString("source", containerMount.Source);
-                writer.WriteString("containerPath", containerMount.ContainerPath);
-                writer.WriteString("accessMode", GetPersistedContainerMountAccessModeValue(containerMount.AccessMode));
-                writer.WriteEndObject();
-            }
-
-            writer.WriteEndArray();
-
-            writer.WritePropertyName("sessionAddons");
-            writer.WriteStartArray();
-            foreach(string addonName in normalizedDefaults.SessionAddons)
-            {
-                writer.WriteStringValue(addonName);
-            }
-
-            writer.WriteEndArray();
-
-            writer.WritePropertyName("dockerNetworks");
-            writer.WriteStartArray();
-            foreach(string networkName in normalizedDefaults.DockerNetworks)
-            {
-                writer.WriteStringValue(networkName);
-            }
-
-            writer.WriteEndArray();
-            writer.WriteEndObject();
-            writer.Flush();
-            return true;
+            return TryWriteDefaults(defaultsPath, EnsureServerPassword(normalizedDefaults));
         }
         catch(Exception ex)
         {
@@ -254,13 +219,21 @@ internal sealed partial class RunMenuDefaultsService : Singleton
             }
         }
 
+        string? serverPassword = null;
+        if(rootElement.TryGetProperty("serverPassword", out var serverPasswordElement)
+            && serverPasswordElement.ValueKind is JsonValueKind.String)
+        {
+            serverPassword = serverPasswordElement.GetString();
+        }
+
         return NormalizeDefaults(new RunMenuDefaults(
             defaultProfileName,
             defaultUiMode,
             defaultDockerNetworkMode,
             ReadContainerMounts(rootElement),
             ReadStringArray(rootElement, "sessionAddons"),
-            ReadStringArray(rootElement, "dockerNetworks")));
+            ReadStringArray(rootElement, "dockerNetworks"),
+            serverPassword));
     }
 
     private static WorkspaceRunMenuConfig ReadWorkspaceConfig(JsonElement rootElement)
@@ -465,7 +438,108 @@ internal sealed partial class RunMenuDefaultsService : Singleton
             .Select(name => name.Trim())
             .Where(seenAddonNames.Add)];
 
-        return new RunMenuDefaults(defaultProfileName, defaults.DefaultUiMode, defaults.DefaultDockerNetworkMode, containerMounts, sessionAddons, dockerNetworks);
+        return new RunMenuDefaults(defaultProfileName, defaults.DefaultUiMode, defaults.DefaultDockerNetworkMode, containerMounts, sessionAddons, dockerNetworks, defaults.ServerPassword);
+    }
+
+    private static RunMenuDefaults EnsureServerPassword(RunMenuDefaults defaults)
+        => String.IsNullOrWhiteSpace(defaults.ServerPassword)
+            ? defaults with { ServerPassword = Convert.ToHexString(RandomNumberGenerator.GetBytes(8)).ToLowerInvariant() }
+            : defaults;
+
+    private static bool TryWriteDefaults(string defaultsPath, RunMenuDefaults defaults)
+    {
+        string temporaryPath = $"{defaultsPath}.{Guid.NewGuid():N}.tmp";
+        try
+        {
+            var fileOptions = new FileStreamOptions
+            {
+                Mode = FileMode.CreateNew,
+                Access = FileAccess.Write,
+                Share = FileShare.None,
+                Options = FileOptions.WriteThrough
+            };
+
+            if(!OperatingSystem.IsWindows())
+            {
+                fileOptions.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+            }
+
+            using(var stream = new FileStream(temporaryPath, fileOptions))
+            using(var writer = new Utf8JsonWriter(stream, new JsonWriterOptions
+            {
+                Indented = true
+            }))
+            {
+                writer.WriteStartObject();
+                writer.WriteString("serverPassword", defaults.ServerPassword);
+
+                if(!String.IsNullOrWhiteSpace(defaults.DefaultProfileName))
+                {
+                    writer.WriteString("defaultProfileName", defaults.DefaultProfileName);
+                }
+
+                if(defaults.DefaultUiMode is { } defaultUiMode)
+                {
+                    writer.WriteString("defaultUiMode", GetPersistedRunUiModeValue(defaultUiMode));
+                }
+
+                if(defaults.DefaultDockerNetworkMode is { } defaultDockerNetworkMode)
+                {
+                    writer.WriteString("defaultDockerNetworkMode", defaultDockerNetworkMode.GetLabel());
+                }
+
+                writer.WritePropertyName("containerMounts");
+                writer.WriteStartArray();
+                foreach(ContainerMount containerMount in defaults.ContainerMounts)
+                {
+                    writer.WriteStartObject();
+                    writer.WriteString("sourceType", GetPersistedContainerMountSourceTypeValue(containerMount.SourceType));
+                    writer.WriteString("source", containerMount.Source);
+                    writer.WriteString("containerPath", containerMount.ContainerPath);
+                    writer.WriteString("accessMode", GetPersistedContainerMountAccessModeValue(containerMount.AccessMode));
+                    writer.WriteEndObject();
+                }
+
+                writer.WriteEndArray();
+
+                writer.WritePropertyName("sessionAddons");
+                writer.WriteStartArray();
+                foreach(string addonName in defaults.SessionAddons)
+                {
+                    writer.WriteStringValue(addonName);
+                }
+
+                writer.WriteEndArray();
+
+                writer.WritePropertyName("dockerNetworks");
+                writer.WriteStartArray();
+                foreach(string networkName in defaults.DockerNetworks)
+                {
+                    writer.WriteStringValue(networkName);
+                }
+
+                writer.WriteEndArray();
+                writer.WriteEndObject();
+                writer.Flush();
+            }
+
+            File.Move(temporaryPath, defaultsPath, overwrite: true);
+            return true;
+        }
+        finally
+        {
+            try
+            {
+                if(File.Exists(temporaryPath))
+                {
+                    File.Delete(temporaryPath);
+                }
+            }
+            catch
+            {
+                // Best effort cleanup only; preserve the original write failure.
+            }
+        }
     }
 
     private static WorkspaceRunMenuConfig NormalizeWorkspaceConfig(WorkspaceRunMenuConfig config)
@@ -671,7 +745,7 @@ internal sealed partial class RunMenuDefaultsService : Singleton
         : StringComparer.Ordinal;
 }
 
-internal sealed record RunMenuDefaults(string? DefaultProfileName, RunUiMode? DefaultUiMode, DockerNetworkMode? DefaultDockerNetworkMode, IReadOnlyList<ContainerMount> ContainerMounts, IReadOnlyList<string> SessionAddons, IReadOnlyList<string> DockerNetworks)
+internal sealed record RunMenuDefaults(string? DefaultProfileName, RunUiMode? DefaultUiMode, DockerNetworkMode? DefaultDockerNetworkMode, IReadOnlyList<ContainerMount> ContainerMounts, IReadOnlyList<string> SessionAddons, IReadOnlyList<string> DockerNetworks, string? ServerPassword = null)
 {
     public static RunMenuDefaults Empty { get; } = new(null, null, null, [], [], []);
 }

@@ -23,15 +23,20 @@ internal static class ProcessRunner
         }
     }
 
-    public static async Task<ProcessRunResult> RunAsync(string fileName, IReadOnlyList<string> args, bool captureOutput = true, string? workDir = null)
+    public static async Task<ProcessRunResult> RunAsync(
+        string fileName,
+        IReadOnlyList<string> args,
+        bool captureOutput = true,
+        string? workDir = null,
+        IReadOnlyDictionary<string, string?>? environmentVariables = null)
     {
         try
         {
-            var command = CreateCommand(fileName, args, workDir);
+            var command = CreateCommand(fileName, args, workDir, environmentVariables);
 
             if(!captureOutput)
             {
-                return await RunAttachedAsync(fileName, args, workDir);
+                return await RunAttachedAsync(fileName, args, workDir, environmentVariables);
             }
 
             var bufferedResult = await command.ExecuteBufferedAsync();
@@ -43,7 +48,11 @@ internal static class ProcessRunner
         }
     }
 
-    public static async Task<ProcessRunResult> RunAttachedAsync(string fileName, IReadOnlyList<string> args, string? workDir = null)
+    public static async Task<ProcessRunResult> RunAttachedAsync(
+        string fileName,
+        IReadOnlyList<string> args,
+        string? workDir = null,
+        IReadOnlyDictionary<string, string?>? environmentVariables = null)
     {
         try
         {
@@ -61,6 +70,14 @@ internal static class ProcessRunner
             if(!String.IsNullOrWhiteSpace(workDir))
             {
                 process.StartInfo.WorkingDirectory = workDir;
+            }
+
+            if(environmentVariables is not null)
+            {
+                foreach(var environmentVariable in environmentVariables)
+                {
+                    process.StartInfo.Environment[environmentVariable.Key] = environmentVariable.Value;
+                }
             }
 
             foreach(string arg in args)
@@ -82,11 +99,20 @@ internal static class ProcessRunner
         }
     }
 
-    private static CliCommand CreateCommand(string fileName, IReadOnlyList<string> args, string? workDir)
+    private static CliCommand CreateCommand(
+        string fileName,
+        IReadOnlyList<string> args,
+        string? workDir,
+        IReadOnlyDictionary<string, string?>? environmentVariables)
     {
         var command = CliWrap.Cli.Wrap(fileName)
             .WithArguments(args)
             .WithValidation(CommandResultValidation.None);
+
+        if(environmentVariables is not null)
+        {
+            command = command.WithEnvironmentVariables(environmentVariables);
+        }
 
         return String.IsNullOrWhiteSpace(workDir) ? command : command.WithWorkingDirectory(workDir);
     }

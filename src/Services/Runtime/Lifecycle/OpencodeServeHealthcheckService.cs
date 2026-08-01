@@ -1,5 +1,7 @@
 using Microsoft.Extensions.Logging;
 using OpencodeWrap.Services.Docker;
+using System.Net.Http.Headers;
+using System.Text;
 
 namespace OpencodeWrap.Services.Runtime.Lifecycle;
 
@@ -12,7 +14,7 @@ internal sealed partial class OpencodeServeHealthcheckService : Singleton
 
     [Inject] private readonly DeferredSessionLogService _deferredSessionLogService;
 
-    public async Task<string?> WaitUntilReadyAsync(string attachUrl, DockerNetworkMode dockerNetworkMode, bool isWindows)
+    public async Task<string?> WaitUntilReadyAsync(string attachUrl, string serverPassword, DockerNetworkMode dockerNetworkMode, bool isWindows)
     {
         if(!Uri.TryCreate(attachUrl, UriKind.Absolute, out var attachUri))
         {
@@ -41,6 +43,8 @@ internal sealed partial class OpencodeServeHealthcheckService : Singleton
         {
             Timeout = _requestTimeout
         };
+        string credentials = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{OpencodeWrapConstants.OPENCODE_SERVER_USERNAME}:{serverPassword}"));
+        httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic", credentials);
 
         var deadlineUtc = DateTime.UtcNow + _readinessTimeout;
         string? lastFailureDetail = null;

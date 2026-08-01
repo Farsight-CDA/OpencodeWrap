@@ -11,7 +11,7 @@ internal sealed partial class HostOpencodeAttachService : Singleton
     [Inject]
     private readonly SessionOutputService _sessionOutputService;
 
-    public async Task<int> RunAttachAsync(string executablePath, string attachUrl)
+    public async Task<int> RunAttachAsync(string executablePath, string attachUrl, string serverPassword)
     {
         if(String.IsNullOrWhiteSpace(executablePath))
         {
@@ -41,6 +41,8 @@ internal sealed partial class HostOpencodeAttachService : Singleton
         string noProxyValue = MergeNoProxy(Environment.GetEnvironmentVariable("NO_PROXY"));
         startInfo.Environment["NO_PROXY"] = noProxyValue;
         startInfo.Environment["no_proxy"] = noProxyValue;
+        startInfo.Environment[OpencodeWrapConstants.OPENCODE_SERVER_USERNAME_ENVIRONMENT_VARIABLE] = OpencodeWrapConstants.OPENCODE_SERVER_USERNAME;
+        startInfo.Environment[OpencodeWrapConstants.OPENCODE_SERVER_PASSWORD_ENVIRONMENT_VARIABLE] = serverPassword;
 
         try
         {

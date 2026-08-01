@@ -27,6 +27,7 @@ internal sealed partial class OpencodeLauncherService : Singleton
     [Inject] private readonly HostOpencodeAttachService _hostOpencodeAttachService;
     [Inject] private readonly OpencodeServeHealthcheckService _opencodeServeHealthcheckService;
     [Inject] private readonly RuntimeAgentInstructionsService _runtimeAgentInstructionsService;
+    [Inject] private readonly RunMenuDefaultsService _runMenuDefaultsService;
 
     private int _cleanupStarted;
     private string? _containerName;
@@ -47,6 +48,7 @@ internal sealed partial class OpencodeLauncherService : Singleton
         bool verboseSessionLogs = false)
     {
         bool useServeSession = runtimeMode is OpencodeRuntimeMode.HostAttachToServe;
+        bool useServerPassword = useServeSession || UsesServerPassword(opencodeArgs);
         bool useManagedHostClient = useServeSession && runUiMode is RunUiMode.Tui;
         bool clearConsoleOnSessionLogFlush = true;
         var sessionLog = includeProfileConfig
@@ -62,9 +64,21 @@ internal sealed partial class OpencodeLauncherService : Singleton
         Task<(bool Success, string ImageTag)>? baseImageTask = null;
         Task<(bool Success, ManagedHostOpencodeService.ManagedHostOpencodeLease? Lease)>? hostLeaseTask = null;
         string? resolvedOpencodeVersion = null;
+        string? serverPassword = null;
         try
         {
             LogStartupPhase("starting ocw run startup", LogLevel.Debug);
+
+            if(useServerPassword)
+            {
+                if(!_runMenuDefaultsService.TryLoadDefaults(out var runMenuDefaults)
+                    || String.IsNullOrWhiteSpace(runMenuDefaults.ServerPassword))
+                {
+                    return 1;
+                }
+
+                serverPassword = runMenuDefaults.ServerPassword;
+            }
 
             if(!await _sessionOutputService.RunWithLoadingStateAsync(LogCategories.STARTUP, "Checking Docker volume...", _volumeService.EnsureVolumeReadyAsync))
             {
@@ -255,6 +269,7 @@ internal sealed partial class OpencodeLauncherService : Singleton
 
             string? userSpec = await _hostService.GetContainerUserSpecAsync();
             var containerArgs = new List<string>();
+            IReadOnlyDictionary<string, string?>? dockerEnvironmentVariables = null;
 
             if(userSpec is not null)
             {
@@ -275,6 +290,20 @@ internal sealed partial class OpencodeLauncherService : Singleton
                 "-e", $"XDG_CACHE_HOME={OpencodeWrapConstants.CONTAINER_XDG_CACHE_HOME}",
                 "-e", $"OCW_PROFILE_ROOT={OpencodeWrapConstants.CONTAINER_PROFILE_ROOT}"
             ]);
+
+            if(useServerPassword)
+            {
+                containerArgs.AddRange(
+                [
+                    "-e", OpencodeWrapConstants.OPENCODE_SERVER_USERNAME_ENVIRONMENT_VARIABLE,
+                    "-e", OpencodeWrapConstants.OPENCODE_SERVER_PASSWORD_ENVIRONMENT_VARIABLE
+                ]);
+                dockerEnvironmentVariables = new Dictionary<string, string?>
+                {
+                    [OpencodeWrapConstants.OPENCODE_SERVER_USERNAME_ENVIRONMENT_VARIABLE] = OpencodeWrapConstants.OPENCODE_SERVER_USERNAME,
+                    [OpencodeWrapConstants.OPENCODE_SERVER_PASSWORD_ENVIRONMENT_VARIABLE] = serverPassword
+                };
+            }
 
             if(!useServeSession)
             {
@@ -362,11 +391,11 @@ internal sealed partial class OpencodeLauncherService : Singleton
                     ? (await _sessionOutputService.RunWithLoadingStateAsync(
                         LogCategories.STARTUP,
                         "Starting OpenCode backend...",
-                        () => CreateConnectAndStartContainerAsync(containerArgs, selectedDockerNetworks, startDetached: true))).Success
+                        () => CreateConnectAndStartContainerAsync(containerArgs, selectedDockerNetworks, startDetached: true, dockerEnvironmentVariables))).Success
                     : await _sessionOutputService.RunWithLoadingStateAsync(
                         LogCategories.STARTUP,
                         "Starting OpenCode backend...",
-                        () => StartBackendContainerAsync(containerArgs));
+                        () => StartBackendContainerAsync(containerArgs, dockerEnvironmentVariables));
                 if(!backendStarted)
                 {
                     CleanupContainer(force: true);
@@ -376,7 +405,7 @@ internal sealed partial class OpencodeLauncherService : Singleton
                 string? readyAttachUrl = await _sessionOutputService.RunWithLoadingStateAsync(
                     LogCategories.STARTUP,
                     "Waiting for OpenCode backend...",
-                    () => _opencodeServeHealthcheckService.WaitUntilReadyAsync(session.AttachUrl!, selectedDockerNetworkMode, _hostService.IsWindows));
+                    () => _opencodeServeHealthcheckService.WaitUntilReadyAsync(session.AttachUrl!, serverPassword!, selectedDockerNetworkMode, _hostService.IsWindows));
                 if(readyAttachUrl is null)
                 {
                     await WriteContainerLogsAsync(_containerName!);
@@ -392,7 +421,7 @@ internal sealed partial class OpencodeLauncherService : Singleton
                     };
                 }
 
-                var launchResult = await _runUiLauncherService.LaunchAsync(runUiMode, session.AttachUrl!, containerWorkDir, managedHostExecutablePath);
+                var launchResult = await _runUiLauncherService.LaunchAsync(runUiMode, session.AttachUrl!, containerWorkDir, serverPassword!, managedHostExecutablePath);
                 if(useManagedHostClient && (!launchResult.Success || launchResult.ExitCode != 0))
                 {
                     clearConsoleOnSessionLogFlush = false;
@@ -421,8 +450,8 @@ internal sealed partial class OpencodeLauncherService : Singleton
             }
 
             int exitCode = requiresPrecreatedContainer
-                ? (await CreateConnectAndStartContainerAsync(containerArgs, selectedDockerNetworks, startDetached: false)).ExitCode
-                : await StartContainerAsync(containerArgs);
+                ? (await CreateConnectAndStartContainerAsync(containerArgs, selectedDockerNetworks, startDetached: false, dockerEnvironmentVariables)).ExitCode
+                : await StartContainerAsync(containerArgs, dockerEnvironmentVariables);
             CleanupContainer(force: false);
             return exitCode;
         }
@@ -497,17 +526,17 @@ internal sealed partial class OpencodeLauncherService : Singleton
         """;
     }
 
-    private static async Task<int> StartContainerAsync(IReadOnlyList<string> containerArgs)
+    private static async Task<int> StartContainerAsync(IReadOnlyList<string> containerArgs, IReadOnlyDictionary<string, string?>? dockerEnvironmentVariables)
     {
         List<string> runArgs = ["run", "--rm", .. containerArgs];
-        var result = await ProcessRunner.RunAttachedAsync("docker", runArgs);
+        var result = await ProcessRunner.RunAttachedAsync("docker", runArgs, environmentVariables: dockerEnvironmentVariables);
         return !result.Started ? 1 : result.ExitCode;
     }
 
-    private async Task<bool> StartBackendContainerAsync(IReadOnlyList<string> containerArgs)
+    private async Task<bool> StartBackendContainerAsync(IReadOnlyList<string> containerArgs, IReadOnlyDictionary<string, string?>? dockerEnvironmentVariables)
     {
         List<string> runArgs = ["run", "-d", "--rm", .. containerArgs];
-        var runResult = await ProcessRunner.RunAsync("docker", runArgs);
+        var runResult = await ProcessRunner.RunAsync("docker", runArgs, environmentVariables: dockerEnvironmentVariables);
         if(runResult.Success)
         {
             return true;
@@ -537,10 +566,11 @@ internal sealed partial class OpencodeLauncherService : Singleton
     private async Task<ProcessRunner.ProcessRunResult> CreateConnectAndStartContainerAsync(
         IReadOnlyList<string> containerArgs,
         IReadOnlyList<string> selectedDockerNetworks,
-        bool startDetached)
+        bool startDetached,
+        IReadOnlyDictionary<string, string?>? dockerEnvironmentVariables)
     {
         List<string> createArgs = ["create", .. containerArgs];
-        var createResult = await ProcessRunner.RunAsync("docker", createArgs);
+        var createResult = await ProcessRunner.RunAsync("docker", createArgs, environmentVariables: dockerEnvironmentVariables);
         if(!createResult.Success)
         {
             WriteSessionError("docker", "Failed to create Docker container.");
@@ -941,6 +971,9 @@ internal sealed partial class OpencodeLauncherService : Singleton
 
     private static bool DockerNetworkModeExtensionsSupportsAdditionalNetworks(DockerNetworkMode dockerNetworkMode)
         => dockerNetworkMode.SupportsAdditionalNetworks();
+
+    private static bool UsesServerPassword(IReadOnlyList<string> opencodeArgs)
+        => opencodeArgs.Any(arg => arg is "serve" or "web");
 
     private static StringComparer GetHostPathComparer() => OperatingSystem.IsWindows()
         ? StringComparer.OrdinalIgnoreCase
