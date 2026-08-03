@@ -45,6 +45,7 @@ internal sealed partial class OpencodeLauncherService : Singleton
         IReadOnlyList<string>? sessionAddons = null,
         DockerNetworkMode dockerNetworkMode = DockerNetworkMode.Bridge,
         IReadOnlyList<string>? dockerNetworks = null,
+        bool privileged = false,
         bool verboseSessionLogs = false)
     {
         bool useServeSession = runtimeMode is OpencodeRuntimeMode.HostAttachToServe;
@@ -274,6 +275,11 @@ internal sealed partial class OpencodeLauncherService : Singleton
             if(userSpec is not null)
             {
                 containerArgs.AddRange(["--user", userSpec]);
+            }
+
+            if(privileged)
+            {
+                containerArgs.Add("--privileged");
             }
 
             foreach(var environmentVariable in sessionEnvironmentVariables)

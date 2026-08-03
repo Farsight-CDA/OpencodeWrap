@@ -50,7 +50,7 @@ internal sealed class RunCliCommand : Command
 
             return selection is null
                 ? 1
-                : await _launcherService.ExecuteAsync([], requestedProfileName: selection.ProfileName, includeProfileConfig: true, runtimeMode: OpencodeRuntimeMode.HostAttachToServe, runUiMode: selection.UiMode, workspaceMountMode: selection.MountMode, containerMounts: selection.ContainerMounts, sessionAddons: selection.SessionAddonNames, dockerNetworkMode: selection.NetworkMode, dockerNetworks: selection.NetworkNames, verboseSessionLogs: verbose);
+                : await _launcherService.ExecuteAsync([], requestedProfileName: selection.ProfileName, includeProfileConfig: true, runtimeMode: OpencodeRuntimeMode.HostAttachToServe, runUiMode: selection.UiMode, workspaceMountMode: selection.MountMode, containerMounts: selection.ContainerMounts, sessionAddons: selection.SessionAddonNames, dockerNetworkMode: selection.NetworkMode, dockerNetworks: selection.NetworkNames, privileged: selection.Privileged, verboseSessionLogs: verbose);
         });
     }
 
@@ -290,6 +290,7 @@ internal sealed class RunCliCommand : Command
             ? ParseSavedDockerNetworkMode(workspaceConfig.DockerNetworkMode, hostNetworkAvailable)
             : null;
         var selectedNetworkMode = configuredNetworkMode ?? defaultNetworkMode ?? DockerNetworkMode.Bridge;
+        bool privileged = workspaceConfig.Privileged ?? false;
         var activeNetworkNames = new HashSet<string>(StringComparer.Ordinal);
         var defaultNetworkNames = new HashSet<string>(StringComparer.Ordinal);
         var configuredNetworkNames = new HashSet<string>(StringComparer.Ordinal);
@@ -316,7 +317,9 @@ internal sealed class RunCliCommand : Command
 
         while(true)
         {
-            RenderRunSelectionScreen(profileChoices, selectedIndex, uiChoices, selectedUiIndex, selectedTab, mountMode, configuredMountMode is not null, currentWorkspacePath, availableVolumeNames, selectedContainerMounts, defaultContainerMounts, configuredContainerMounts, selectedVolumeIndex, addonCatalog.AddonsRoot, availableAddonNames, defaultAddonNames, configuredAddonNames, selectedAddonIndex, activeAddonNames, availableNetworkNames, defaultNetworkNames, configuredNetworkNames, selectedNetworkIndex, selectedNetworkMode, defaultNetworkMode, configuredNetworkMode, activeNetworkNames, hostNetworkAvailable, workspaceConfigExists, workspaceConfigStatusMarkup, showWindowsHostNetworkingHint: _dockerHostService.IsWindows);
+            bool isPrivilegedConfigured = workspaceConfig.Privileged is { } configuredPrivileged
+                && configuredPrivileged == privileged;
+            RenderRunSelectionScreen(profileChoices, selectedIndex, uiChoices, selectedUiIndex, selectedTab, mountMode, configuredMountMode is not null, currentWorkspacePath, availableVolumeNames, selectedContainerMounts, defaultContainerMounts, configuredContainerMounts, selectedVolumeIndex, addonCatalog.AddonsRoot, availableAddonNames, defaultAddonNames, configuredAddonNames, selectedAddonIndex, activeAddonNames, availableNetworkNames, defaultNetworkNames, configuredNetworkNames, selectedNetworkIndex, selectedNetworkMode, defaultNetworkMode, configuredNetworkMode, activeNetworkNames, hostNetworkAvailable, privileged, isPrivilegedConfigured, workspaceConfigExists, workspaceConfigStatusMarkup, showWindowsHostNetworkingHint: _dockerHostService.IsWindows);
             var keyInfo = AnsiConsole.Console.Input.ReadKey(intercept: true);
             if(keyInfo is null)
             {
@@ -464,6 +467,7 @@ internal sealed class RunCliCommand : Command
                         }
 
                         break;
+                    case RunSelectionTab.Docker:
                     case RunSelectionTab.Config:
                         break;
                 }
@@ -498,6 +502,7 @@ internal sealed class RunCliCommand : Command
                             int networkEntryCount = GetNetworkEntryCount(availableNetworkNames, selectedNetworkMode);
                             selectedNetworkIndex = selectedNetworkIndex <= 0 ? networkEntryCount - 1 : selectedNetworkIndex - 1;
                             break;
+                        case RunSelectionTab.Docker:
                         case RunSelectionTab.Config:
                             break;
                     }
@@ -528,6 +533,7 @@ internal sealed class RunCliCommand : Command
                             int networkEntryCount = GetNetworkEntryCount(availableNetworkNames, selectedNetworkMode);
                             selectedNetworkIndex = selectedNetworkIndex >= networkEntryCount - 1 ? 0 : selectedNetworkIndex + 1;
                             break;
+                        case RunSelectionTab.Docker:
                         case RunSelectionTab.Config:
                             break;
                     }
@@ -595,6 +601,12 @@ internal sealed class RunCliCommand : Command
                         break;
                     }
 
+                    if(selectedTab is RunSelectionTab.Docker)
+                    {
+                        privileged = !privileged;
+                        break;
+                    }
+
                     if(selectedTab is RunSelectionTab.Volumes && selectedVolumeIndex == 0)
                     {
                         TryPromptAppendContainerMount(currentWorkspacePath, availableVolumeNames, selectedContainerMounts, ref selectedVolumeIndex);
@@ -630,6 +642,7 @@ internal sealed class RunCliCommand : Command
                             uiChoices[selectedUiIndex].Mode,
                             mountMode,
                             selectedNetworkMode,
+                            privileged,
                             selectedContainerMounts,
                             [.. availableAddonNames.Where(activeAddonNames.Contains)],
                             [.. availableNetworkNames.Where(activeNetworkNames.Contains)]);
@@ -639,6 +652,7 @@ internal sealed class RunCliCommand : Command
                             workspaceConfigExists = true;
                             configuredMountMode = mountMode;
                             configuredNetworkMode = selectedNetworkMode;
+                            workspaceConfig = currentWorkspaceConfig;
                             configuredContainerMounts = [.. selectedContainerMounts];
                             configuredAddonNames = new HashSet<string>(availableAddonNames.Where(activeAddonNames.Contains), GetHostPathComparer());
                             configuredNetworkNames = new HashSet<string>(availableNetworkNames.Where(activeNetworkNames.Contains), StringComparer.Ordinal);
@@ -679,7 +693,8 @@ internal sealed class RunCliCommand : Command
                         selectedContainerMounts,
                         [.. availableAddonNames.Where(activeAddonNames.Contains)],
                         selectedNetworkMode,
-                        [.. availableNetworkNames.Where(activeNetworkNames.Contains)]);
+                        [.. availableNetworkNames.Where(activeNetworkNames.Contains)],
+                        privileged);
                 case ConsoleKey.Escape:
                     AnsiConsole.Clear();
                     return null;
@@ -726,6 +741,7 @@ internal sealed class RunCliCommand : Command
         RunSelectionTab.Volumes => "[bold dodgerblue1]Extra mounts[/]",
         RunSelectionTab.Addons => "[bold dodgerblue1]Session addons[/]",
         RunSelectionTab.Networks => "[bold dodgerblue1]Docker networks[/]",
+        RunSelectionTab.Docker => "[bold dodgerblue1]Docker options[/]",
         RunSelectionTab.Config => $"[bold dodgerblue1]{Markup.Escape(OpencodeWrapConstants.HOST_WORKSPACE_RUN_CONFIG_FILE_NAME)}[/]",
         _ => "[bold dodgerblue1]Run setup[/]"
     };
@@ -802,6 +818,8 @@ internal sealed class RunCliCommand : Command
         DockerNetworkMode? configuredNetworkMode,
         HashSet<string> activeNetworkNames,
         bool hostNetworkAvailable,
+        bool privileged,
+        bool isPrivilegedConfigured,
         bool workspaceConfigExists,
         string? workspaceConfigStatusMarkup,
         bool showWindowsHostNetworkingHint)
@@ -832,7 +850,7 @@ internal sealed class RunCliCommand : Command
         };
         AnsiConsole.Write(mountPanel);
 
-        AnsiConsole.Write(CreateTabStrip(selectedTab, selectedContainerMounts.Count, activeAddonNames.Count, activeNetworkNames.Count, selectedNetworkMode, profileChoices[selectedIndex], uiChoices[selectedUiIndex], workspaceConfigExists));
+        AnsiConsole.Write(CreateTabStrip(selectedTab, selectedContainerMounts.Count, activeAddonNames.Count, activeNetworkNames.Count, selectedNetworkMode, privileged, profileChoices[selectedIndex], uiChoices[selectedUiIndex], workspaceConfigExists));
         AnsiConsole.WriteLine();
 
         var activeContent = selectedTab switch
@@ -841,6 +859,7 @@ internal sealed class RunCliCommand : Command
             RunSelectionTab.Volumes => CreateVolumeSelectionContent(availableVolumeNames, selectedContainerMounts, defaultContainerMounts, configuredContainerMounts, selectedVolumeIndex),
             RunSelectionTab.Addons => CreateAddonSelectionContent(addonsRootPath, availableAddonNames, defaultAddonNames, configuredAddonNames, selectedAddonIndex, activeAddonNames),
             RunSelectionTab.Networks => CreateNetworkSelectionContent(availableNetworkNames, defaultNetworkNames, configuredNetworkNames, selectedNetworkIndex, selectedNetworkMode, defaultNetworkMode, configuredNetworkMode, activeNetworkNames, hostNetworkAvailable, showWindowsHostNetworkingHint),
+            RunSelectionTab.Docker => CreateDockerSelectionContent(privileged, isPrivilegedConfigured),
             RunSelectionTab.Config => CreateConfigSelectionContent(workspaceConfigExists, workspaceConfigStatusMarkup),
             _ => CreateProfileSelectionContent(profileChoices, selectedIndex)
         };
@@ -856,6 +875,7 @@ internal sealed class RunCliCommand : Command
             RunSelectionTab.Volumes => "[grey]Enter[/]/[grey]+[/] · [grey]Space[/] · [grey]Del[/] · [grey]←→[/]",
             RunSelectionTab.Addons => "[grey]Enter[/]/[grey]+[/] · [grey]Space[/] · [grey]←→[/]",
             RunSelectionTab.Networks => "[grey]Enter[/]/[grey]+[/] · [grey]Space[/] · [grey]←→[/]",
+            RunSelectionTab.Docker => "[grey]Enter[/] run · [grey]Space[/] toggle · [grey]←→[/]",
             RunSelectionTab.Config => "[grey]Enter[/] save · [grey]←→[/]",
             _ => ""
         };
@@ -863,9 +883,10 @@ internal sealed class RunCliCommand : Command
         AnsiConsole.Write(CreateRunMenuFooterPanel($"[grey]ESC[/] · [grey]Ctrl+C[/] · [grey]M[/] workspace · {tabHint}"));
     }
 
-    private static Panel CreateTabStrip(RunSelectionTab selectedTab, int volumeCount, int activeAddonCount, int activeNetworkCount, DockerNetworkMode selectedNetworkMode, ProfileChoice selectedProfileChoice, UiChoice selectedUiChoice, bool workspaceConfigExists)
+    private static Panel CreateTabStrip(RunSelectionTab selectedTab, int volumeCount, int activeAddonCount, int activeNetworkCount, DockerNetworkMode selectedNetworkMode, bool privileged, ProfileChoice selectedProfileChoice, UiChoice selectedUiChoice, bool workspaceConfigExists)
     {
         var tabGrid = new Grid();
+        tabGrid.AddColumn();
         tabGrid.AddColumn();
         tabGrid.AddColumn();
         tabGrid.AddColumn();
@@ -915,6 +936,11 @@ internal sealed class RunCliCommand : Command
             ? $"[white on dodgerblue1] {networkLabel} [/]"
             : $"[grey70 on grey19] {networkLabel} [/]";
 
+        string dockerLabel = privileged ? "🐳 [yellow]privileged[/]" : "🐳";
+        string dockerTab = selectedTab is RunSelectionTab.Docker
+            ? $"[white on dodgerblue1] {dockerLabel} [/]"
+            : $"[grey70 on grey19] {dockerLabel} [/]";
+
         string configLabel = workspaceConfigExists
             ? $"📝 {Markup.Escape(OpencodeWrapConstants.HOST_WORKSPACE_RUN_CONFIG_FILE_NAME)} [deepskyblue1]◆[/]"
             : $"📝 {Markup.Escape(OpencodeWrapConstants.HOST_WORKSPACE_RUN_CONFIG_FILE_NAME)}";
@@ -922,7 +948,7 @@ internal sealed class RunCliCommand : Command
             ? $"[white on dodgerblue1] {configLabel} [/]"
             : $"[grey70 on grey19] {configLabel} [/]";
 
-        tabGrid.AddRow(profileTab, uiTab, volumeTab, addonTab, networkTab, configTab);
+        tabGrid.AddRow(profileTab, uiTab, volumeTab, addonTab, networkTab, dockerTab, configTab);
 
         return new Panel(tabGrid)
         {
@@ -1192,6 +1218,14 @@ internal sealed class RunCliCommand : Command
         return new Markup(content.ToString());
     }
 
+    private static Markup CreateDockerSelectionContent(bool privileged, bool isConfigured)
+    {
+        string checkbox = privileged ? "[yellow]☑[/]" : "[grey]☐[/]";
+        string state = privileged ? "[yellow]enabled[/]" : "[green]disabled[/]";
+        string sourceMarker = CreateSourceMarkers(isDefault: false, isConfigured: isConfigured);
+        return new Markup($"[dodgerblue1]▶[/] {checkbox} [bold white]Privileged mode[/] {state}{sourceMarker}\n\n[grey58]Adds --privileged to the Docker container. This grants extended host access.[/]");
+    }
+
     private static ListViewport CreateListViewport(int itemCount, int selectedIndex, int maxRowCount)
     {
         if(itemCount <= 0 || maxRowCount <= 0)
@@ -1265,14 +1299,16 @@ internal sealed class RunCliCommand : Command
         (RunSelectionTab.Ui, true) => RunSelectionTab.Volumes,
         (RunSelectionTab.Volumes, true) => RunSelectionTab.Addons,
         (RunSelectionTab.Addons, true) => RunSelectionTab.Networks,
-        (RunSelectionTab.Networks, true) => RunSelectionTab.Config,
+        (RunSelectionTab.Networks, true) => RunSelectionTab.Docker,
+        (RunSelectionTab.Docker, true) => RunSelectionTab.Config,
         (RunSelectionTab.Config, true) => RunSelectionTab.Profile,
         (RunSelectionTab.Profile, false) => RunSelectionTab.Config,
         (RunSelectionTab.Ui, false) => RunSelectionTab.Profile,
         (RunSelectionTab.Volumes, false) => RunSelectionTab.Ui,
         (RunSelectionTab.Addons, false) => RunSelectionTab.Volumes,
         (RunSelectionTab.Networks, false) => RunSelectionTab.Addons,
-        _ => RunSelectionTab.Networks
+        (RunSelectionTab.Docker, false) => RunSelectionTab.Networks,
+        _ => RunSelectionTab.Docker
     };
 
     internal static List<UiChoice> BuildUiChoices(RunUiMode? defaultUiMode, RunUiMode? configuredUiMode)
@@ -2407,7 +2443,7 @@ internal sealed class RunCliCommand : Command
         }
     }
 
-    private sealed record RunSelection(string ProfileName, RunUiMode UiMode, WorkspaceMountMode MountMode, IReadOnlyList<ContainerMount> ContainerMounts, IReadOnlyList<string> SessionAddonNames, DockerNetworkMode NetworkMode, IReadOnlyList<string> NetworkNames);
+    private sealed record RunSelection(string ProfileName, RunUiMode UiMode, WorkspaceMountMode MountMode, IReadOnlyList<ContainerMount> ContainerMounts, IReadOnlyList<string> SessionAddonNames, DockerNetworkMode NetworkMode, IReadOnlyList<string> NetworkNames, bool Privileged);
     private sealed record ProfileChoice(string Name, bool IsDefault, bool IsConfigured);
     internal sealed record UiChoice(RunUiMode Mode, string Label, string Description, string? Detail = null, bool IsUnavailable = false, bool IsSelectable = true, bool IsDefault = false, bool IsConfigured = false);
     private sealed record ContainerMountSourceTypeChoice(ContainerMountSourceType SourceType, string Label, string Description, bool IsSelectable);
@@ -2430,6 +2466,7 @@ internal sealed class RunCliCommand : Command
         Volumes,
         Addons,
         Networks,
+        Docker,
         Config
     }
 

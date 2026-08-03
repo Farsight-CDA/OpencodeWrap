@@ -144,6 +144,11 @@ internal sealed partial class RunMenuDefaultsService : Singleton
                 writer.WriteString("dockerNetworkMode", dockerNetworkMode.GetLabel());
             }
 
+            if(normalizedConfig.Privileged is { } privileged)
+            {
+                writer.WriteBoolean("privileged", privileged);
+            }
+
             writer.WritePropertyName("containerMounts");
             writer.WriteStartArray();
             foreach(ContainerMount containerMount in normalizedConfig.ContainerMounts)
@@ -277,11 +282,19 @@ internal sealed partial class RunMenuDefaultsService : Singleton
             }
         }
 
+        bool? privileged = null;
+        if(rootElement.TryGetProperty("privileged", out var privilegedElement)
+            && privilegedElement.ValueKind is JsonValueKind.True or JsonValueKind.False)
+        {
+            privileged = privilegedElement.GetBoolean();
+        }
+
         return NormalizeWorkspaceConfig(new WorkspaceRunMenuConfig(
             profileName,
             uiMode,
             workspaceMountMode,
             dockerNetworkMode,
+            privileged,
             ReadContainerMounts(rootElement),
             ReadStringArray(rootElement, "sessionAddons"),
             ReadStringArray(rootElement, "dockerNetworks")));
@@ -557,6 +570,7 @@ internal sealed partial class RunMenuDefaultsService : Singleton
             normalizedDefaults.DefaultUiMode,
             config.WorkspaceMountMode,
             normalizedDefaults.DefaultDockerNetworkMode,
+            config.Privileged,
             normalizedDefaults.ContainerMounts,
             normalizedDefaults.SessionAddons,
             normalizedDefaults.DockerNetworks);
@@ -750,7 +764,7 @@ internal sealed record RunMenuDefaults(string? DefaultProfileName, RunUiMode? De
     public static RunMenuDefaults Empty { get; } = new(null, null, null, [], [], []);
 }
 
-internal sealed record WorkspaceRunMenuConfig(string? ProfileName, RunUiMode? UiMode, WorkspaceMountMode? WorkspaceMountMode, DockerNetworkMode? DockerNetworkMode, IReadOnlyList<ContainerMount> ContainerMounts, IReadOnlyList<string> SessionAddons, IReadOnlyList<string> DockerNetworks)
+internal sealed record WorkspaceRunMenuConfig(string? ProfileName, RunUiMode? UiMode, WorkspaceMountMode? WorkspaceMountMode, DockerNetworkMode? DockerNetworkMode, bool? Privileged, IReadOnlyList<ContainerMount> ContainerMounts, IReadOnlyList<string> SessionAddons, IReadOnlyList<string> DockerNetworks)
 {
-    public static WorkspaceRunMenuConfig Empty { get; } = new(null, null, null, null, [], [], []);
+    public static WorkspaceRunMenuConfig Empty { get; } = new(null, null, null, null, null, [], [], []);
 }
