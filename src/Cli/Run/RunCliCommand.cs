@@ -697,6 +697,11 @@ internal sealed class RunCliCommand : Command
     private static readonly Style RunMenuPanelBorderStyle = new(Color.Grey39);
     private static readonly Style RunMenuFooterBorderStyle = new(Color.Grey23);
 
+    private const int RunMenuContentPanelHeight = 14;
+    private const int RunMenuContentRowCount = 10;
+    private const int DirectoryBrowserPanelHeight = 14;
+    private const int DirectoryBrowserRowCount = 12;
+
     private const string RunMenuSubmenuFooterHintMarkup = "[grey]ESC[/] [dodgerblue1]menu[/] · [grey]Ctrl+C[/] [red]exit[/]";
     private const string RunMenuSubmenuConfirmFooterHintMarkup = "[grey]ESC[/] [dodgerblue1]menu[/] · [grey]←[/] [dodgerblue1]back[/] · [grey]Ctrl+C[/] [red]exit[/] · [grey]↑↓[/] [dodgerblue1]move[/] · [grey]→[/]/[grey]Enter[/] [dodgerblue1]confirm[/]";
     private const string RunMenuSubmenuTextInputFooterHintMarkup = "[grey]ESC[/] [dodgerblue1]menu[/] · [grey]←[/] [dodgerblue1]back[/] · [grey]Ctrl+C[/] [red]exit[/] · [grey]Type[/] [dodgerblue1]path[/] · [grey]Backspace[/] [dodgerblue1]erase[/] · [grey]→[/]/[grey]Enter[/] [dodgerblue1]confirm[/]";
@@ -840,7 +845,7 @@ internal sealed class RunCliCommand : Command
             _ => CreateProfileSelectionContent(profileChoices, selectedIndex)
         };
 
-        int contentPanelHeight = selectedTab is RunSelectionTab.Config ? 6 : 14;
+        int contentPanelHeight = selectedTab is RunSelectionTab.Config ? 6 : RunMenuContentPanelHeight;
         AnsiConsole.Write(CreateRunMenuContentPanel(activeContent, GetRunSelectionTabPanelTitle(selectedTab), contentPanelHeight));
 
         AnsiConsole.WriteLine();
@@ -938,7 +943,10 @@ internal sealed class RunCliCommand : Command
             return new Markup(content.ToString());
         }
 
-        for(int i = 0; i < profileChoices.Count; i++)
+        ListViewport viewport = CreateListViewport(profileChoices.Count, selectedIndex, RunMenuContentRowCount);
+        AppendViewportOverflowIndicator(content, viewport.HiddenBeforeCount, movingUp: true);
+
+        for(int i = viewport.StartIndex; i < viewport.EndIndex; i++)
         {
             var choice = profileChoices[i];
             bool isSelected = i == selectedIndex;
@@ -956,6 +964,8 @@ internal sealed class RunCliCommand : Command
                 content.AppendLine($"  [grey70]{escapedName}[/]{sourceMarkers}");
             }
         }
+
+        AppendViewportOverflowIndicator(content, viewport.HiddenAfterCount, movingUp: false);
 
         return new Markup(content.ToString());
     }
@@ -1035,7 +1045,13 @@ internal sealed class RunCliCommand : Command
         else
         {
             content.AppendLine();
-            for(int i = 0; i < selectedContainerMounts.Count; i++)
+            int fixedRowCount = availableVolumeNames.Count == 0 ? 2 : 1;
+            int mountRowCount = RunMenuContentRowCount - fixedRowCount - 1;
+            int selectedMountIndex = Math.Max(0, selectedVolumeIndex - 1);
+            ListViewport viewport = CreateListViewport(selectedContainerMounts.Count, selectedMountIndex, mountRowCount);
+            AppendViewportOverflowIndicator(content, viewport.HiddenBeforeCount, movingUp: true);
+
+            for(int i = viewport.StartIndex; i < viewport.EndIndex; i++)
             {
                 ContainerMount containerMount = selectedContainerMounts[i];
                 bool isSelected = selectedVolumeIndex == i + 1;
@@ -1055,6 +1071,8 @@ internal sealed class RunCliCommand : Command
                     content.AppendLine($"  {mountLine}{sourceMarkers}");
                 }
             }
+
+            AppendViewportOverflowIndicator(content, viewport.HiddenAfterCount, movingUp: false);
         }
 
         return new Markup(content.ToString());
@@ -1071,7 +1089,10 @@ internal sealed class RunCliCommand : Command
             return new Markup(content.ToString());
         }
 
-        for(int i = 0; i < availableAddonNames.Count; i++)
+        ListViewport viewport = CreateListViewport(availableAddonNames.Count, selectedAddonIndex, RunMenuContentRowCount);
+        AppendViewportOverflowIndicator(content, viewport.HiddenBeforeCount, movingUp: true);
+
+        for(int i = viewport.StartIndex; i < viewport.EndIndex; i++)
         {
             string addonName = availableAddonNames[i];
             bool isActive = activeAddonNames.Contains(addonName);
@@ -1088,6 +1109,8 @@ internal sealed class RunCliCommand : Command
                 content.AppendLine($"  {checkbox} [grey70]{Markup.Escape(addonName)}[/]{sourceMarkers}");
             }
         }
+
+        AppendViewportOverflowIndicator(content, viewport.HiddenAfterCount, movingUp: false);
 
         return new Markup(content.ToString());
     }
@@ -1137,7 +1160,16 @@ internal sealed class RunCliCommand : Command
         }
 
         content.AppendLine("  [grey50]────────────────────────────────────────[/]");
-        for(int i = 0; i < availableNetworkNames.Count; i++)
+        bool hasNetworkHint = !hostNetworkAvailable
+            || showWindowsHostNetworkingHint && selectedNetworkMode is DockerNetworkMode.Host;
+        int fixedRowCount = hasNetworkHint ? 4 : 3;
+        ListViewport viewport = CreateListViewport(
+            availableNetworkNames.Count,
+            Math.Max(0, selectedNetworkIndex - 1),
+            RunMenuContentRowCount - fixedRowCount);
+        AppendViewportOverflowIndicator(content, viewport.HiddenBeforeCount, movingUp: true);
+
+        for(int i = viewport.StartIndex; i < viewport.EndIndex; i++)
         {
             string networkName = availableNetworkNames[i];
             bool isActive = activeNetworkNames.Contains(networkName);
@@ -1155,7 +1187,62 @@ internal sealed class RunCliCommand : Command
             }
         }
 
+        AppendViewportOverflowIndicator(content, viewport.HiddenAfterCount, movingUp: false);
+
         return new Markup(content.ToString());
+    }
+
+    private static ListViewport CreateListViewport(int itemCount, int selectedIndex, int maxRowCount)
+    {
+        if(itemCount <= 0 || maxRowCount <= 0)
+        {
+            return new ListViewport(0, 0, 0, 0);
+        }
+
+        if(itemCount <= maxRowCount)
+        {
+            return new ListViewport(0, itemCount, 0, 0);
+        }
+
+        selectedIndex = Math.Clamp(selectedIndex, 0, itemCount - 1);
+        if(maxRowCount < 3)
+        {
+            return new ListViewport(selectedIndex, 1, 0, 0);
+        }
+
+        int edgeItemCount = maxRowCount - 1;
+        if(selectedIndex < edgeItemCount)
+        {
+            return new ListViewport(0, edgeItemCount, 0, itemCount - edgeItemCount);
+        }
+
+        if(selectedIndex >= itemCount - edgeItemCount)
+        {
+            int startIndex = itemCount - edgeItemCount;
+            return new ListViewport(startIndex, edgeItemCount, startIndex, 0);
+        }
+
+        int middleItemCount = maxRowCount - 2;
+        int middleStartIndex = Math.Clamp(
+            selectedIndex - middleItemCount / 2,
+            1,
+            itemCount - middleItemCount - 1);
+        return new ListViewport(
+            middleStartIndex,
+            middleItemCount,
+            middleStartIndex,
+            itemCount - middleStartIndex - middleItemCount);
+    }
+
+    private static void AppendViewportOverflowIndicator(StringBuilder content, int hiddenItemCount, bool movingUp)
+    {
+        if(hiddenItemCount <= 0)
+        {
+            return;
+        }
+
+        string arrow = movingUp ? "↑" : "↓";
+        content.AppendLine($"  [grey58]{arrow} {hiddenItemCount} more[/]");
     }
 
     private static Markup CreateConfigSelectionContent(bool workspaceConfigExists, string? workspaceConfigStatusMarkup)
@@ -1764,7 +1851,10 @@ internal sealed class RunCliCommand : Command
         AppIO.WriteHeader("Named Volume");
 
         var content = new StringBuilder();
-        for(int i = 0; i < availableVolumeNames.Count; i++)
+        ListViewport viewport = CreateListViewport(availableVolumeNames.Count, selectedIndex, RunMenuContentRowCount);
+        AppendViewportOverflowIndicator(content, viewport.HiddenBeforeCount, movingUp: true);
+
+        for(int i = viewport.StartIndex; i < viewport.EndIndex; i++)
         {
             string volumeName = Markup.Escape(availableVolumeNames[i]);
             if(i == selectedIndex)
@@ -1777,7 +1867,9 @@ internal sealed class RunCliCommand : Command
             }
         }
 
-        WriteRunMenuSubmenuLayout(new Markup(content.ToString()), 14, "[bold dodgerblue1]Named volume[/]", RunMenuSubmenuConfirmFooterHintMarkup);
+        AppendViewportOverflowIndicator(content, viewport.HiddenAfterCount, movingUp: false);
+
+        WriteRunMenuSubmenuLayout(new Markup(content.ToString()), RunMenuContentPanelHeight, "[bold dodgerblue1]Named volume[/]", RunMenuSubmenuConfirmFooterHintMarkup);
     }
 
     private static void RenderContainerMountAccessModeSelectionScreen(ContainerMountSourceType sourceType, IReadOnlyList<ContainerMountAccessModeChoice> choices, int selectedIndex)
@@ -2091,6 +2183,7 @@ internal sealed class RunCliCommand : Command
 
         var entryTable = new Table()
             .Border(TableBorder.None)
+            .HideHeaders()
             .Expand();
         entryTable.AddColumn(new TableColumn(""));
         if(entries.Count == 0)
@@ -2099,7 +2192,13 @@ internal sealed class RunCliCommand : Command
         }
         else
         {
-            for(int i = 0; i < entries.Count; i++)
+            ListViewport viewport = CreateListViewport(entries.Count, selectedIndex, DirectoryBrowserRowCount);
+            if(viewport.HiddenBeforeCount > 0)
+            {
+                entryTable.AddRow($"  [grey58]↑ {viewport.HiddenBeforeCount} more[/]");
+            }
+
+            for(int i = viewport.StartIndex; i < viewport.EndIndex; i++)
             {
                 var entry = entries[i];
                 bool isSelected = i == selectedIndex;
@@ -2117,6 +2216,11 @@ internal sealed class RunCliCommand : Command
 
                 entryTable.AddRow($"{cursor} {label}");
             }
+
+            if(viewport.HiddenAfterCount > 0)
+            {
+                entryTable.AddRow($"  [grey58]↓ {viewport.HiddenAfterCount} more[/]");
+            }
         }
 
         AnsiConsole.Write(new Panel(entryTable)
@@ -2124,7 +2228,8 @@ internal sealed class RunCliCommand : Command
             Border = BoxBorder.Rounded,
             BorderStyle = RunMenuPanelBorderStyle,
             Header = new PanelHeader("[bold dodgerblue1]Browse[/]", Justify.Left),
-            Padding = new Padding(1, 0, 1, 0)
+            Padding = new Padding(1, 0, 1, 0),
+            Height = DirectoryBrowserPanelHeight
         });
 
         AnsiConsole.WriteLine();
@@ -2314,6 +2419,10 @@ internal sealed class RunCliCommand : Command
     private sealed record DirectoryPromptResult(PromptNavigation Navigation, string? DirectoryPath, DirectoryBrowserState State);
     private sealed record DirectoryBrowserState(string CurrentDirectory, int SelectedIndex, bool SelectingDrive);
     private sealed record ExplorerEntry(string Label, ExplorerEntryType EntryType, string? Path = null);
+    private readonly record struct ListViewport(int StartIndex, int ItemCount, int HiddenBeforeCount, int HiddenAfterCount)
+    {
+        public int EndIndex => StartIndex + ItemCount;
+    }
     internal enum RunSelectionTab
     {
         Profile,
