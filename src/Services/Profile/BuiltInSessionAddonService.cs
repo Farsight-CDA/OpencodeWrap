@@ -8,7 +8,6 @@ internal sealed partial class BuiltInSessionAddonService : Singleton
 
     private static readonly (string ResourceFolderSlug, string Name)[] _addonDefinitions =
     [
-        ("web_search", "web-search"),
         ("frontend_design", "frontend-design")
     ];
 
@@ -19,11 +18,9 @@ internal sealed partial class BuiltInSessionAddonService : Singleton
 
     public IReadOnlyList<BuiltInSessionAddon> BuiltInAddons { get; } = _builtInAddons;
 
-    public bool TryMaterializeBuiltInAddon(BuiltInSessionAddon builtInAddon, string? materializationRootDirectory, out string addonDirectoryPath)
+    public bool TryMaterializeBuiltInAddon(BuiltInSessionAddon builtInAddon, string materializationRootDirectory, out string addonDirectoryPath)
     {
-        addonDirectoryPath = String.IsNullOrWhiteSpace(materializationRootDirectory)
-            ? Path.Combine(Path.GetTempPath(), $"ocw-addon-{builtInAddon.Name}-{Guid.NewGuid():N}")
-            : Path.Combine(materializationRootDirectory, "addons", builtInAddon.Name);
+        addonDirectoryPath = Path.Combine(materializationRootDirectory, "addons", builtInAddon.Name);
 
         try
         {

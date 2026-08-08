@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Runtime.Intrinsics.X86;
+using System.Text;
 using System.Text.Json;
 
 namespace OpencodeWrap.Services.Opencode;
@@ -17,11 +18,9 @@ internal sealed record OpencodeNpmPackageAsset(
 internal sealed record ResolvedOpencodeRelease(
     string PackageName,
     string Version,
-    OpencodeNpmPackageAsset CliPackage,
     Dictionary<string, OpencodeNpmPackageAsset> PlatformPackages);
 
 internal sealed record ResolvedOpencodeBinaryAsset(
-    string Target,
     string ExecutableFileName,
     OpencodeNpmPackageAsset Asset);
 
@@ -54,8 +53,6 @@ internal sealed partial class OpencodeReleaseMetadataService : Singleton
 
     [Inject]
     private readonly FileLockService _fileLockService;
-
-    internal static OpencodePackagePin PackagePin => _packagePin;
 
     public async Task<(bool Success, ResolvedOpencodeRelease Release)> TryResolvePinnedAsync()
     {
@@ -104,7 +101,7 @@ internal sealed partial class OpencodeReleaseMetadataService : Singleton
 
         bool isMusl = os == "linux" && await IsMuslLinuxHostAsync();
         bool needsBaseline = arch == "x64" && !Avx2.IsSupported;
-        return TryResolveBinaryAsset(release, BuildTargetCandidates(os, arch, isMusl, needsBaseline), os, LogCategories.OPENCODE_HOST);
+        return TryResolveBinaryAsset(release, BuildTarget(os, arch, isMusl, needsBaseline), os, LogCategories.OPENCODE_HOST);
     }
 
     public (bool Success, ResolvedOpencodeBinaryAsset Asset) TryResolveLinuxRuntimeBinary(
@@ -123,43 +120,25 @@ internal sealed partial class OpencodeReleaseMetadataService : Singleton
 
         return TryResolveBinaryAsset(
             release,
-            BuildTargetCandidates("linux", normalizedArchitecture, isMusl, normalizedArchitecture == "x64" && needsBaseline),
+            BuildTarget("linux", normalizedArchitecture, isMusl, normalizedArchitecture == "x64" && needsBaseline),
             "linux",
             LogCategories.OPENCODE_RUNTIME);
     }
 
-    internal static IReadOnlyList<string> BuildTargetCandidates(string os, string arch, bool isMusl, bool needsBaseline)
+    internal static string BuildTarget(string os, string arch, bool isMusl, bool needsBaseline)
     {
-        if(arch == "arm64")
+        var target = new StringBuilder($"{os}-{arch}");
+        if(arch == "x64" && needsBaseline)
         {
-            return os == "linux"
-                ? isMusl
-                    ? [$"{os}-{arch}-musl", $"{os}-{arch}"]
-                    : [$"{os}-{arch}", $"{os}-{arch}-musl"]
-                : [$"{os}-{arch}"];
+            target.Append("-baseline");
         }
 
-        if(arch != "x64")
+        if(os == "linux" && isMusl)
         {
-            return [];
+            target.Append("-musl");
         }
 
-        string preferred = needsBaseline ? $"{os}-{arch}-baseline" : $"{os}-{arch}";
-        string fallback = needsBaseline ? $"{os}-{arch}" : $"{os}-{arch}-baseline";
-        if(os != "linux")
-        {
-            return [preferred, fallback];
-        }
-
-        string preferredLibcSuffix = isMusl ? "-musl" : String.Empty;
-        string fallbackLibcSuffix = isMusl ? String.Empty : "-musl";
-        return
-        [
-            preferred + preferredLibcSuffix,
-            fallback + preferredLibcSuffix,
-            preferred + fallbackLibcSuffix,
-            fallback + fallbackLibcSuffix
-        ];
+        return target.ToString();
     }
 
     internal static bool TryParsePackageAsset(
@@ -223,7 +202,7 @@ internal sealed partial class OpencodeReleaseMetadataService : Singleton
 
     private (bool Success, ResolvedOpencodeBinaryAsset Asset) TryResolveBinaryAsset(
         ResolvedOpencodeRelease release,
-        IReadOnlyList<string> targets,
+        string target,
         string operatingSystem,
         string logCategory)
     {
@@ -232,19 +211,16 @@ internal sealed partial class OpencodeReleaseMetadataService : Singleton
             ? "opencode2.exe"
             : "opencode2";
 
-        foreach(string target in targets)
+        string packageName = $"{release.PackageName}-{target}";
+        if(release.PlatformPackages.TryGetValue(packageName, out var package)
+            && String.Equals(package.Version, release.Version, StringComparison.Ordinal))
         {
-            string packageName = $"{release.PackageName}-{target}";
-            if(release.PlatformPackages.TryGetValue(packageName, out var package)
-                && String.Equals(package.Version, release.Version, StringComparison.Ordinal))
-            {
-                return (true, new ResolvedOpencodeBinaryAsset(target, executableFileName, package));
-            }
+            return (true, new ResolvedOpencodeBinaryAsset(executableFileName, package));
         }
 
         _deferredSessionLogService.WriteErrorOrConsole(
             logCategory,
-            $"No matching OpenCode V2 npm platform package was found for targets: {String.Join(", ", targets)}.");
+            $"OpenCode V2 npm platform package '{packageName}' was not found.");
         return (false, emptyAsset);
     }
 
@@ -254,12 +230,6 @@ internal sealed partial class OpencodeReleaseMetadataService : Singleton
         var (cliSuccess, cliRoot) = await TryFetchPackageMetadataAsync(_packagePin.Name, _packagePin.Version);
         if(!cliSuccess)
         {
-            return (false, emptyRelease);
-        }
-
-        if(!TryParsePackageAsset(cliRoot, _packagePin.Name, _packagePin.Version, out var cliPackage, out string cliError))
-        {
-            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.OPENCODE_VERSION, cliError);
             return (false, emptyRelease);
         }
 
@@ -281,7 +251,7 @@ internal sealed partial class OpencodeReleaseMetadataService : Singleton
             result => result.Asset,
             StringComparer.Ordinal);
 
-        return (true, new ResolvedOpencodeRelease(_packagePin.Name, _packagePin.Version, cliPackage, platformPackages));
+        return (true, new ResolvedOpencodeRelease(_packagePin.Name, _packagePin.Version, platformPackages));
     }
 
     private async Task<(bool Success, OpencodeNpmPackageAsset Asset)> TryFetchPinnedPlatformPackageAsync(string packageName)
@@ -431,7 +401,6 @@ internal sealed partial class OpencodeReleaseMetadataService : Singleton
     private static bool IsExpectedPinnedRelease(ResolvedOpencodeRelease release)
         => String.Equals(release.PackageName, _packagePin.Name, StringComparison.Ordinal)
             && String.Equals(release.Version, _packagePin.Version, StringComparison.Ordinal)
-            && IsExpectedPackageAsset(release.CliPackage, _packagePin.Name)
             && release.PlatformPackages is not null
             && release.PlatformPackages.Count == _requiredPlatformTargets.Length
             && _requiredPlatformTargets.All(target =>
@@ -468,10 +437,10 @@ internal sealed partial class OpencodeReleaseMetadataService : Singleton
     }
 
     private static ResolvedOpencodeRelease CreateEmptyRelease()
-        => new("", "", new OpencodeNpmPackageAsset("", "", "", ""), []);
+        => new("", "", []);
 
     private static ResolvedOpencodeBinaryAsset CreateEmptyBinaryAsset()
-        => new("", "", new OpencodeNpmPackageAsset("", "", "", ""));
+        => new("", new OpencodeNpmPackageAsset("", "", "", ""));
 
     private static HttpClient CreateHttpClient()
     {

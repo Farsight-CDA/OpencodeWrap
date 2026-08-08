@@ -1,7 +1,7 @@
 namespace OpencodeWrap.Services.Profile;
 
 internal sealed record ResolvedProfile(string Name, string DirectoryPath, string DockerfilePath, string? ConfigDirectoryPath = null, string? CleanupDirectoryPath = null);
-internal sealed record ProfileCatalog(string ConfigRoot, string ProfilesRoot, string DefaultProfileName, IReadOnlyDictionary<string, string> ProfileDirectories);
+internal sealed record ProfileCatalog(string ProfilesRoot, string DefaultProfileName, IReadOnlyDictionary<string, string> ProfileDirectories);
 
 internal sealed partial class ProfileService : Singleton
 {
@@ -21,7 +21,7 @@ internal sealed partial class ProfileService : Singleton
         => _dockerHostService.TryEnsureGlobalConfigDirectory(out string configRoot)
             && TryEnsureProfilesRoot(configRoot, out _);
 
-    public async Task<(bool Success, ResolvedProfile Profile)> TryResolveProfileAsync(string? requestedProfileName, string? materializationRootDirectory = null)
+    public async Task<(bool Success, ResolvedProfile Profile)> TryResolveProfileAsync(string? requestedProfileName)
     {
         var emptyProfile = new ResolvedProfile("", "", "", null, null);
 
@@ -46,7 +46,7 @@ internal sealed partial class ProfileService : Singleton
         if(_builtInProfileTemplateService.BuiltInProfiles.Any(profile =>
             profile.Name.Equals(selectedProfileName, StringComparison.OrdinalIgnoreCase)))
         {
-            return await TryResolveBuiltInProfileAsync(catalog, selectedProfileName, emptyProfile, materializationRootDirectory);
+            return await TryResolveBuiltInProfileAsync(catalog, selectedProfileName, emptyProfile);
         }
 
         if(!catalog.ProfileDirectories.TryGetValue(selectedProfileName, out string? relativeDirectoryPath))
@@ -95,7 +95,7 @@ internal sealed partial class ProfileService : Singleton
         }
 
         var profileDirectories = DiscoverProfileDirectories(profilesRoot);
-        var catalog = new ProfileCatalog(configRoot, profilesRoot, _builtInProfileTemplateService.StarterProfile.Name, profileDirectories);
+        var catalog = new ProfileCatalog(profilesRoot, _builtInProfileTemplateService.StarterProfile.Name, profileDirectories);
         return (true, catalog);
     }
 
@@ -170,7 +170,6 @@ internal sealed partial class ProfileService : Singleton
     private static ProfileCatalog CreateEmptyCatalog() => new(
         "",
         "",
-        "",
         new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase));
 
     private bool TryEnsureProfilesRoot(string configRoot, out string profilesRoot)
@@ -202,7 +201,7 @@ internal sealed partial class ProfileService : Singleton
         return normalizedChild.StartsWith(normalizedParent, StringComparison.OrdinalIgnoreCase);
     }
 
-    private async Task<(bool Success, ResolvedProfile Profile)> TryResolveBuiltInProfileAsync(ProfileCatalog catalog, string profileName, ResolvedProfile emptyProfile, string? materializationRootDirectory)
+    private async Task<(bool Success, ResolvedProfile Profile)> TryResolveBuiltInProfileAsync(ProfileCatalog catalog, string profileName, ResolvedProfile emptyProfile)
     {
         var builtInProfile = _builtInProfileTemplateService.BuiltInProfiles.FirstOrDefault(profile =>
             profile.Name.Equals(profileName, StringComparison.OrdinalIgnoreCase));
@@ -239,18 +238,17 @@ internal sealed partial class ProfileService : Singleton
                 ConfigDirectoryPath: Directory.Exists(overrideConfigDirectoryPath) ? overrideConfigDirectoryPath : null));
         }
 
-        var (materialized, temporaryDirectoryPath) = await _builtInProfileTemplateService.TryMaterializeBuiltInProfileAsync(builtInProfile, materializationRootDirectory);
+        var (materialized, temporaryDirectoryPath) = await _builtInProfileTemplateService.TryMaterializeBuiltInProfileAsync(builtInProfile);
         if(!materialized)
         {
             return (false, emptyProfile);
         }
 
-        bool materializedWithinSession = !String.IsNullOrWhiteSpace(materializationRootDirectory);
         return (true, new ResolvedProfile(
             profileName,
             temporaryDirectoryPath,
             Path.Combine(temporaryDirectoryPath, OpencodeWrapConstants.PROFILE_DOCKERFILE_NAME),
             ConfigDirectoryPath: Path.Combine(temporaryDirectoryPath, OpencodeWrapConstants.PROFILE_OPENCODE_DIRECTORY_NAME),
-            CleanupDirectoryPath: materializedWithinSession ? null : temporaryDirectoryPath));
+            CleanupDirectoryPath: temporaryDirectoryPath));
     }
 }

@@ -41,7 +41,7 @@ internal sealed partial class ManagedHostOpencodeService : Singleton
             return (false, null);
         }
 
-        var (success, executablePath) = await EnsureLatestLockedAsync(paths, release);
+        var (success, executablePath) = await EnsurePinnedLockedAsync(paths, release);
         if(!success)
         {
             return (false, null);
@@ -63,7 +63,7 @@ internal sealed partial class ManagedHostOpencodeService : Singleton
         }
     }
 
-    private async Task<(bool Success, string ExecutablePath)> EnsureLatestLockedAsync(OcwHostPaths paths, ResolvedOpencodeRelease release)
+    private async Task<(bool Success, string ExecutablePath)> EnsurePinnedLockedAsync(OcwHostPaths paths, ResolvedOpencodeRelease release)
     {
         _sessionStagingService.CleanupStaleSessions();
         RemoveOrphanedLeaseFiles(paths);
@@ -180,25 +180,6 @@ internal sealed partial class ManagedHostOpencodeService : Singleton
         }
 
         CleanupEmptyLeaseDirectories(paths.OpencodeLeasesRoot);
-    }
-
-    private bool TryFindExecutable(string extractedRoot, string executableFileName, out string executablePath)
-    {
-        executablePath = String.Empty;
-        IEnumerable<string> candidates;
-        try
-        {
-            candidates = Directory.EnumerateFiles(extractedRoot, executableFileName, SearchOption.AllDirectories)
-                .OrderBy(path => path, StringComparer.OrdinalIgnoreCase);
-        }
-        catch(Exception ex)
-        {
-            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.OPENCODE_HOST, $"Failed to scan extracted managed OpenCode files in '{extractedRoot}': {ex.Message}");
-            return false;
-        }
-
-        executablePath = candidates.FirstOrDefault() ?? String.Empty;
-        return !String.IsNullOrWhiteSpace(executablePath);
     }
 
     private static void EnsureExecutablePermissions(string executablePath)
@@ -436,15 +417,10 @@ internal sealed partial class ManagedHostOpencodeService : Singleton
         }
     }
 
-    private bool TryGetInstalledExecutablePath(string versionRoot, string executableFileName, out string executablePath)
+    private static bool TryGetInstalledExecutablePath(string versionRoot, string executableFileName, out string executablePath)
     {
-        if(!Directory.Exists(versionRoot))
-        {
-            executablePath = String.Empty;
-            return false;
-        }
-
-        return TryFindExecutable(versionRoot, executableFileName, out executablePath);
+        executablePath = Path.Combine(versionRoot, "bin", executableFileName);
+        return File.Exists(executablePath);
     }
 
     private void TryDeleteDirectoryIfEmpty(string directoryPath)

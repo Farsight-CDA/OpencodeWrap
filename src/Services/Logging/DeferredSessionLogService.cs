@@ -79,9 +79,6 @@ internal sealed partial class DeferredSessionLogService : Singleton
         public void FlushToConsole(bool clearConsole = true)
             => _session.FlushToConsole(clearConsole);
 
-        internal IReadOnlyList<SessionBuffer.SessionLogEntry> GetEntriesSnapshot()
-            => _session.GetEntriesSnapshot();
-
         public void Dispose()
         {
             if(_disposed)
@@ -148,14 +145,6 @@ internal sealed partial class DeferredSessionLogService : Singleton
             foreach(var entry in entries)
             {
                 AppIO.WriteSessionLog(entry.Level, entry.TimestampUtc, entry.Category, entry.Message);
-            }
-        }
-
-        public IReadOnlyList<SessionLogEntry> GetEntriesSnapshot()
-        {
-            lock(_sync)
-            {
-                return [.. _entries];
             }
         }
 

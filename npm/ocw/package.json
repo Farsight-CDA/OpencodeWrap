@@ -1,7 +1,7 @@
 {
   "name": "@farsight-cda/ocw",
   "version": "0.0.0-development",
-  "description": "Run OpenCode in Docker with persistent state and profile management.",
+  "description": "Run OpenCode V2 in Docker with persistent state and profile management.",
   "license": "MIT",
   "bin": {
     "ocw": "bin/ocw.js"

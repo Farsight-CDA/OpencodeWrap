@@ -1,6 +1,4 @@
 using Microsoft.Extensions.DependencyInjection;
-using OpencodeWrap.Services.Docker;
-using OpencodeWrap.Services.Runtime.Core;
 using System.CommandLine;
 
 namespace OpencodeWrap;
@@ -32,7 +30,7 @@ internal static class OpencodeWrapCli
 
         return isReservedTopLevelCommand
             ? await InvokeAsync(rootCommand, args)
-            : await rootCommand.ExecuteOpencodeAsync(args, requestedProfileName: null, includeProfileConfig: false);
+            : await rootCommand.ExecuteOpencodeAsync(args);
     }
 
     private static Task<int> InvokeAsync(Command command, IReadOnlyList<string> args)

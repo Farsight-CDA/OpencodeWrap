@@ -49,14 +49,4 @@ internal static class ContainerPathUtility
             : $"/{String.Join("/", segments)}";
         return normalizedPath != "/";
     }
-
-    public static bool PathsOverlap(string leftPath, string rightPath)
-        => String.Equals(leftPath, rightPath, StringComparison.Ordinal)
-            || IsAncestorPath(leftPath, rightPath)
-            || IsAncestorPath(rightPath, leftPath);
-
-    private static bool IsAncestorPath(string ancestorPath, string descendantPath)
-        => descendantPath.Length > ancestorPath.Length
-            && descendantPath.StartsWith(ancestorPath, StringComparison.Ordinal)
-            && descendantPath[ancestorPath.Length] == '/';
 }

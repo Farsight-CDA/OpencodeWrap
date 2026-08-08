@@ -2,8 +2,6 @@ namespace OpencodeWrap.Services.Profile;
 
 internal sealed partial class BuiltInProfileTemplateService : Singleton
 {
-    private const string DEFAULT_ENTRYPOINT_RESOURCE_NAME = "ProfileTemplates.entrypoint.sh";
-
     [Inject]
     private readonly DeferredSessionLogService _deferredSessionLogService;
 
@@ -17,7 +15,6 @@ internal sealed partial class BuiltInProfileTemplateService : Singleton
 
     public IReadOnlyList<BuiltInProfileTemplate> BuiltInProfiles { get; } = _builtInProfiles;
     public BuiltInProfileTemplate StarterProfile { get; } = _builtInProfiles.First(profile => profile.IsDefault);
-    public string DefaultEntrypointScript { get; } = LoadEmbeddedTextResource(DEFAULT_ENTRYPOINT_RESOURCE_NAME);
     public string ProfileBinReadme { get; } = $$"""
         Place helper executables or scripts for this profile in this directory.
 
@@ -30,11 +27,9 @@ internal sealed partial class BuiltInProfileTemplateService : Singleton
         On Unix-like hosts, remember to mark scripts or binaries as executable.
         """;
 
-    public async Task<(bool Success, string TemporaryDirectoryPath)> TryMaterializeBuiltInProfileAsync(BuiltInProfileTemplate builtInProfile, string? materializationRootDirectory = null)
+    public async Task<(bool Success, string TemporaryDirectoryPath)> TryMaterializeBuiltInProfileAsync(BuiltInProfileTemplate builtInProfile)
     {
-        string temporaryDirectoryPath = String.IsNullOrWhiteSpace(materializationRootDirectory)
-            ? Path.Combine(Path.GetTempPath(), $"ocw-profile-{builtInProfile.Name}-{Guid.NewGuid():N}")
-            : Path.Combine(materializationRootDirectory, "profile");
+        string temporaryDirectoryPath = Path.Combine(Path.GetTempPath(), $"ocw-profile-{builtInProfile.Name}-{Guid.NewGuid():N}");
 
         try
         {
@@ -42,7 +37,6 @@ internal sealed partial class BuiltInProfileTemplateService : Singleton
             await File.WriteAllTextAsync(Path.Combine(temporaryDirectoryPath, OpencodeWrapConstants.PROFILE_DOCKERFILE_NAME), builtInProfile.Dockerfile);
             string opencodeDirectoryPath = await EnsureProfileSupportDirectoriesAsync(temporaryDirectoryPath);
             await File.WriteAllTextAsync(Path.Combine(opencodeDirectoryPath, OpencodeWrapConstants.PROFILE_OPENCODE_CONFIG_FILE_NAME), builtInProfile.OpencodeConfig);
-            await WriteDefaultEntrypointAsync(temporaryDirectoryPath);
             return (true, temporaryDirectoryPath);
         }
         catch(Exception ex)
@@ -50,29 +44,6 @@ internal sealed partial class BuiltInProfileTemplateService : Singleton
             AppIO.TryDeleteDirectory(temporaryDirectoryPath);
             _deferredSessionLogService.WriteErrorOrConsole(LogCategories.PROFILE, $"Failed to prepare built-in profile '{builtInProfile.Name}': {ex.Message}");
             return (false, "");
-        }
-    }
-
-    public async Task WriteDefaultEntrypointAsync(string profileDirectoryPath)
-    {
-        string entrypointPath = Path.Combine(profileDirectoryPath, OpencodeWrapConstants.PROFILE_ENTRYPOINT_FILE_NAME);
-        await File.WriteAllTextAsync(entrypointPath, DefaultEntrypointScript);
-
-        if(OperatingSystem.IsWindows())
-        {
-            return;
-        }
-
-        try
-        {
-            File.SetUnixFileMode(
-                entrypointPath,
-                UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
-                UnixFileMode.GroupRead | UnixFileMode.GroupExecute |
-                UnixFileMode.OtherRead | UnixFileMode.OtherExecute);
-        }
-        catch(Exception)
-        {
         }
     }
 

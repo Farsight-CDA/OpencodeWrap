@@ -59,7 +59,6 @@ internal sealed partial class OpencodeLauncherService : Singleton
         OpencodeLocationProxyLease? locationProxyLease = null;
         string? managedHostExecutablePath = null;
         string? profileCleanupDirectoryPath = null;
-        var sessionAddonCleanupDirectoryPaths = new List<string>();
         IReadOnlyList<SessionEnvironmentVariable> sessionEnvironmentVariables = [];
         Task<(bool Success, ResolvedOpencodeRelease Release)>? packageReleaseTask = null;
         Task<(bool Success, string ImageTag)>? baseImageTask = null;
@@ -107,7 +106,7 @@ internal sealed partial class OpencodeLauncherService : Singleton
                 containerWorkDir = ResolveContainerWorkspacePath(hostWorkDir);
             }
 
-            if(!TryNormalizeContainerMounts(containerMounts, workspaceMountMode != WorkspaceMountMode.None ? containerWorkDir : null, out var selectedContainerMounts))
+            if(!TryNormalizeContainerMounts(containerMounts, out var selectedContainerMounts))
             {
                 return 1;
             }
@@ -119,7 +118,7 @@ internal sealed partial class OpencodeLauncherService : Singleton
                 return 1;
             }
 
-            if(selectedDockerNetworks.Count > 0 && !DockerNetworkModeExtensionsSupportsAdditionalNetworks(selectedDockerNetworkMode))
+            if(selectedDockerNetworks.Count > 0 && !selectedDockerNetworkMode.SupportsAdditionalNetworks())
             {
                 _deferredSessionLogService.WriteErrorOrConsole("startup", $"Docker network mode '{selectedDockerNetworkMode.GetLabel()}' does not support additional network attachments.");
                 return 1;
@@ -138,8 +137,7 @@ internal sealed partial class OpencodeLauncherService : Singleton
             }
 
             profileCleanupDirectoryPath = profile.CleanupDirectoryPath;
-            var imageBuildProfile = profile;
-            baseImageTask = _dockerImageService.TryEnsureImageAsync(imageBuildProfile.DockerfilePath);
+            baseImageTask = _dockerImageService.TryEnsureImageAsync(profile.DockerfilePath);
 
             LogStartupPhase($"resolved profile '{profile.Name}' from '{profile.DirectoryPath}'", LogLevel.Debug);
 
@@ -155,11 +153,6 @@ internal sealed partial class OpencodeLauncherService : Singleton
             {
                 return 1;
             }
-
-            sessionAddonCleanupDirectoryPaths.AddRange(resolvedSessionAddons
-                .Select(addon => addon.CleanupDirectoryPath)
-                .Where(path => !String.IsNullOrWhiteSpace(path))
-                .Select(path => path!));
 
             if(!TryPrepareSessionProfile(profile, session.HostSessionDirectory, includeProfileConfig, runtimeAgentInstructions, resolvedSessionAddons, out profile, out sessionEnvironmentVariables))
             {
@@ -211,9 +204,8 @@ internal sealed partial class OpencodeLauncherService : Singleton
                 int port = reservedPort.Port;
                 session = session with
                 {
-                    HostPort = port,
-                    ContainerPort = port,
-                    ServerUrl = $"http://{ResolveServerHostname(selectedDockerNetworkMode, _hostService.IsWindows)}:{port.ToString(CultureInfo.InvariantCulture)}"
+                    Port = port,
+                    ServerUrl = $"http://127.0.0.1:{port.ToString(CultureInfo.InvariantCulture)}"
                 };
                 LogStartupPhase($"prepared OpenCode V2 server port {port} at '{session.ServerUrl}'", LogLevel.Debug);
 
@@ -287,8 +279,7 @@ internal sealed partial class OpencodeLauncherService : Singleton
                 "-e", $"XDG_DATA_HOME={OpencodeWrapConstants.CONTAINER_XDG_DATA_HOME}",
                 "-e", $"XDG_STATE_HOME={OpencodeWrapConstants.CONTAINER_XDG_STATE_HOME}",
                 "-e", $"XDG_CACHE_HOME={OpencodeWrapConstants.CONTAINER_XDG_CACHE_HOME}",
-                "-e", $"OCW_PROFILE_ROOT={OpencodeWrapConstants.CONTAINER_PROFILE_ROOT}",
-                "-e", $"{OpencodeWrapConstants.OPENCODE_DISABLE_AUTOUPDATE_ENVIRONMENT_VARIABLE}=1"
+                "-e", $"OCW_PROFILE_ROOT={OpencodeWrapConstants.CONTAINER_PROFILE_ROOT}"
             ]);
 
             if(useServerPassword)
@@ -316,7 +307,8 @@ internal sealed partial class OpencodeLauncherService : Singleton
 
             if(useServeSession && !selectedDockerNetworkMode.IsHost())
             {
-                string portMapping = $"127.0.0.1:{session.HostPort!.Value.ToString(CultureInfo.InvariantCulture)}:{session.ContainerPort!.Value.ToString(CultureInfo.InvariantCulture)}";
+                string portValue = session.Port!.Value.ToString(CultureInfo.InvariantCulture);
+                string portMapping = $"127.0.0.1:{portValue}:{portValue}";
                 containerArgs.AddRange(["-p", portMapping]);
             }
 
@@ -364,7 +356,7 @@ internal sealed partial class OpencodeLauncherService : Singleton
                 containerArgs.Add("--hostname");
                 containerArgs.Add(ResolveServeHostname(selectedDockerNetworkMode, _hostService.IsWindows));
                 containerArgs.Add("--port");
-                containerArgs.Add(session.ContainerPort!.Value.ToString(CultureInfo.InvariantCulture));
+                containerArgs.Add(session.Port!.Value.ToString(CultureInfo.InvariantCulture));
             }
             else
             {
@@ -374,22 +366,18 @@ internal sealed partial class OpencodeLauncherService : Singleton
                 }
             }
 
-            bool requiresPrecreatedContainer = selectedDockerNetworks.Count > 0;
-            string startupDescription = useServeSession
-                ? requiresPrecreatedContainer ? "creating backend container with additional networks" : "starting backend container"
-                : requiresPrecreatedContainer ? "creating docker container with additional networks" : "starting attached docker process";
-            LogStartupPhase(startupDescription, LogLevel.Debug);
-
             reservedPort?.Dispose();
             reservedPort = null;
 
             if(useServeSession)
             {
+                bool requiresPrecreatedContainer = selectedDockerNetworks.Count > 0;
+                LogStartupPhase(requiresPrecreatedContainer ? "creating backend container with additional networks" : "starting backend container", LogLevel.Debug);
                 bool backendStarted = requiresPrecreatedContainer
-                    ? (await _sessionOutputService.RunWithLoadingStateAsync(
+                    ? await _sessionOutputService.RunWithLoadingStateAsync(
                         LogCategories.STARTUP,
                         "Starting OpenCode backend...",
-                        () => CreateConnectAndStartContainerAsync(containerArgs, selectedDockerNetworks, startDetached: true, dockerEnvironmentVariables))).Success
+                        () => CreateConnectAndStartBackendContainerAsync(containerArgs, selectedDockerNetworks, dockerEnvironmentVariables))
                     : await _sessionOutputService.RunWithLoadingStateAsync(
                         LogCategories.STARTUP,
                         "Starting OpenCode backend...",
@@ -448,9 +436,8 @@ internal sealed partial class OpencodeLauncherService : Singleton
                 return clientExitCode;
             }
 
-            int exitCode = requiresPrecreatedContainer
-                ? (await CreateConnectAndStartContainerAsync(containerArgs, selectedDockerNetworks, startDetached: false, dockerEnvironmentVariables)).ExitCode
-                : await StartContainerAsync(containerArgs, dockerEnvironmentVariables);
+            LogStartupPhase("starting attached docker process", LogLevel.Debug);
+            int exitCode = await StartContainerAsync(containerArgs, dockerEnvironmentVariables);
             CleanupContainer(force: false);
             return exitCode;
         }
@@ -471,11 +458,6 @@ internal sealed partial class OpencodeLauncherService : Singleton
             if(profileCleanupDirectoryPath is not null)
             {
                 AppIO.TryDeleteDirectory(profileCleanupDirectoryPath);
-            }
-
-            foreach(string addonCleanupDirectoryPath in sessionAddonCleanupDirectoryPaths)
-            {
-                AppIO.TryDeleteDirectory(addonCleanupDirectoryPath);
             }
 
             if(_hostSessionDirectory is not null)
@@ -551,10 +533,9 @@ internal sealed partial class OpencodeLauncherService : Singleton
         return false;
     }
 
-    private async Task<ProcessRunner.ProcessRunResult> CreateConnectAndStartContainerAsync(
+    private async Task<bool> CreateConnectAndStartBackendContainerAsync(
         IReadOnlyList<string> containerArgs,
         IReadOnlyList<string> selectedDockerNetworks,
-        bool startDetached,
         IReadOnlyDictionary<string, string?>? dockerEnvironmentVariables)
     {
         List<string> createArgs = ["create", .. containerArgs];
@@ -563,7 +544,7 @@ internal sealed partial class OpencodeLauncherService : Singleton
         {
             WriteSessionError("docker", "Failed to create Docker container.");
             WriteSessionErrorDetails("docker", createResult.StdErr);
-            return new ProcessRunner.ProcessRunResult(false, 1, "", createResult.StdErr);
+            return false;
         }
 
         foreach(string networkName in selectedDockerNetworks)
@@ -578,21 +559,19 @@ internal sealed partial class OpencodeLauncherService : Singleton
             WriteSessionErrorDetails("docker", connectResult.StdErr);
 
             _ = ProcessRunner.CommandSucceedsBlocking("docker", ["rm", "-f", _containerName!]);
-            return new ProcessRunner.ProcessRunResult(false, 1, "", connectResult.StdErr);
+            return false;
         }
 
-        var startResult = startDetached
-            ? await ProcessRunner.RunAsync("docker", ["start", _containerName!])
-            : await ProcessRunner.RunAttachedAsync("docker", ["start", "-ai", _containerName!]);
+        var startResult = await ProcessRunner.RunAsync("docker", ["start", _containerName!]);
         if(startResult.Success)
         {
-            return startResult;
+            return true;
         }
 
-        WriteSessionError("docker", startDetached ? "Failed to start OpenCode backend container." : "Failed to start attached Docker process.");
+        WriteSessionError("docker", "Failed to start OpenCode backend container.");
         WriteSessionErrorDetails("docker", startResult.StdErr);
         _ = ProcessRunner.CommandSucceedsBlocking("docker", ["rm", "-f", _containerName!]);
-        return startResult;
+        return false;
     }
 
     private void WriteSessionError(string category, string message)
@@ -616,12 +595,9 @@ internal sealed partial class OpencodeLauncherService : Singleton
 
         try
         {
-            if(!String.Equals(profile.DirectoryPath, sessionProfileDirectoryPath, StringComparison.Ordinal))
-            {
-                AppIO.TryDeleteDirectory(sessionProfileDirectoryPath);
-                Directory.CreateDirectory(sessionProfileDirectoryPath);
-                CopyDirectoryContents(profile.DirectoryPath, sessionProfileDirectoryPath);
-            }
+            AppIO.TryDeleteDirectory(sessionProfileDirectoryPath);
+            Directory.CreateDirectory(sessionProfileDirectoryPath);
+            CopyDirectoryContents(profile.DirectoryPath, sessionProfileDirectoryPath);
 
             if(!TryApplySessionAddons(sessionProfileDirectoryPath, sessionAddons))
             {
@@ -663,10 +639,7 @@ internal sealed partial class OpencodeLauncherService : Singleton
         catch(Exception ex)
         {
             _deferredSessionLogService.WriteErrorOrConsole("profile", $"Failed to prepare session profile in '{sessionProfileDirectoryPath}': {ex.Message}");
-            if(!String.Equals(profile.DirectoryPath, sessionProfileDirectoryPath, StringComparison.Ordinal))
-            {
-                AppIO.TryDeleteDirectory(sessionProfileDirectoryPath);
-            }
+            AppIO.TryDeleteDirectory(sessionProfileDirectoryPath);
 
             sessionProfile = profile;
             return false;
@@ -769,7 +742,10 @@ internal sealed partial class OpencodeLauncherService : Singleton
         => _deferredSessionLogService.WriteErrorOrConsole("profile", $"Session addon '{addonName}' conflicts at '{NormalizeDisplayPath(relativePath)}' ({reason}). Rename or remove the conflicting file before launching.");
 
     private static bool IsAgentsFile(string relativePath)
-        => String.Equals(Path.GetFileName(relativePath), OpencodeWrapConstants.AGENTS_FILE_NAME, StringComparison.OrdinalIgnoreCase);
+        => String.Equals(
+            NormalizeDisplayPath(relativePath),
+            $"{OpencodeWrapConstants.PROFILE_OPENCODE_DIRECTORY_NAME}/{OpencodeWrapConstants.AGENTS_FILE_NAME}",
+            StringComparison.OrdinalIgnoreCase);
 
     private static bool IsSessionEnvFile(string relativePath)
         => String.Equals(NormalizeDisplayPath(relativePath), OpencodeWrapConstants.PROFILE_ENV_FILE_NAME, StringComparison.OrdinalIgnoreCase);
@@ -837,7 +813,6 @@ internal sealed partial class OpencodeLauncherService : Singleton
 
     private bool TryNormalizeContainerMounts(
         IReadOnlyList<ContainerMount>? requestedMounts,
-        string? workspaceContainerPath,
         out List<ContainerMount> normalizedMounts)
     {
         normalizedMounts = [];
@@ -957,9 +932,6 @@ internal sealed partial class OpencodeLauncherService : Singleton
         return true;
     }
 
-    private static bool DockerNetworkModeExtensionsSupportsAdditionalNetworks(DockerNetworkMode dockerNetworkMode)
-        => dockerNetworkMode.SupportsAdditionalNetworks();
-
     private static IReadOnlyList<OpencodeLocationMapping> BuildLocationMappings(
         string hostWorkDir,
         string containerWorkDir,
@@ -992,10 +964,6 @@ internal sealed partial class OpencodeLauncherService : Singleton
     private static bool UsesServerPassword(IReadOnlyList<string> opencodeArgs)
         => opencodeArgs.Any(arg => arg == "serve");
 
-    private static StringComparer GetHostPathComparer() => OperatingSystem.IsWindows()
-        ? StringComparer.OrdinalIgnoreCase
-        : StringComparer.Ordinal;
-
     private static IEnumerable<string> BuildTerminalEnvironmentArgs()
     {
         yield return "-e";
@@ -1024,9 +992,6 @@ internal sealed partial class OpencodeLauncherService : Singleton
         => dockerNetworkMode.IsHost() && !isWindows
             ? "127.0.0.1"
             : "0.0.0.0";
-
-    private static string ResolveServerHostname(DockerNetworkMode dockerNetworkMode, bool isWindows)
-        => "127.0.0.1";
 
     private void RegisterCleanupHandlers()
     {

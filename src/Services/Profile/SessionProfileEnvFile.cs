@@ -2,7 +2,7 @@ using System.Text;
 
 namespace OpencodeWrap.Services.Profile;
 
-internal sealed record SessionEnvironmentVariable(string Key, string Value, string SourceLabel);
+internal sealed record SessionEnvironmentVariable(string Key, string Value);
 
 internal static class SessionProfileEnvFile
 {
@@ -47,7 +47,7 @@ internal static class SessionProfileEnvFile
                 }
 
                 seenKeys[parsedVariable.Key] = source.Label;
-                mergedVariables.Add(new SessionEnvironmentVariable(parsedVariable.Key, parsedVariable.Value, source.Label));
+                mergedVariables.Add(new SessionEnvironmentVariable(parsedVariable.Key, parsedVariable.Value));
             }
         }
 

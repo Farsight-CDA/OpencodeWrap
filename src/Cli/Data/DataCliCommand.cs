@@ -5,7 +5,7 @@ namespace OpencodeWrap.Cli.Data;
 internal sealed class DataCliCommand : Command
 {
     public DataCliCommand(ImportArchiveCliCommand importArchiveCliCommand, ExportCliCommand exportCliCommand, ImportHostCliCommand importHostCliCommand, ResetVolumeCliCommand resetVolumeCliCommand)
-        : base("data", "Import, export, or reset OpenCode state.")
+        : base("data", "Import, export, or reset OpenCode V2 state.")
     {
         Add(importArchiveCliCommand);
         Add(exportCliCommand);

@@ -2,7 +2,7 @@ namespace OpencodeWrap.Services.Profile;
 
 internal sealed record SessionAddonCatalog(string ConfigRoot, string AddonsRoot, IReadOnlyDictionary<string, SessionAddonCatalogEntry> Addons);
 internal sealed record SessionAddonCatalogEntry(string Name, string? DirectoryPath, BuiltInSessionAddon? BuiltInAddon = null);
-internal sealed record ResolvedSessionAddon(string Name, string DirectoryPath, string? CleanupDirectoryPath = null);
+internal sealed record ResolvedSessionAddon(string Name, string DirectoryPath);
 
 internal sealed partial class SessionAddonService : Singleton
 {
@@ -82,7 +82,7 @@ internal sealed partial class SessionAddonService : Singleton
         Directory.CreateDirectory(Path.Combine(addonDirectoryPath, OpencodeWrapConstants.PROFILE_BIN_DIRECTORY_NAME));
     }
 
-    public bool TryResolveAddons(IReadOnlyList<string>? requestedAddonNames, string? materializationRootDirectory, out IReadOnlyList<ResolvedSessionAddon> addons)
+    public bool TryResolveAddons(IReadOnlyList<string>? requestedAddonNames, string materializationRootDirectory, out IReadOnlyList<ResolvedSessionAddon> addons)
     {
         addons = [];
         if(requestedAddonNames is null || requestedAddonNames.Count == 0)
@@ -135,10 +135,7 @@ internal sealed partial class SessionAddonService : Singleton
                 return false;
             }
 
-            resolvedAddons.Add(new ResolvedSessionAddon(
-                addonEntry.Name,
-                builtInAddonDirectoryPath,
-                CleanupDirectoryPath: String.IsNullOrWhiteSpace(materializationRootDirectory) ? builtInAddonDirectoryPath : null));
+            resolvedAddons.Add(new ResolvedSessionAddon(addonEntry.Name, builtInAddonDirectoryPath));
         }
 
         addons = resolvedAddons;

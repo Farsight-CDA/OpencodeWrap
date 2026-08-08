@@ -90,14 +90,25 @@ internal sealed partial class OpencodeRuntimeImageService : Singleton
         ResolvedOpencodeRelease release,
         ResolvedOpencodeBinaryAsset binaryAsset)
     {
-        string buildContextDirectory = Path.Combine(Path.GetTempPath(), $"ocw-runtime-image-{Guid.NewGuid():N}");
+        string temporaryRoot = Path.Combine(Path.GetTempPath(), $"ocw-runtime-image-{Guid.NewGuid():N}");
+        string buildContextDirectory = Path.Combine(temporaryRoot, "context");
         string dockerfilePath = Path.Combine(buildContextDirectory, "Dockerfile");
-        string archivePath = Path.Combine(buildContextDirectory, "opencode2.tgz");
+        string executablePath = Path.Combine(buildContextDirectory, "opencode2");
+        string archivePath = Path.Combine(temporaryRoot, "opencode2.tgz");
 
         try
         {
             Directory.CreateDirectory(buildContextDirectory);
             if(!await _packageArtifactService.TryDownloadVerifiedAsync(binaryAsset.Asset, archivePath, LogCategories.OPENCODE_RUNTIME))
+            {
+                return (false, imageTag);
+            }
+
+            if(!await _packageArtifactService.TryExtractExecutableAsync(
+                archivePath,
+                binaryAsset.ExecutableFileName,
+                executablePath,
+                LogCategories.OPENCODE_RUNTIME))
             {
                 return (false, imageTag);
             }
@@ -125,29 +136,19 @@ internal sealed partial class OpencodeRuntimeImageService : Singleton
         }
         finally
         {
-            AppIO.TryDeleteDirectory(buildContextDirectory);
+            AppIO.TryDeleteDirectory(temporaryRoot);
         }
     }
 
     internal static string BuildRuntimeDockerfile()
         => """
-        ARG BASE_IMAGE=ubuntu:24.04
-        FROM ubuntu:24.04 AS opencode-install
-        RUN apt-get update \
-            && apt-get install -y --no-install-recommends tar \
-            && rm -rf /var/lib/apt/lists/*
-        COPY opencode2.tgz /tmp/opencode2.tgz
-        RUN mkdir -p /opt/opencode/bin \
-            && tar -xzf /tmp/opencode2.tgz -C /tmp package/bin/opencode2 \
-            && install -m 0755 /tmp/package/bin/opencode2 /opt/opencode/bin/opencode2 \
-            && rm -rf /tmp/opencode2.tgz /tmp/package
-
+        ARG BASE_IMAGE
         FROM ${BASE_IMAGE}
         ARG OPENCODE_VERSION
         ENV OPENCODE_DISABLE_AUTOUPDATE=1
         LABEL org.opencontainers.image.title="ocw-opencode2-runtime"
         LABEL org.opencontainers.image.version="$OPENCODE_VERSION"
-        COPY --from=opencode-install /opt/opencode /opt/opencode
+        COPY --chmod=0755 opencode2 /opt/opencode/bin/opencode2
         RUN actual="$(/opt/opencode/bin/opencode2 --version)" \
             && test "$actual" = "opencode2 v${OPENCODE_VERSION}"
         """;

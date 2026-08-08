@@ -3,7 +3,7 @@ using System.Text;
 
 namespace OpencodeWrap.Services.Docker;
 
-internal sealed record DockerImageInfo(string Tag, string Id, string Os, string Architecture);
+internal sealed record DockerImageInfo(string Id, string Os, string Architecture);
 
 internal sealed partial class DockerImageService : Singleton
 {
@@ -83,7 +83,7 @@ internal sealed partial class DockerImageService : Singleton
 
     public async Task<(bool Success, DockerImageInfo Image)> TryInspectImageAsync(string imageTag)
     {
-        var emptyImage = new DockerImageInfo(imageTag, "", "", "");
+        var emptyImage = new DockerImageInfo("", "", "");
         if(String.IsNullOrWhiteSpace(imageTag))
         {
             return (false, emptyImage);
@@ -103,7 +103,7 @@ internal sealed partial class DockerImageService : Singleton
             return (false, emptyImage);
         }
 
-        return (true, new DockerImageInfo(imageTag, parts[0], parts[1], parts[2]));
+        return (true, new DockerImageInfo(parts[0], parts[1], parts[2]));
     }
 
     private static async Task<string> BuildImageTagAsync(string dockerfilePath)

@@ -9,7 +9,7 @@ internal sealed class AddProfileCliCommand : Command
     private readonly BuiltInProfileTemplateService _builtInProfileTemplateService;
 
     public AddProfileCliCommand(ProfileService profileService, BuiltInProfileTemplateService builtInProfileTemplateService)
-        : base("add", "Add a new profile with a starter Dockerfile, entrypoint script, and bin directory.")
+        : base("add", "Add a new profile with a starter Dockerfile and bin directory.")
     {
         _profileService = profileService;
         _builtInProfileTemplateService = builtInProfileTemplateService;
@@ -84,7 +84,6 @@ internal sealed class AddProfileCliCommand : Command
                     await File.WriteAllTextAsync(dockerfilePath, _builtInProfileTemplateService.StarterProfile.Dockerfile);
                 }
 
-                await _builtInProfileTemplateService.WriteDefaultEntrypointAsync(profileDirectoryPath);
                 return true;
             });
 

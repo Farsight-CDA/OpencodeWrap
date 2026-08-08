@@ -84,8 +84,6 @@ internal sealed partial class VolumeStateService : Singleton
     public Task<bool> ExportVolumeToHostArchiveAsync(string destinationArchive)
         => CreateVolumeArchiveOnHostAsync(OpencodeWrapConstants.XDG_VOLUME_NAME, destinationArchive);
 
-    public Task<bool> ExportVolumeSubdirectoryToHostDirectoryAsync(string sourceSubdirectory, string destinationDirectory) => CopyVolumeSubdirectoryToHostDirectoryAsync(OpencodeWrapConstants.XDG_VOLUME_NAME, sourceSubdirectory, destinationDirectory);
-
     public async Task<(bool Success, bool Removed)> ResetNamedVolumeAsync()
     {
         if(!await _hostService.EnsureHostAndDockerAsync())
@@ -180,91 +178,26 @@ internal sealed partial class VolumeStateService : Singleton
                 "-lc",
                 """
                 set -e
-                copy_filtered_dir() {
+                copy_dir() {
                     src_dir="$1"
                     dst_dir="$2"
-                    shift 2
                     mkdir -p "$dst_dir"
                     if [ ! -d "$src_dir" ]; then
                         return 0
                     fi
-
-                    for item in "$src_dir"/* "$src_dir"/.[!.]* "$src_dir"/..?*; do
-                        if [ ! -e "$item" ]; then
-                            continue
-                        fi
-
-                        name="$(basename "$item")"
-                        skip=0
-                        for excluded in "$@"; do
-                            if [ "$name" = "$excluded" ]; then
-                                skip=1
-                                break
-                            fi
-                        done
-
-                        if [ "$skip" -eq 1 ]; then
-                            continue
-                        fi
-
-                        cp -a "$item" "$dst_dir/"
-                    done
+                    cp -a "$src_dir"/. "$dst_dir/"
                 }
 
                 rm -rf /target/* /target/.[!.]* /target/..?* 2>/dev/null || true
                 mkdir -p /target/.local/share /target/.local/state
-                copy_filtered_dir /source/.local/share/opencode /target/.local/share/opencode bin messages
-                copy_filtered_dir /source/.local/state/opencode /target/.local/state/opencode
-                rm -f /target/.local/share/opencode/debug.log
-                find /target/.local/share/opencode /target/.local/state/opencode -type f -name '*-shm' -delete 2>/dev/null || true
-                find /target/.local/share/opencode /target/.local/state/opencode -type f -name '*-wal' -delete 2>/dev/null || true
+                copy_dir /source/.local/share/opencode /target/.local/share/opencode
+                copy_dir /source/.local/state/opencode /target/.local/state/opencode
                 """
             ]);
 
         if(!result.Success)
         {
             _deferredSessionLogService.WriteErrorOrConsole("docker", $"Failed to import state from '{sourceRootDirectory}' into volume '{volumeName}'.");
-            _deferredSessionLogService.WriteErrorDetailsOrConsole("docker", result.StdErr);
-        }
-
-        return result.Success;
-    }
-
-    private async Task<bool> CopyVolumeSubdirectoryToHostDirectoryAsync(string volumeName, string sourceSubdirectory, string destinationDirectory)
-    {
-        var runArgs = new List<string> { "run", "--rm" };
-
-        string? userSpec = await _hostService.GetContainerUserSpecAsync();
-        if(userSpec is not null)
-        {
-            runArgs.AddRange(["--user", userSpec]);
-        }
-
-        runArgs.AddRange(
-        [
-            "--mount", BuildVolumeMount(volumeName, "/source"),
-            "--mount", BuildBindMount(destinationDirectory, "/target"),
-            "ubuntu:24.04",
-            "bash",
-            "-lc",
-            $"""
-            set -e
-            rm -rf /target/* /target/.[!.]* /target/..?* 2>/dev/null || true
-            mkdir -p /target
-            source_dir=/source/{sourceSubdirectory}
-            if [ -d "$source_dir" ]; then cp -a "$source_dir"/. /target/; fi
-            find /target -type f -name '*-shm' -delete 2>/dev/null || true
-            find /target -type f -name '*-wal' -delete 2>/dev/null || true
-            """
-        ]);
-
-        var result = await ProcessRunner.RunAsync(
-            "docker",
-            runArgs);
-
-        if(!result.Success)
-        {
-            _deferredSessionLogService.WriteErrorOrConsole("docker", $"Failed to export state from volume '{volumeName}/{sourceSubdirectory}' to '{destinationDirectory}'.");
             _deferredSessionLogService.WriteErrorDetailsOrConsole("docker", result.StdErr);
         }
 
@@ -309,13 +242,6 @@ internal sealed partial class VolumeStateService : Singleton
             ]
             added_dirs = set()
             visited_dirs = set()
-            excluded_paths = {
-                '.local/share/opencode/bin',
-                '.local/share/opencode/messages',
-            }
-            excluded_file_names = {
-                'debug.log',
-            }
 
             def add_dir(rel_path: str) -> None:
                 normalized = rel_path.strip('/').replace(os.sep, '/')
@@ -351,9 +277,6 @@ internal sealed partial class VolumeStateService : Singleton
                     for entry in reversed(entries):
                         archive_entry = current_archive + '/' + entry.name
 
-                        if archive_entry in excluded_paths or any(archive_entry.startswith(path + '/') for path in excluded_paths):
-                            continue
-
                         try:
                             if entry.is_dir(follow_symlinks=True):
                                 stack.append((entry.path, archive_entry))
@@ -362,9 +285,6 @@ internal sealed partial class VolumeStateService : Singleton
                             if not entry.is_file(follow_symlinks=True):
                                 continue
                         except (FileNotFoundError, PermissionError, OSError):
-                            continue
-
-                        if entry.name in excluded_file_names or entry.name.endswith('-shm') or entry.name.endswith('-wal'):
                             continue
 
                         try:

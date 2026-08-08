@@ -40,6 +40,4 @@ internal static class OpencodeWrapConstants
     public const string CONTAINER_XDG_CACHE_HOME = $"{CONTAINER_PERSISTENT_ROOT}/.cache";
     public const string CONTAINER_OPENCODE_WORKTREE_ROOT = $"{CONTAINER_XDG_DATA_HOME}/opencode/worktree";
     public const string CONTAINER_PROFILE_ROOT = $"{CONTAINER_SESSION_ROOT}/profile";
-    public const string VOLUME_SHARE_SUBDIRECTORY = ".local/share/opencode";
-    public const string VOLUME_STATE_SUBDIRECTORY = ".local/state/opencode";
 }

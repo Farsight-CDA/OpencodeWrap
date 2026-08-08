@@ -1,4 +1,3 @@
-using OpencodeWrap.Services.Docker;
 using OpencodeWrap.Services.Runtime.Core;
 using System.CommandLine;
 
@@ -9,7 +8,7 @@ internal sealed class OpencodeWrapRootCommand : RootCommand
     private readonly OpencodeLauncherService _launcherService;
 
     public OpencodeWrapRootCommand(OpencodeLauncherService launcherService, RunCliCommand runCliCommand, UpdateCliCommand updateCliCommand, DataCliCommand dataCliCommand, ProfileCliCommand profileCliCommand, AddonCliCommand addonCliCommand)
-        : base("Docker runner for OpenCode. Use 'run' to launch the interactive UI, or manage profiles/addons/data with other commands.")
+        : base("Docker runner for OpenCode V2. Use 'run' to launch the interactive UI, or manage profiles/addons/data with other commands.")
     {
         _launcherService = launcherService;
         Add(runCliCommand);
@@ -19,10 +18,6 @@ internal sealed class OpencodeWrapRootCommand : RootCommand
         Add(addonCliCommand);
     }
 
-    public Task<int> ExecuteOpencodeAsync(
-        IReadOnlyList<string> opencodeArgs,
-        string? requestedProfileName,
-        bool includeProfileConfig,
-        WorkspaceMountMode workspaceMountMode = WorkspaceMountMode.ReadWrite)
-        => _launcherService.ExecuteAsync(opencodeArgs, requestedProfileName, includeProfileConfig, OpencodeRuntimeMode.AttachedContainer, workspaceMountMode: workspaceMountMode);
+    public Task<int> ExecuteOpencodeAsync(IReadOnlyList<string> opencodeArgs)
+        => _launcherService.ExecuteAsync(opencodeArgs, requestedProfileName: null, includeProfileConfig: false, OpencodeRuntimeMode.AttachedContainer);
 }

@@ -1,10 +1,7 @@
 namespace OpencodeWrap.Services.Opencode;
 
 internal sealed record OcwHostPaths(
-    string ConfigRoot,
-    string ProfilesRoot,
     string SessionsRoot,
-    string ToolsRoot,
     string LocksRoot,
     string OpencodeRoot,
     string OpencodeLeasesRoot,
@@ -24,7 +21,7 @@ internal sealed partial class OcwHostPathService : Singleton
 
     public bool TryGetPaths(out OcwHostPaths paths)
     {
-        paths = new OcwHostPaths("", "", "", "", "", "", "", "", "", "", "");
+        paths = new OcwHostPaths("", "", "", "", "", "", "", "");
         if(!_dockerHostService.TryEnsureGlobalConfigDirectory(out string configRoot))
         {
             return false;
@@ -55,10 +52,7 @@ internal sealed partial class OcwHostPathService : Singleton
         }
 
         paths = new OcwHostPaths(
-            configRoot,
-            profilesRoot,
             sessionsRoot,
-            toolsRoot,
             locksRoot,
             opencodeRoot,
             opencodeLeasesRoot,

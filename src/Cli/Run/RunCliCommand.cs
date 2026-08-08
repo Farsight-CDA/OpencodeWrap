@@ -280,10 +280,9 @@ internal sealed class RunCliCommand : Command
         int selectedVolumeIndex = selectedContainerMounts.Count > 0 ? 1 : 0;
         int selectedAddonIndex = 0;
         int selectedNetworkIndex = 0;
-        bool hostNetworkAvailable = true;
-        var defaultNetworkMode = ParseSavedDockerNetworkMode(runMenuDefaults.DefaultDockerNetworkMode, hostNetworkAvailable);
+        var defaultNetworkMode = runMenuDefaults.DefaultDockerNetworkMode;
         var configuredNetworkMode = workspaceConfigExists
-            ? ParseSavedDockerNetworkMode(workspaceConfig.DockerNetworkMode, hostNetworkAvailable)
+            ? workspaceConfig.DockerNetworkMode
             : null;
         var selectedNetworkMode = configuredNetworkMode ?? defaultNetworkMode ?? DockerNetworkMode.Bridge;
         bool privileged = workspaceConfig.Privileged ?? false;
@@ -315,7 +314,7 @@ internal sealed class RunCliCommand : Command
         {
             bool isPrivilegedConfigured = workspaceConfig.Privileged is { } configuredPrivileged
                 && configuredPrivileged == privileged;
-            RenderRunSelectionScreen(profileChoices, selectedIndex, selectedTab, mountMode, configuredMountMode is not null, currentWorkspacePath, availableVolumeNames, selectedContainerMounts, defaultContainerMounts, configuredContainerMounts, selectedVolumeIndex, addonCatalog.AddonsRoot, availableAddonNames, defaultAddonNames, configuredAddonNames, selectedAddonIndex, activeAddonNames, availableNetworkNames, defaultNetworkNames, configuredNetworkNames, selectedNetworkIndex, selectedNetworkMode, defaultNetworkMode, configuredNetworkMode, activeNetworkNames, hostNetworkAvailable, privileged, isPrivilegedConfigured, workspaceConfigExists, workspaceConfigStatusMarkup, showWindowsHostNetworkingHint: _dockerHostService.IsWindows);
+            RenderRunSelectionScreen(profileChoices, selectedIndex, selectedTab, mountMode, configuredMountMode is not null, currentWorkspacePath, availableVolumeNames, selectedContainerMounts, defaultContainerMounts, configuredContainerMounts, selectedVolumeIndex, addonCatalog.AddonsRoot, availableAddonNames, defaultAddonNames, configuredAddonNames, selectedAddonIndex, activeAddonNames, availableNetworkNames, defaultNetworkNames, configuredNetworkNames, selectedNetworkIndex, selectedNetworkMode, defaultNetworkMode, configuredNetworkMode, activeNetworkNames, privileged, isPrivilegedConfigured, workspaceConfigExists, workspaceConfigStatusMarkup, showWindowsHostNetworkingHint: _dockerHostService.IsWindows);
             var keyInfo = AnsiConsole.Console.Input.ReadKey(intercept: true);
             if(keyInfo is null)
             {
@@ -549,7 +548,7 @@ internal sealed class RunCliCommand : Command
                     {
                         if(selectedNetworkIndex == 0)
                         {
-                            selectedNetworkMode = CycleDockerNetworkMode(selectedNetworkMode, hostNetworkAvailable);
+                            selectedNetworkMode = CycleDockerNetworkMode(selectedNetworkMode);
                             if(!DoesNetworkModeSupportAdditionalNetworks(selectedNetworkMode))
                             {
                                 activeNetworkNames.Clear();
@@ -781,7 +780,6 @@ internal sealed class RunCliCommand : Command
         DockerNetworkMode? defaultNetworkMode,
         DockerNetworkMode? configuredNetworkMode,
         HashSet<string> activeNetworkNames,
-        bool hostNetworkAvailable,
         bool privileged,
         bool isPrivilegedConfigured,
         bool workspaceConfigExists,
@@ -821,7 +819,7 @@ internal sealed class RunCliCommand : Command
         {
             RunSelectionTab.Volumes => CreateVolumeSelectionContent(availableVolumeNames, selectedContainerMounts, defaultContainerMounts, configuredContainerMounts, selectedVolumeIndex),
             RunSelectionTab.Addons => CreateAddonSelectionContent(addonsRootPath, availableAddonNames, defaultAddonNames, configuredAddonNames, selectedAddonIndex, activeAddonNames),
-            RunSelectionTab.Networks => CreateNetworkSelectionContent(availableNetworkNames, defaultNetworkNames, configuredNetworkNames, selectedNetworkIndex, selectedNetworkMode, defaultNetworkMode, configuredNetworkMode, activeNetworkNames, hostNetworkAvailable, showWindowsHostNetworkingHint),
+            RunSelectionTab.Networks => CreateNetworkSelectionContent(availableNetworkNames, defaultNetworkNames, configuredNetworkNames, selectedNetworkIndex, selectedNetworkMode, defaultNetworkMode, configuredNetworkMode, activeNetworkNames, showWindowsHostNetworkingHint),
             RunSelectionTab.Docker => CreateDockerSelectionContent(privileged, isPrivilegedConfigured),
             RunSelectionTab.Config => CreateConfigSelectionContent(workspaceConfigExists, workspaceConfigStatusMarkup),
             _ => CreateProfileSelectionContent(profileChoices, selectedIndex)
@@ -1007,7 +1005,7 @@ internal sealed class RunCliCommand : Command
         if(availableAddonNames.Count == 0)
         {
             content.AppendLine($"[grey]No addons.[/] [grey58]{Markup.Escape(addonsRootPath)}[/]");
-            content.AppendLine("[grey]Conflicting files block launch except AGENTS.md, root .env, and opencode/opencode.json (merged).[/]");
+            content.AppendLine("[grey]Conflicting files block launch except opencode/AGENTS.md, root .env, and opencode/opencode.json (merged).[/]");
             return new Markup(content.ToString());
         }
 
@@ -1037,7 +1035,7 @@ internal sealed class RunCliCommand : Command
         return new Markup(content.ToString());
     }
 
-    private static Markup CreateNetworkSelectionContent(IReadOnlyList<string> availableNetworkNames, HashSet<string> defaultNetworkNames, HashSet<string> configuredNetworkNames, int selectedNetworkIndex, DockerNetworkMode selectedNetworkMode, DockerNetworkMode? defaultNetworkMode, DockerNetworkMode? configuredNetworkMode, HashSet<string> activeNetworkNames, bool hostNetworkAvailable, bool showWindowsHostNetworkingHint)
+    private static Markup CreateNetworkSelectionContent(IReadOnlyList<string> availableNetworkNames, HashSet<string> defaultNetworkNames, HashSet<string> configuredNetworkNames, int selectedNetworkIndex, DockerNetworkMode selectedNetworkMode, DockerNetworkMode? defaultNetworkMode, DockerNetworkMode? configuredNetworkMode, HashSet<string> activeNetworkNames, bool showWindowsHostNetworkingHint)
     {
         var content = new StringBuilder();
 
@@ -1058,11 +1056,7 @@ internal sealed class RunCliCommand : Command
             content.AppendLine($"  [grey70]Network mode[/] {modeDisplay}{modeSourceMarkers}");
         }
 
-        if(!hostNetworkAvailable)
-        {
-            content.AppendLine("[grey]  Host mode is unavailable on this host.[/]");
-        }
-        else if(showWindowsHostNetworkingHint && selectedNetworkMode is DockerNetworkMode.Host)
+        if(showWindowsHostNetworkingHint && selectedNetworkMode is DockerNetworkMode.Host)
         {
             content.AppendLine("[grey]  Windows host mode requires Docker Desktop host networking to be enabled.[/]");
         }
@@ -1082,8 +1076,7 @@ internal sealed class RunCliCommand : Command
         }
 
         content.AppendLine("  [grey50]────────────────────────────────────────[/]");
-        bool hasNetworkHint = !hostNetworkAvailable
-            || showWindowsHostNetworkingHint && selectedNetworkMode is DockerNetworkMode.Host;
+        bool hasNetworkHint = showWindowsHostNetworkingHint && selectedNetworkMode is DockerNetworkMode.Host;
         int fixedRowCount = hasNetworkHint ? 4 : 3;
         ListViewport viewport = CreateListViewport(
             availableNetworkNames.Count,
@@ -1205,14 +1198,11 @@ internal sealed class RunCliCommand : Command
         _ => RunSelectionTab.Docker
     };
 
-    private static DockerNetworkMode CycleDockerNetworkMode(DockerNetworkMode networkMode, bool hostNetworkAvailable)
-        => !hostNetworkAvailable
-            ? DockerNetworkMode.Bridge
-            : networkMode switch
-            {
-                DockerNetworkMode.Bridge => DockerNetworkMode.Host,
-                _ => DockerNetworkMode.Bridge
-            };
+    private static DockerNetworkMode CycleDockerNetworkMode(DockerNetworkMode networkMode) => networkMode switch
+    {
+        DockerNetworkMode.Bridge => DockerNetworkMode.Host,
+        _ => DockerNetworkMode.Bridge
+    };
 
     private static bool DoesNetworkModeSupportAdditionalNetworks(DockerNetworkMode networkMode)
         => networkMode.SupportsAdditionalNetworks();
@@ -1235,11 +1225,6 @@ internal sealed class RunCliCommand : Command
 
         return markers.ToString();
     }
-
-    private static DockerNetworkMode? ParseSavedDockerNetworkMode(DockerNetworkMode? persistedValue, bool hostNetworkAvailable)
-        => persistedValue is DockerNetworkMode.Host && !hostNetworkAvailable
-            ? null
-            : persistedValue;
 
     private static int GetNetworkEntryCount(IReadOnlyList<string> availableNetworkNames, DockerNetworkMode networkMode)
         => !DoesNetworkModeSupportAdditionalNetworks(networkMode)
