@@ -9,8 +9,8 @@ internal sealed record OcwHostPaths(
     string OpencodeRoot,
     string OpencodeLeasesRoot,
     string OpencodeVersionsRoot,
-    string OpencodeLatestCachePath,
-    string OpencodeLatestLockPath,
+    string OpencodePackageCachePath,
+    string OpencodePackageLockPath,
     string OpencodeHostLockPath
 );
 
@@ -63,8 +63,8 @@ internal sealed partial class OcwHostPathService : Singleton
             opencodeRoot,
             opencodeLeasesRoot,
             opencodeVersionsRoot,
-            Path.Combine(opencodeRoot, OpencodeWrapConstants.HOST_OPENCODE_LATEST_CACHE_FILE_NAME),
-            Path.Combine(locksRoot, OpencodeWrapConstants.HOST_OPENCODE_LATEST_LOCK_FILE_NAME),
+            Path.Combine(opencodeRoot, OpencodeWrapConstants.HOST_OPENCODE_PACKAGE_CACHE_FILE_NAME),
+            Path.Combine(locksRoot, OpencodeWrapConstants.HOST_OPENCODE_PACKAGE_LOCK_FILE_NAME),
             Path.Combine(locksRoot, OpencodeWrapConstants.HOST_OPENCODE_HOST_LOCK_FILE_NAME));
         return true;
     }

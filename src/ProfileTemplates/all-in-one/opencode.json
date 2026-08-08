@@ -1,18 +1,14 @@
 {
   "$schema": "https://opencode.ai/config.json",
-  "permission": {
-    "external_directory": {
-      "/**": "allow"
-    },
-    "read": {
-      "*": "allow",
-      "*.env": "deny",
-      "*.env.*": "deny",
-      "*.env.example": "allow",
-      "appsettings.json": "deny",
-      "**/appsettings.json": "deny",
-      "appsettings.*.json": "deny",
-      "**/appsettings.*.json": "deny"
-    }
-  }
+  "permissions": [
+    { "action": "external_directory", "resource": "/*", "effect": "allow" },
+    { "action": "read", "resource": "*", "effect": "allow" },
+    { "action": "read", "resource": "*.env", "effect": "deny" },
+    { "action": "read", "resource": "*.env.*", "effect": "deny" },
+    { "action": "read", "resource": "*.env.example", "effect": "allow" },
+    { "action": "read", "resource": "appsettings.json", "effect": "deny" },
+    { "action": "read", "resource": "**/appsettings.json", "effect": "deny" },
+    { "action": "read", "resource": "appsettings.*.json", "effect": "deny" },
+    { "action": "read", "resource": "**/appsettings.*.json", "effect": "deny" }
+  ]
 }

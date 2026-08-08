@@ -5,7 +5,7 @@ namespace OpencodeWrap;
 /// </summary>
 internal static class LogCategories
 {
-    public const string ATTACH = "attach";
+    public const string CLIENT = "client";
     public const string DOCKER = "docker";
     public const string OPENCODE_HOST = "opencode-host";
     public const string OPENCODE_RUNTIME = "opencode-runtime";

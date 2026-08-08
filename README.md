@@ -1,6 +1,6 @@
 # OpencodeWrap
 
-**Run OpenCode in Docker—no config needed.**
+**Run OpenCode V2 in Docker—no config needed.**
 
 Your data persists. Your settings follow you. Just type `ocw run`.
 
@@ -12,8 +12,8 @@ Your data persists. Your settings follow you. Just type `ocw run`.
 - **Your data stays** — Everything persists across sessions
 - **Smart profiles** — Built-in all-in-one setup plus custom profiles
 - **Session addons** — Drop in custom tools and configurations
-- **Auto-updates** — Always on the latest OpenCode
-- **Terminal UI** — Attach a local TUI to the containerized OpenCode backend
+- **Version controlled** — OCW pins matching `opencode2` server and client artifacts
+- **Terminal UI** — Connect a local V2 TUI to the containerized backend
 - **Works everywhere** — Linux, macOS, Windows
 
 ---
@@ -35,6 +35,8 @@ ocw run
 ```
 
 Choose a profile and start coding with the built-in all-in-one profile or your own custom one.
+
+OCW disables OpenCode's own updater so its server and client stay on the same pinned version. A session-local loopback bridge maps host paths to their container mounts, including on Windows. The host tab strip is scoped to each run; backend sessions remain persistent and can be reopened with `/sessions`. V2 state uses the fresh `opencode-wrap-xdg-v2` Docker volume; OCW does not migrate or back up V1 state.
 
 ---
 

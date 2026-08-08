@@ -1,14 +1,9 @@
 using Microsoft.Extensions.Logging;
-using System.Formats.Tar;
-using System.IO.Compression;
-using System.Security.Cryptography;
 
 namespace OpencodeWrap.Services.Opencode;
 
 internal sealed partial class ManagedHostOpencodeService : Singleton
 {
-    private static readonly HttpClient _httpClient = CreateHttpClient();
-
     [Inject]
     private readonly DeferredSessionLogService _deferredSessionLogService;
 
@@ -22,25 +17,16 @@ internal sealed partial class ManagedHostOpencodeService : Singleton
     private readonly OpencodeReleaseMetadataService _releaseMetadataService;
 
     [Inject]
+    private readonly OpencodePackageArtifactService _packageArtifactService;
+
+    [Inject]
     private readonly SessionStagingService _sessionStagingService;
 
-    public async Task<(bool Success, string ExecutablePath)> EnsureLatestAsync(LatestOpencodeRelease release)
-    {
-        var emptyResult = (false, String.Empty);
-        if(!_hostPathService.TryGetPaths(out var paths))
-        {
-            return emptyResult;
-        }
-
-        await using var hostLock = await _fileLockService.AcquireAsync(paths.OpencodeHostLockPath, LogCategories.OPENCODE_HOST, "managed host OpenCode");
-        return hostLock is null ? ((bool Success, string ExecutablePath)) emptyResult : await EnsureLatestLockedAsync(paths, release);
-    }
-
-    public async Task<(bool Success, ManagedHostOpencodeLease? Lease)> TryAcquireLeaseAsync(string sessionId, LatestOpencodeRelease release)
+    public async Task<(bool Success, ManagedHostOpencodeLease? Lease)> TryAcquireLeaseAsync(string sessionId, ResolvedOpencodeRelease release)
     {
         if(String.IsNullOrWhiteSpace(sessionId))
         {
-            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.ATTACH, "Runtime session id was not resolved for the managed host OpenCode lease.");
+            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.CLIENT, "Runtime session id was not resolved for the managed host OpenCode lease.");
             return (false, null);
         }
 
@@ -77,7 +63,7 @@ internal sealed partial class ManagedHostOpencodeService : Singleton
         }
     }
 
-    private async Task<(bool Success, string ExecutablePath)> EnsureLatestLockedAsync(OcwHostPaths paths, LatestOpencodeRelease release)
+    private async Task<(bool Success, string ExecutablePath)> EnsureLatestLockedAsync(OcwHostPaths paths, ResolvedOpencodeRelease release)
     {
         _sessionStagingService.CleanupStaleSessions();
         RemoveOrphanedLeaseFiles(paths);
@@ -94,45 +80,50 @@ internal sealed partial class ManagedHostOpencodeService : Singleton
         string versionRoot = GetVersionRoot(paths, release.Version);
         if(TryGetInstalledExecutablePath(versionRoot, binaryAsset.ExecutableFileName, out string installedExecutablePath))
         {
-            _deferredSessionLogService.Write(LogCategories.OPENCODE_HOST, $"reusing managed host OpenCode {release.Version}", LogLevel.Information);
-            return (true, installedExecutablePath);
+            EnsureExecutablePermissions(installedExecutablePath);
+            if(await ValidateExecutableAsync(installedExecutablePath, release.Version))
+            {
+                _deferredSessionLogService.Write(LogCategories.OPENCODE_HOST, $"reusing managed host OpenCode V2 {release.Version}", LogLevel.Information);
+                return (true, installedExecutablePath);
+            }
+
+            _deferredSessionLogService.WriteWarningOrConsole(LogCategories.OPENCODE_HOST, $"Reinstalling managed host OpenCode V2 {release.Version} because the cached executable did not match the pinned version.");
         }
 
         if(Directory.Exists(versionRoot) && HasActiveLeaseForVersion(paths, release.Version))
         {
-            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.OPENCODE_HOST, $"Managed host OpenCode {release.Version} is in use by another active session and cannot be reinstalled in place.");
+            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.OPENCODE_HOST, $"Managed host OpenCode V2 {release.Version} is in use by another active session and cannot be reinstalled in place.");
             return (false, String.Empty);
         }
 
-        _deferredSessionLogService.Write(LogCategories.OPENCODE_HOST, $"installing managed host OpenCode {release.Version} from '{binaryAsset.Asset.Name}'", LogLevel.Information);
+        _deferredSessionLogService.Write(LogCategories.OPENCODE_HOST, $"installing managed host OpenCode V2 {release.Version} from {binaryAsset.Asset.PackageName}", LogLevel.Information);
 
         string temporaryRoot = Path.Combine(paths.OpencodeRoot, $"install-{Guid.NewGuid():N}");
-        string archivePath = Path.Combine(temporaryRoot, binaryAsset.Asset.Name);
+        string archivePath = Path.Combine(temporaryRoot, "opencode2.tgz");
         string extractedRoot = Path.Combine(temporaryRoot, "extracted");
+        string extractedExecutablePath = Path.Combine(extractedRoot, "bin", binaryAsset.ExecutableFileName);
 
         try
         {
             Directory.CreateDirectory(temporaryRoot);
             Directory.CreateDirectory(extractedRoot);
 
-            if(!await TryDownloadArtifactAsync(binaryAsset.Asset, archivePath))
+            if(!await _packageArtifactService.TryDownloadVerifiedAsync(binaryAsset.Asset, archivePath, LogCategories.OPENCODE_HOST))
             {
                 return (false, String.Empty);
             }
 
-            if(!await TryExtractArtifactAsync(archivePath, extractedRoot))
+            if(!await _packageArtifactService.TryExtractExecutableAsync(
+                archivePath,
+                binaryAsset.ExecutableFileName,
+                extractedExecutablePath,
+                LogCategories.OPENCODE_HOST))
             {
-                return (false, String.Empty);
-            }
-
-            if(!TryFindExecutable(extractedRoot, binaryAsset.ExecutableFileName, out string extractedExecutablePath))
-            {
-                _deferredSessionLogService.WriteErrorOrConsole(LogCategories.OPENCODE_HOST, $"Managed OpenCode artifact '{binaryAsset.Asset.Name}' did not contain '{binaryAsset.ExecutableFileName}'.");
                 return (false, String.Empty);
             }
 
             EnsureExecutablePermissions(extractedExecutablePath);
-            if(!await ValidateExecutableAsync(extractedExecutablePath))
+            if(!await ValidateExecutableAsync(extractedExecutablePath, release.Version))
             {
                 return (false, String.Empty);
             }
@@ -144,11 +135,11 @@ internal sealed partial class ManagedHostOpencodeService : Singleton
 
             if(!TryGetInstalledExecutablePath(versionRoot, binaryAsset.ExecutableFileName, out string finalExecutablePath))
             {
-                _deferredSessionLogService.WriteErrorOrConsole(LogCategories.OPENCODE_HOST, $"Managed OpenCode {release.Version} was installed, but '{binaryAsset.ExecutableFileName}' was not found under '{versionRoot}'.");
+                _deferredSessionLogService.WriteErrorOrConsole(LogCategories.OPENCODE_HOST, $"Managed OpenCode V2 {release.Version} was installed, but '{binaryAsset.ExecutableFileName}' was not found under '{versionRoot}'.");
                 return (false, String.Empty);
             }
 
-            _deferredSessionLogService.Write(LogCategories.OPENCODE_HOST, $"managed host OpenCode {release.Version} installed at '{finalExecutablePath}'", LogLevel.Information);
+            _deferredSessionLogService.Write(LogCategories.OPENCODE_HOST, $"managed host OpenCode V2 {release.Version} installed at '{finalExecutablePath}'", LogLevel.Information);
             return (true, finalExecutablePath);
         }
         finally
@@ -191,63 +182,6 @@ internal sealed partial class ManagedHostOpencodeService : Singleton
         CleanupEmptyLeaseDirectories(paths.OpencodeLeasesRoot);
     }
 
-    private async Task<bool> TryDownloadArtifactAsync(OpencodeReleaseAsset asset, string destinationPath)
-    {
-        try
-        {
-            using var response = await _httpClient.GetAsync(asset.DownloadUrl, HttpCompletionOption.ResponseHeadersRead);
-            response.EnsureSuccessStatusCode();
-
-            await using var source = await response.Content.ReadAsStreamAsync();
-            await using(var destination = new FileStream(destinationPath, FileMode.Create, FileAccess.Write, FileShare.None))
-            {
-                await source.CopyToAsync(destination);
-                await destination.FlushAsync();
-            }
-
-            if(!String.IsNullOrWhiteSpace(asset.Sha256) && !FileMatchesSha256(destinationPath, asset.Sha256))
-            {
-                _deferredSessionLogService.WriteErrorOrConsole(LogCategories.OPENCODE_HOST, $"Checksum validation failed for '{asset.Name}'.");
-                return false;
-            }
-
-            return true;
-        }
-        catch(Exception ex)
-        {
-            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.OPENCODE_HOST, $"Failed to download managed OpenCode artifact '{asset.Name}': {ex.Message}");
-            return false;
-        }
-    }
-
-    private async Task<bool> TryExtractArtifactAsync(string archivePath, string destinationDirectory)
-    {
-        try
-        {
-            if(archivePath.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))
-            {
-                ZipFile.ExtractToDirectory(archivePath, destinationDirectory, overwriteFiles: true);
-                return true;
-            }
-
-            if(archivePath.EndsWith(".tar.gz", StringComparison.OrdinalIgnoreCase))
-            {
-                await using var archiveStream = File.OpenRead(archivePath);
-                await using var gzipStream = new GZipStream(archiveStream, CompressionMode.Decompress);
-                TarFile.ExtractToDirectory(gzipStream, destinationDirectory, overwriteFiles: true);
-                return true;
-            }
-
-            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.OPENCODE_HOST, $"Unsupported managed OpenCode archive format '{archivePath}'.");
-            return false;
-        }
-        catch(Exception ex)
-        {
-            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.OPENCODE_HOST, $"Failed to extract managed OpenCode artifact '{archivePath}': {ex.Message}");
-            return false;
-        }
-    }
-
     private bool TryFindExecutable(string extractedRoot, string executableFileName, out string executablePath)
     {
         executablePath = String.Empty;
@@ -287,7 +221,7 @@ internal sealed partial class ManagedHostOpencodeService : Singleton
         }
     }
 
-    private async Task<bool> ValidateExecutableAsync(string executablePath)
+    private async Task<bool> ValidateExecutableAsync(string executablePath, string expectedVersion)
     {
         var versionResult = await ProcessRunner.RunAsync(executablePath, ["--version"]);
         if(!versionResult.Success)
@@ -296,15 +230,23 @@ internal sealed partial class ManagedHostOpencodeService : Singleton
             return false;
         }
 
-        var attachHelpResult = await ProcessRunner.RunAsync(executablePath, ["attach", "--help"]);
-        if(!attachHelpResult.Success)
+        if(!IsExpectedVersionOutput(versionResult.StdOut, versionResult.StdErr, expectedVersion))
         {
-            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.OPENCODE_HOST, DescribeProcessFailure($"'{executablePath} attach --help'", attachHelpResult));
+            string actualVersion = FirstNonEmptyLine(versionResult.StdOut, versionResult.StdErr);
+            _deferredSessionLogService.WriteErrorOrConsole(
+                LogCategories.OPENCODE_HOST,
+                $"Managed host OpenCode V2 version mismatch: expected 'opencode2 v{expectedVersion}', received '{actualVersion}'.");
             return false;
         }
 
         return true;
     }
+
+    internal static bool IsExpectedVersionOutput(string stdout, string stderr, string expectedVersion)
+        => String.Equals(
+            FirstNonEmptyLine(stdout, stderr),
+            $"opencode2 v{expectedVersion}",
+            StringComparison.Ordinal);
 
     private bool TryInstallVersion(string extractedRoot, string versionRoot, string version)
     {
@@ -321,7 +263,7 @@ internal sealed partial class ManagedHostOpencodeService : Singleton
         }
         catch(Exception ex)
         {
-            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.OPENCODE_HOST, $"Failed to install managed host OpenCode {version}: {ex.Message}");
+            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.OPENCODE_HOST, $"Failed to install managed host OpenCode V2 {version}: {ex.Message}");
             return false;
         }
     }
@@ -520,15 +462,6 @@ internal sealed partial class ManagedHostOpencodeService : Singleton
         }
     }
 
-    private static bool FileMatchesSha256(string filePath, string expectedSha256)
-    {
-        using var sha256 = SHA256.Create();
-        using var stream = File.OpenRead(filePath);
-        byte[] hash = sha256.ComputeHash(stream);
-        string actualSha256 = Convert.ToHexString(hash).ToLowerInvariant();
-        return String.Equals(actualSha256, expectedSha256, StringComparison.OrdinalIgnoreCase);
-    }
-
     private static string DescribeProcessFailure(string commandDescription, ProcessRunner.ProcessRunResult result)
     {
         string detail = FirstNonEmptyLine(result.StdErr, result.StdOut);
@@ -561,13 +494,6 @@ internal sealed partial class ManagedHostOpencodeService : Singleton
         }
 
         return String.Empty;
-    }
-
-    private static HttpClient CreateHttpClient()
-    {
-        var client = new HttpClient();
-        client.DefaultRequestHeaders.UserAgent.ParseAdd("ocw/managed-host-install");
-        return client;
     }
 
     internal sealed class ManagedHostOpencodeLease : IAsyncDisposable

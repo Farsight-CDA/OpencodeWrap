@@ -5,5 +5,5 @@ internal sealed record RuntimeSessionContext(
     string HostSessionDirectory,
     int? HostPort = null,
     int? ContainerPort = null,
-    string? AttachUrl = null
+    string? ServerUrl = null
 );

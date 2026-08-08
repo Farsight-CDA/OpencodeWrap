@@ -23,7 +23,9 @@ internal sealed partial class OpencodeLauncherService : Singleton
     [Inject] private readonly DeferredSessionLogService _deferredSessionLogService;
     [Inject] private readonly SessionOutputService _sessionOutputService;
     [Inject] private readonly LocalPortReservationService _localPortReservationService;
-    [Inject] private readonly HostOpencodeAttachService _hostOpencodeAttachService;
+    [Inject] private readonly HostOpencodeClientService _hostOpencodeClientService;
+    [Inject] private readonly OpencodeCatalogReadinessService _opencodeCatalogReadinessService;
+    [Inject] private readonly OpencodeLocationProxyService _opencodeLocationProxyService;
     [Inject] private readonly OpencodeServeHealthcheckService _opencodeServeHealthcheckService;
     [Inject] private readonly RuntimeAgentInstructionsService _runtimeAgentInstructionsService;
     [Inject] private readonly RunMenuDefaultsService _runMenuDefaultsService;
@@ -46,7 +48,7 @@ internal sealed partial class OpencodeLauncherService : Singleton
         bool privileged = false,
         bool verboseSessionLogs = false)
     {
-        bool useServeSession = runtimeMode is OpencodeRuntimeMode.HostAttachToServe;
+        bool useServeSession = runtimeMode is OpencodeRuntimeMode.HostClientToServe;
         bool useServerPassword = useServeSession || UsesServerPassword(opencodeArgs);
         bool clearConsoleOnSessionLogFlush = true;
         var sessionLog = includeProfileConfig
@@ -54,11 +56,12 @@ internal sealed partial class OpencodeLauncherService : Singleton
             : null;
         ReservedLocalPort? reservedPort = null;
         ManagedHostOpencodeService.ManagedHostOpencodeLease? hostLease = null;
+        OpencodeLocationProxyLease? locationProxyLease = null;
         string? managedHostExecutablePath = null;
         string? profileCleanupDirectoryPath = null;
         var sessionAddonCleanupDirectoryPaths = new List<string>();
         IReadOnlyList<SessionEnvironmentVariable> sessionEnvironmentVariables = [];
-        Task<(bool Success, LatestOpencodeRelease Release)>? latestReleaseTask = null;
+        Task<(bool Success, ResolvedOpencodeRelease Release)>? packageReleaseTask = null;
         Task<(bool Success, string ImageTag)>? baseImageTask = null;
         Task<(bool Success, ManagedHostOpencodeService.ManagedHostOpencodeLease? Lease)>? hostLeaseTask = null;
         string? resolvedOpencodeVersion = null;
@@ -85,6 +88,13 @@ internal sealed partial class OpencodeLauncherService : Singleton
 
             LogStartupPhase("docker volume ready", LogLevel.Debug);
 
+            string hostClientWorkDir = Path.GetFullPath(Directory.GetCurrentDirectory());
+            if(!Directory.Exists(hostClientWorkDir))
+            {
+                _deferredSessionLogService.WriteErrorOrConsole("startup", $"Workspace directory not found: '{hostClientWorkDir}'.");
+                return 1;
+            }
+
             string? hostWorkDir = null;
             string containerWorkDir;
             if(workspaceMountMode == WorkspaceMountMode.None)
@@ -93,13 +103,7 @@ internal sealed partial class OpencodeLauncherService : Singleton
             }
             else
             {
-                hostWorkDir = Path.GetFullPath(Directory.GetCurrentDirectory());
-                if(!Directory.Exists(hostWorkDir))
-                {
-                    _deferredSessionLogService.WriteErrorOrConsole("startup", $"Workspace directory not found: '{hostWorkDir}'.");
-                    return 1;
-                }
-
+                hostWorkDir = hostClientWorkDir;
                 containerWorkDir = ResolveContainerWorkspacePath(hostWorkDir);
             }
 
@@ -125,7 +129,7 @@ internal sealed partial class OpencodeLauncherService : Singleton
 
             _containerName = $"opencode-wrap-{Guid.NewGuid():N}"[..27];
 
-            latestReleaseTask = BeginLatestReleaseResolutionAsync();
+            packageReleaseTask = BeginPackageReleaseResolutionAsync();
 
             var (success, profile) = await _profileService.TryResolveProfileAsync(includeProfileConfig ? requestedProfileName : null);
             if(!success)
@@ -168,14 +172,14 @@ internal sealed partial class OpencodeLauncherService : Singleton
             _deferredSessionLogService.Write("session", $"prepared runtime session '{session.SessionId}' at '{session.HostSessionDirectory}'", LogLevel.Information);
             LogStartupPhase($"runtime session '{session.SessionId}' finalized at '{session.HostSessionDirectory}'", LogLevel.Debug);
 
-            var (releaseResolved, latestRelease) = await latestReleaseTask;
+            var (releaseResolved, packageRelease) = await packageReleaseTask;
             if(!releaseResolved)
             {
                 return 1;
             }
 
-            LogStartupPhase($"resolved latest OpenCode version {latestRelease.Version}", LogLevel.Debug);
-            resolvedOpencodeVersion = latestRelease.Version;
+            LogStartupPhase($"resolved pinned OpenCode V2 version {packageRelease.Version}", LogLevel.Debug);
+            resolvedOpencodeVersion = packageRelease.Version;
 
             if(useServeSession)
             {
@@ -209,11 +213,11 @@ internal sealed partial class OpencodeLauncherService : Singleton
                 {
                     HostPort = port,
                     ContainerPort = port,
-                    AttachUrl = $"http://{ResolveAttachHostname(selectedDockerNetworkMode, _hostService.IsWindows)}:{port.ToString(CultureInfo.InvariantCulture)}"
+                    ServerUrl = $"http://{ResolveServerHostname(selectedDockerNetworkMode, _hostService.IsWindows)}:{port.ToString(CultureInfo.InvariantCulture)}"
                 };
-                LogStartupPhase($"prepared attach port {port} at '{session.AttachUrl}'", LogLevel.Debug);
+                LogStartupPhase($"prepared OpenCode V2 server port {port} at '{session.ServerUrl}'", LogLevel.Debug);
 
-                hostLeaseTask = BeginManagedHostClientPreparationAsync(session.SessionId, latestRelease);
+                hostLeaseTask = BeginManagedHostClientPreparationAsync(session.SessionId, packageRelease);
             }
 
             var (baseImageReady, baseImageTag) = await baseImageTask;
@@ -224,7 +228,7 @@ internal sealed partial class OpencodeLauncherService : Singleton
 
             LogStartupPhase($"base profile image ready: '{baseImageTag}'", LogLevel.Debug);
 
-            var runtimeImageTask = _opencodeRuntimeImageService.TryEnsureRuntimeImageAsync(baseImageTag, latestRelease);
+            var runtimeImageTask = _opencodeRuntimeImageService.TryEnsureRuntimeImageAsync(baseImageTag, packageRelease);
             if(hostLeaseTask is not null)
             {
                 await Task.WhenAll(runtimeImageTask, hostLeaseTask);
@@ -283,20 +287,19 @@ internal sealed partial class OpencodeLauncherService : Singleton
                 "-e", $"XDG_DATA_HOME={OpencodeWrapConstants.CONTAINER_XDG_DATA_HOME}",
                 "-e", $"XDG_STATE_HOME={OpencodeWrapConstants.CONTAINER_XDG_STATE_HOME}",
                 "-e", $"XDG_CACHE_HOME={OpencodeWrapConstants.CONTAINER_XDG_CACHE_HOME}",
-                "-e", $"OCW_PROFILE_ROOT={OpencodeWrapConstants.CONTAINER_PROFILE_ROOT}"
+                "-e", $"OCW_PROFILE_ROOT={OpencodeWrapConstants.CONTAINER_PROFILE_ROOT}",
+                "-e", $"{OpencodeWrapConstants.OPENCODE_DISABLE_AUTOUPDATE_ENVIRONMENT_VARIABLE}=1"
             ]);
 
             if(useServerPassword)
             {
                 containerArgs.AddRange(
                 [
-                    "-e", OpencodeWrapConstants.OPENCODE_SERVER_USERNAME_ENVIRONMENT_VARIABLE,
-                    "-e", OpencodeWrapConstants.OPENCODE_SERVER_PASSWORD_ENVIRONMENT_VARIABLE
+                    "-e", OpencodeWrapConstants.OPENCODE_PASSWORD_ENVIRONMENT_VARIABLE
                 ]);
                 dockerEnvironmentVariables = new Dictionary<string, string?>
                 {
-                    [OpencodeWrapConstants.OPENCODE_SERVER_USERNAME_ENVIRONMENT_VARIABLE] = OpencodeWrapConstants.OPENCODE_SERVER_USERNAME,
-                    [OpencodeWrapConstants.OPENCODE_SERVER_PASSWORD_ENVIRONMENT_VARIABLE] = serverPassword
+                    [OpencodeWrapConstants.OPENCODE_PASSWORD_ENVIRONMENT_VARIABLE] = serverPassword
                 };
             }
 
@@ -397,33 +400,52 @@ internal sealed partial class OpencodeLauncherService : Singleton
                     return 1;
                 }
 
-                string? readyAttachUrl = await _sessionOutputService.RunWithLoadingStateAsync(
+                bool backendReady = await _sessionOutputService.RunWithLoadingStateAsync(
                     LogCategories.STARTUP,
                     "Waiting for OpenCode backend...",
-                    () => _opencodeServeHealthcheckService.WaitUntilReadyAsync(session.AttachUrl!, serverPassword!, selectedDockerNetworkMode, _hostService.IsWindows));
-                if(readyAttachUrl is null)
+                    () => _opencodeServeHealthcheckService.WaitUntilReadyAsync(session.ServerUrl!, serverPassword!, packageRelease.Version));
+                if(!backendReady)
                 {
                     await WriteContainerLogsAsync(_containerName!);
                     CleanupContainer(force: true);
                     return 1;
                 }
 
-                if(!String.Equals(readyAttachUrl, session.AttachUrl, StringComparison.OrdinalIgnoreCase))
+                bool catalogReady = await _sessionOutputService.RunWithLoadingStateAsync(
+                    LogCategories.STARTUP,
+                    "Loading OpenCode catalog...",
+                    () => _opencodeCatalogReadinessService.WaitUntilReadyAsync(session.ServerUrl!, serverPassword!, containerWorkDir));
+                if(!catalogReady)
                 {
-                    session = session with
-                    {
-                        AttachUrl = readyAttachUrl
-                    };
+                    await WriteContainerLogsAsync(_containerName!);
+                    CleanupContainer(force: true);
+                    return 1;
                 }
 
-                int attachExitCode = await _hostOpencodeAttachService.RunAttachAsync(managedHostExecutablePath ?? String.Empty, session.AttachUrl!, serverPassword!);
-                if(attachExitCode != 0)
+                var locationMappings = BuildLocationMappings(hostClientWorkDir, containerWorkDir, selectedContainerMounts);
+                var proxy = await _sessionOutputService.RunWithLoadingStateAsync(
+                    LogCategories.STARTUP,
+                    "Preparing OpenCode client connection...",
+                    () => _opencodeLocationProxyService.TryStartAsync(session.ServerUrl!, containerWorkDir, locationMappings));
+                if(!proxy.Success || proxy.Lease is null)
+                {
+                    CleanupContainer(force: true);
+                    return 1;
+                }
+
+                locationProxyLease = proxy.Lease;
+                int clientExitCode = await _hostOpencodeClientService.RunAsync(
+                    managedHostExecutablePath ?? String.Empty,
+                    locationProxyLease.ServerUrl,
+                    serverPassword!,
+                    $"ocw-{session.SessionId}");
+                if(clientExitCode != 0)
                 {
                     clearConsoleOnSessionLogFlush = false;
                 }
 
                 CleanupContainer(force: true);
-                return attachExitCode;
+                return clientExitCode;
             }
 
             int exitCode = requiresPrecreatedContainer
@@ -435,6 +457,11 @@ internal sealed partial class OpencodeLauncherService : Singleton
         finally
         {
             reservedPort?.Dispose();
+
+            if(locationProxyLease is not null)
+            {
+                await locationProxyLease.DisposeAsync();
+            }
 
             if(hostLease is not null)
             {
@@ -464,16 +491,16 @@ internal sealed partial class OpencodeLauncherService : Singleton
         void LogStartupPhase(string message, LogLevel level)
             => _deferredSessionLogService.Write("startup", message, level);
 
-        Task<(bool Success, LatestOpencodeRelease Release)> BeginLatestReleaseResolutionAsync()
+        Task<(bool Success, ResolvedOpencodeRelease Release)> BeginPackageReleaseResolutionAsync()
         {
-            _deferredSessionLogService.Write(LogCategories.OPENCODE_VERSION, "Resolving latest OpenCode release...", LogLevel.Information);
-            return _opencodeReleaseMetadataService.TryResolveLatestAsync();
+            _deferredSessionLogService.Write(LogCategories.OPENCODE_VERSION, "Resolving pinned OpenCode V2 package...", LogLevel.Information);
+            return _opencodeReleaseMetadataService.TryResolvePinnedAsync();
         }
 
-        Task<(bool Success, ManagedHostOpencodeService.ManagedHostOpencodeLease? Lease)> BeginManagedHostClientPreparationAsync(string sessionId, LatestOpencodeRelease latestRelease)
+        Task<(bool Success, ManagedHostOpencodeService.ManagedHostOpencodeLease? Lease)> BeginManagedHostClientPreparationAsync(string sessionId, ResolvedOpencodeRelease packageRelease)
         {
-            _deferredSessionLogService.Write(LogCategories.OPENCODE_HOST, "Preparing local OpenCode client...", LogLevel.Information);
-            return _managedHostOpencodeService.TryAcquireLeaseAsync(sessionId, latestRelease);
+            _deferredSessionLogService.Write(LogCategories.OPENCODE_HOST, "Preparing local OpenCode V2 client...", LogLevel.Information);
+            return _managedHostOpencodeService.TryAcquireLeaseAsync(sessionId, packageRelease);
         }
     }
 
@@ -498,8 +525,8 @@ internal sealed partial class OpencodeLauncherService : Singleton
         ocw_prepended_paths="$ocw_prepended_paths:{{profileBinPath}}"
         export PATH="$ocw_prepended_paths:$PATH"
         if [ -f "{{profileEntrypointPath}}" ]; then printf '[ocw] starting profile entrypoint...\n' >&2; exec bash "{{profileEntrypointPath}}" "$@"; fi
-        printf '[ocw] launching opencode...\n' >&2
-        exec opencode "$@"
+        printf '[ocw] launching opencode2...\n' >&2
+        exec opencode2 "$@"
         """;
     }
 
@@ -933,8 +960,37 @@ internal sealed partial class OpencodeLauncherService : Singleton
     private static bool DockerNetworkModeExtensionsSupportsAdditionalNetworks(DockerNetworkMode dockerNetworkMode)
         => dockerNetworkMode.SupportsAdditionalNetworks();
 
+    private static IReadOnlyList<OpencodeLocationMapping> BuildLocationMappings(
+        string hostWorkDir,
+        string containerWorkDir,
+        IReadOnlyList<ContainerMount> containerMounts)
+    {
+        var mappings = new List<OpencodeLocationMapping>
+        {
+            new(hostWorkDir, containerWorkDir),
+            new(ResolveHostOpencodeWorktreeRoot(), OpencodeWrapConstants.CONTAINER_OPENCODE_WORKTREE_ROOT)
+        };
+
+        mappings.AddRange(containerMounts
+            .Where(mount => mount.SourceType == ContainerMountSourceType.Directory)
+            .Select(mount => new OpencodeLocationMapping(mount.Source, mount.ContainerPath)));
+        return mappings;
+    }
+
+    private static string ResolveHostOpencodeWorktreeRoot()
+    {
+        string? dataHome = Environment.GetEnvironmentVariable("XDG_DATA_HOME");
+        if(String.IsNullOrWhiteSpace(dataHome))
+        {
+            string userHome = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            dataHome = Path.Combine(userHome, ".local", "share");
+        }
+
+        return Path.GetFullPath(Path.Combine(dataHome, "opencode", "worktree"));
+    }
+
     private static bool UsesServerPassword(IReadOnlyList<string> opencodeArgs)
-        => opencodeArgs.Any(arg => arg is "serve" or "web");
+        => opencodeArgs.Any(arg => arg == "serve");
 
     private static StringComparer GetHostPathComparer() => OperatingSystem.IsWindows()
         ? StringComparer.OrdinalIgnoreCase
@@ -969,7 +1025,7 @@ internal sealed partial class OpencodeLauncherService : Singleton
             ? "127.0.0.1"
             : "0.0.0.0";
 
-    private static string ResolveAttachHostname(DockerNetworkMode dockerNetworkMode, bool isWindows)
+    private static string ResolveServerHostname(DockerNetworkMode dockerNetworkMode, bool isWindows)
         => "127.0.0.1";
 
     private void RegisterCleanupHandlers()

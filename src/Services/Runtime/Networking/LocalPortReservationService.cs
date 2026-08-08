@@ -62,12 +62,12 @@ internal sealed partial class LocalPortReservationService : Singleton
         }
         catch(Exception ex)
         {
-            _deferredSessionLogService.WriteErrorOrConsole("startup", $"Failed to select an attach port for Windows host networking: {ex.Message}");
+            _deferredSessionLogService.WriteErrorOrConsole("startup", $"Failed to select a server port for Windows host networking: {ex.Message}");
             reservation = new ReservedLocalPort(0, null);
             return false;
         }
 
-        _deferredSessionLogService.WriteErrorOrConsole("startup", "Failed to find an unused attach port for Windows host networking.");
+        _deferredSessionLogService.WriteErrorOrConsole("startup", "Failed to find an unused server port for Windows host networking.");
         reservation = new ReservedLocalPort(0, null);
         return false;
     }

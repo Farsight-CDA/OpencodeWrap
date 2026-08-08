@@ -1,38 +1,29 @@
 using Microsoft.Extensions.Logging;
-using OpencodeWrap.Services.Docker;
 using System.Net.Http.Headers;
 using System.Text;
+using System.Text.Json;
 
 namespace OpencodeWrap.Services.Runtime.Lifecycle;
 
 internal sealed partial class OpencodeServeHealthcheckService : Singleton
 {
-    private static readonly TimeSpan _readinessTimeout = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan _readinessTimeout = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan _pollInterval = TimeSpan.FromMilliseconds(100);
     private static readonly TimeSpan _requestTimeout = TimeSpan.FromMilliseconds(500);
-    private static readonly StringComparer _urlComparer = StringComparer.OrdinalIgnoreCase;
 
-    [Inject] private readonly DeferredSessionLogService _deferredSessionLogService;
+    [Inject]
+    private readonly DeferredSessionLogService _deferredSessionLogService;
 
-    public async Task<string?> WaitUntilReadyAsync(string attachUrl, string serverPassword, DockerNetworkMode dockerNetworkMode, bool isWindows)
+    public async Task<bool> WaitUntilReadyAsync(string serverUrl, string serverPassword, string expectedVersion)
     {
-        if(!Uri.TryCreate(attachUrl, UriKind.Absolute, out var attachUri))
+        if(!Uri.TryCreate(serverUrl, UriKind.Absolute, out var serverUri))
         {
-            _deferredSessionLogService.WriteErrorOrConsole("startup", $"Invalid attach URL '{attachUrl}'.");
-            return null;
+            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.STARTUP, $"Invalid OpenCode V2 server URL '{serverUrl}'.");
+            return false;
         }
 
-        var probeTargets = BuildProbeTargets(attachUri, dockerNetworkMode, isWindows);
-        var (_, healthUri) = probeTargets[0];
-        if(probeTargets.Count == 1)
-        {
-            _deferredSessionLogService.Write("startup", $"waiting for backend readiness at '{healthUri}'", LogLevel.Information);
-        }
-        else
-        {
-            string fallbackTargets = String.Join(", ", probeTargets.Skip(1).Select(target => $"'{target.HealthUri}'"));
-            _deferredSessionLogService.Write("startup", $"waiting for backend readiness at '{healthUri}' (fallbacks: {fallbackTargets})", LogLevel.Information);
-        }
+        Uri healthUri = new(serverUri, "/api/health");
+        _deferredSessionLogService.Write(LogCategories.STARTUP, $"waiting for backend readiness at '{healthUri}'", LogLevel.Information);
 
         using var handler = new SocketsHttpHandler
         {
@@ -43,63 +34,96 @@ internal sealed partial class OpencodeServeHealthcheckService : Singleton
         {
             Timeout = _requestTimeout
         };
-        string credentials = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{OpencodeWrapConstants.OPENCODE_SERVER_USERNAME}:{serverPassword}"));
-        httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic", credentials);
 
         var deadlineUtc = DateTime.UtcNow + _readinessTimeout;
         string? lastFailureDetail = null;
 
         while(DateTime.UtcNow < deadlineUtc)
         {
-            foreach(var (probeAttachUrl, probeHealthUri) in probeTargets)
+            try
             {
-                try
+                using var request = CreateHealthRequest(serverUri, serverPassword);
+                using var response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseContentRead);
+                if(response.IsSuccessStatusCode)
                 {
-                    using var response = await httpClient.GetAsync(probeHealthUri, HttpCompletionOption.ResponseHeadersRead);
-                    if(response.IsSuccessStatusCode)
+                    string json = await response.Content.ReadAsStringAsync();
+                    if(TryValidateHealthResponse(json, expectedVersion, out string validationError))
                     {
-                        _deferredSessionLogService.Write("startup", $"backend reported ready at '{probeHealthUri}'", LogLevel.Information);
-                        return probeAttachUrl;
+                        _deferredSessionLogService.Write(LogCategories.STARTUP, $"OpenCode V2 backend {expectedVersion} reported ready at '{healthUri}'", LogLevel.Information);
+                        return true;
                     }
 
-                    lastFailureDetail = $"{probeHealthUri}: HTTP {(int) response.StatusCode} {response.ReasonPhrase}";
+                    lastFailureDetail = $"{healthUri}: {validationError}";
                 }
-                catch(Exception ex)
+                else
                 {
-                    lastFailureDetail = $"{probeHealthUri}: {ex.Message}";
+                    lastFailureDetail = $"{healthUri}: HTTP {(int) response.StatusCode} {response.ReasonPhrase}";
                 }
+            }
+            catch(Exception ex)
+            {
+                lastFailureDetail = $"{healthUri}: {ex.Message}";
             }
 
             await Task.Delay(_pollInterval);
         }
 
-        _deferredSessionLogService.WriteErrorOrConsole("startup", $"OpenCode backend did not become ready at '{healthUri}' within {_readinessTimeout.TotalSeconds:F0}s.");
+        _deferredSessionLogService.WriteErrorOrConsole(LogCategories.STARTUP, $"OpenCode V2 backend did not become ready at '{healthUri}' within {_readinessTimeout.TotalSeconds:F0}s.");
         if(!String.IsNullOrWhiteSpace(lastFailureDetail))
         {
-            _deferredSessionLogService.WriteErrorOrConsole("startup", lastFailureDetail);
+            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.STARTUP, lastFailureDetail);
         }
 
-        return null;
+        return false;
     }
 
-    private static List<(string AttachUrl, Uri HealthUri)> BuildProbeTargets(Uri attachUri, DockerNetworkMode dockerNetworkMode, bool isWindows)
+    internal static HttpRequestMessage CreateHealthRequest(Uri serverUri, string serverPassword)
     {
-        var probeTargets = new List<(string AttachUrl, Uri HealthUri)>();
-        var seenAttachUrls = new HashSet<string>(_urlComparer);
+        var request = new HttpRequestMessage(HttpMethod.Get, new Uri(serverUri, "/api/health"));
+        string credentials = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{OpencodeWrapConstants.OPENCODE_BASIC_AUTH_USERNAME}:{serverPassword}"));
+        request.Headers.Authorization = new AuthenticationHeaderValue("Basic", credentials);
+        return request;
+    }
 
-        void AddProbeTarget(Uri candidateAttachUri)
+    internal static bool TryValidateHealthResponse(string json, string expectedVersion, out string errorMessage)
+    {
+        errorMessage = String.Empty;
+        try
         {
-            string candidateAttachUrl = candidateAttachUri.GetLeftPart(UriPartial.Authority);
-            if(!seenAttachUrls.Add(candidateAttachUrl))
+            using var document = JsonDocument.Parse(json);
+            var root = document.RootElement;
+            if(root.ValueKind != JsonValueKind.Object
+                || !root.TryGetProperty("healthy", out var healthyElement)
+                || healthyElement.ValueKind != JsonValueKind.True)
             {
-                return;
+                errorMessage = "health response did not report healthy=true";
+                return false;
             }
 
-            probeTargets.Add((candidateAttachUrl, new Uri(candidateAttachUri, "/global/health")));
+            string version = root.TryGetProperty("version", out var versionElement)
+                ? versionElement.GetString() ?? String.Empty
+                : String.Empty;
+            if(!String.Equals(version, expectedVersion, StringComparison.Ordinal))
+            {
+                errorMessage = $"health response version '{version}' did not match pinned version '{expectedVersion}'";
+                return false;
+            }
+
+            if(!root.TryGetProperty("pid", out var pidElement)
+                || pidElement.ValueKind != JsonValueKind.Number
+                || !pidElement.TryGetInt64(out long pid)
+                || pid <= 0)
+            {
+                errorMessage = "health response did not include a positive server pid";
+                return false;
+            }
+
+            return true;
         }
-
-        AddProbeTarget(attachUri);
-
-        return probeTargets;
+        catch(JsonException ex)
+        {
+            errorMessage = $"health response was not valid JSON: {ex.Message}";
+            return false;
+        }
     }
 }

@@ -25,7 +25,7 @@ internal sealed partial class BuiltInProfileTemplateService : Singleton
         and adds it to `PATH` for profile runs.
 
         Profile Dockerfiles should provide the environment and toolchain only.
-        OCW installs the latest OpenCode runtime separately at launch time.
+        OCW installs its pinned OpenCode V2 runtime separately at launch time.
 
         On Unix-like hosts, remember to mark scripts or binaries as executable.
         """;
