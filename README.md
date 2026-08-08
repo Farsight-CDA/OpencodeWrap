@@ -13,7 +13,7 @@ Your data persists. Your settings follow you. Just type `ocw run`.
 - **Smart profiles** — Built-in all-in-one setup plus custom profiles
 - **Session addons** — Drop in custom tools and configurations
 - **Auto-updates** — Always on the latest OpenCode
-- **Your choice of UI** — TUI or web browser
+- **Terminal UI** — Attach a local TUI to the containerized OpenCode backend
 - **Works everywhere** — Linux, macOS, Windows
 
 ---
@@ -34,9 +34,7 @@ Docker required.
 ocw run
 ```
 
-Choose your UI and start coding with the built-in all-in-one profile or your own custom one.
-
-![Run Setup](docs/images/run-setup.png)
+Choose a profile and start coding with the built-in all-in-one profile or your own custom one.
 
 ---
 

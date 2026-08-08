@@ -18,7 +18,6 @@ internal sealed partial class OpencodeLauncherService : Singleton
     [Inject] private readonly ManagedHostOpencodeService _managedHostOpencodeService;
     [Inject] private readonly OpencodeReleaseMetadataService _opencodeReleaseMetadataService;
     [Inject] private readonly OpencodeRuntimeImageService _opencodeRuntimeImageService;
-    [Inject] private readonly RunUiLauncherService _runUiLauncherService;
     [Inject] private readonly SessionStagingService _sessionStagingService;
     [Inject] private readonly SessionAddonService _sessionAddonService;
     [Inject] private readonly DeferredSessionLogService _deferredSessionLogService;
@@ -39,7 +38,6 @@ internal sealed partial class OpencodeLauncherService : Singleton
         string? requestedProfileName,
         bool includeProfileConfig,
         OpencodeRuntimeMode runtimeMode,
-        RunUiMode runUiMode = RunUiMode.Tui,
         WorkspaceMountMode workspaceMountMode = WorkspaceMountMode.ReadWrite,
         IReadOnlyList<ContainerMount>? containerMounts = null,
         IReadOnlyList<string>? sessionAddons = null,
@@ -50,7 +48,6 @@ internal sealed partial class OpencodeLauncherService : Singleton
     {
         bool useServeSession = runtimeMode is OpencodeRuntimeMode.HostAttachToServe;
         bool useServerPassword = useServeSession || UsesServerPassword(opencodeArgs);
-        bool useManagedHostClient = useServeSession && runUiMode is RunUiMode.Tui;
         bool clearConsoleOnSessionLogFlush = true;
         var sessionLog = includeProfileConfig
             ? _deferredSessionLogService.BeginSession(verboseSessionLogs ? LogLevel.Debug : LogLevel.Information)
@@ -171,11 +168,6 @@ internal sealed partial class OpencodeLauncherService : Singleton
             _deferredSessionLogService.Write("session", $"prepared runtime session '{session.SessionId}' at '{session.HostSessionDirectory}'", LogLevel.Information);
             LogStartupPhase($"runtime session '{session.SessionId}' finalized at '{session.HostSessionDirectory}'", LogLevel.Debug);
 
-            session = session with
-            {
-                UiMode = runUiMode
-            };
-
             var (releaseResolved, latestRelease) = await latestReleaseTask;
             if(!releaseResolved)
             {
@@ -221,10 +213,7 @@ internal sealed partial class OpencodeLauncherService : Singleton
                 };
                 LogStartupPhase($"prepared attach port {port} at '{session.AttachUrl}'", LogLevel.Debug);
 
-                if(useManagedHostClient)
-                {
-                    hostLeaseTask = BeginManagedHostClientPreparationAsync(session.SessionId, latestRelease);
-                }
+                hostLeaseTask = BeginManagedHostClientPreparationAsync(session.SessionId, latestRelease);
             }
 
             var (baseImageReady, baseImageTag) = await baseImageTask;
@@ -427,32 +416,14 @@ internal sealed partial class OpencodeLauncherService : Singleton
                     };
                 }
 
-                var launchResult = await _runUiLauncherService.LaunchAsync(runUiMode, session.AttachUrl!, containerWorkDir, serverPassword!, managedHostExecutablePath);
-                if(useManagedHostClient && (!launchResult.Success || launchResult.ExitCode != 0))
+                int attachExitCode = await _hostOpencodeAttachService.RunAttachAsync(managedHostExecutablePath ?? String.Empty, session.AttachUrl!, serverPassword!);
+                if(attachExitCode != 0)
                 {
                     clearConsoleOnSessionLogFlush = false;
                 }
 
-                if(!launchResult.Success)
-                {
-                    if(!String.IsNullOrWhiteSpace(session.AttachUrl))
-                    {
-                        _sessionOutputService.WriteInfo(LogCategories.ATTACH, $"Local session URL: {session.AttachUrl}");
-                    }
-
-                    CleanupContainer(force: true);
-                    return launchResult.ExitCode;
-                }
-
-                if(launchResult.WaitForBackendShutdown)
-                {
-                    int backendExitCode = await WaitForContainerExitAsync(_containerName!);
-                    CleanupContainer(force: false);
-                    return backendExitCode;
-                }
-
                 CleanupContainer(force: true);
-                return launchResult.ExitCode;
+                return attachExitCode;
             }
 
             int exitCode = requiresPrecreatedContainer
@@ -551,22 +522,6 @@ internal sealed partial class OpencodeLauncherService : Singleton
         WriteSessionError("docker", "Failed to start OpenCode backend container.");
         WriteSessionErrorDetails("docker", runResult.StdErr);
         return false;
-    }
-
-    private async Task<int> WaitForContainerExitAsync(string containerName)
-    {
-        var waitResult = await ProcessRunner.RunAsync("docker", ["wait", containerName]);
-        if(!waitResult.Started)
-        {
-            _deferredSessionLogService.WriteWarningOrConsole("docker", $"Failed to wait for backend container '{containerName}' to exit.");
-            WriteSessionErrorDetails("docker", waitResult.StdErr);
-            return 1;
-        }
-
-        string exitCodeText = FirstNonEmptyLine(waitResult.StdOut, waitResult.StdErr);
-        return Int32.TryParse(exitCodeText, NumberStyles.Integer, CultureInfo.InvariantCulture, out int exitCode)
-            ? exitCode
-            : waitResult.ExitCode;
     }
 
     private async Task<ProcessRunner.ProcessRunResult> CreateConnectAndStartContainerAsync(
@@ -1016,28 +971,6 @@ internal sealed partial class OpencodeLauncherService : Singleton
 
     private static string ResolveAttachHostname(DockerNetworkMode dockerNetworkMode, bool isWindows)
         => "127.0.0.1";
-
-    private static string FirstNonEmptyLine(params string[] values)
-    {
-        foreach(string value in values)
-        {
-            if(String.IsNullOrWhiteSpace(value))
-            {
-                continue;
-            }
-
-            string firstLine = value
-                .Replace("\r", String.Empty, StringComparison.Ordinal)
-                .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                .FirstOrDefault() ?? String.Empty;
-            if(!String.IsNullOrWhiteSpace(firstLine))
-            {
-                return firstLine;
-            }
-        }
-
-        return String.Empty;
-    }
 
     private void RegisterCleanupHandlers()
     {

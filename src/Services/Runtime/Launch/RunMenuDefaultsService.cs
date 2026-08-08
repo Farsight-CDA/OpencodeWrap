@@ -129,11 +129,6 @@ internal sealed partial class RunMenuDefaultsService : Singleton
                 writer.WriteString("profileName", normalizedConfig.ProfileName);
             }
 
-            if(normalizedConfig.UiMode is { } uiMode)
-            {
-                writer.WriteString("uiMode", GetPersistedRunUiModeValue(uiMode));
-            }
-
             if(normalizedConfig.WorkspaceMountMode is { } workspaceMountMode)
             {
                 writer.WriteString("workspaceMountMode", GetPersistedWorkspaceMountModeValue(workspaceMountMode));
@@ -205,14 +200,6 @@ internal sealed partial class RunMenuDefaultsService : Singleton
             defaultProfileName = defaultProfileElement.GetString();
         }
 
-        RunUiMode? defaultUiMode = null;
-        if(rootElement.TryGetProperty("defaultUiMode", out var defaultUiModeElement)
-            && defaultUiModeElement.ValueKind is JsonValueKind.String
-            && TryParseRunUiMode(defaultUiModeElement.GetString(), out var parsedDefaultUiMode))
-        {
-            defaultUiMode = parsedDefaultUiMode;
-        }
-
         DockerNetworkMode? defaultDockerNetworkMode = null;
         if(rootElement.TryGetProperty("defaultDockerNetworkMode", out var defaultDockerNetworkModeElement)
             && defaultDockerNetworkModeElement.ValueKind is JsonValueKind.String)
@@ -233,7 +220,6 @@ internal sealed partial class RunMenuDefaultsService : Singleton
 
         return NormalizeDefaults(new RunMenuDefaults(
             defaultProfileName,
-            defaultUiMode,
             defaultDockerNetworkMode,
             ReadContainerMounts(rootElement),
             ReadStringArray(rootElement, "sessionAddons"),
@@ -253,14 +239,6 @@ internal sealed partial class RunMenuDefaultsService : Singleton
             && profileNameElement.ValueKind is JsonValueKind.String)
         {
             profileName = profileNameElement.GetString();
-        }
-
-        RunUiMode? uiMode = null;
-        if(rootElement.TryGetProperty("uiMode", out var uiModeElement)
-            && uiModeElement.ValueKind is JsonValueKind.String
-            && TryParseRunUiMode(uiModeElement.GetString(), out var parsedUiMode))
-        {
-            uiMode = parsedUiMode;
         }
 
         WorkspaceMountMode? workspaceMountMode = null;
@@ -291,7 +269,6 @@ internal sealed partial class RunMenuDefaultsService : Singleton
 
         return NormalizeWorkspaceConfig(new WorkspaceRunMenuConfig(
             profileName,
-            uiMode,
             workspaceMountMode,
             dockerNetworkMode,
             privileged,
@@ -451,7 +428,7 @@ internal sealed partial class RunMenuDefaultsService : Singleton
             .Select(name => name.Trim())
             .Where(seenAddonNames.Add)];
 
-        return new RunMenuDefaults(defaultProfileName, defaults.DefaultUiMode, defaults.DefaultDockerNetworkMode, containerMounts, sessionAddons, dockerNetworks, defaults.ServerPassword);
+        return new RunMenuDefaults(defaultProfileName, defaults.DefaultDockerNetworkMode, containerMounts, sessionAddons, dockerNetworks, defaults.ServerPassword);
     }
 
     private static RunMenuDefaults EnsureServerPassword(RunMenuDefaults defaults)
@@ -489,11 +466,6 @@ internal sealed partial class RunMenuDefaultsService : Singleton
                 if(!String.IsNullOrWhiteSpace(defaults.DefaultProfileName))
                 {
                     writer.WriteString("defaultProfileName", defaults.DefaultProfileName);
-                }
-
-                if(defaults.DefaultUiMode is { } defaultUiMode)
-                {
-                    writer.WriteString("defaultUiMode", GetPersistedRunUiModeValue(defaultUiMode));
                 }
 
                 if(defaults.DefaultDockerNetworkMode is { } defaultDockerNetworkMode)
@@ -559,7 +531,6 @@ internal sealed partial class RunMenuDefaultsService : Singleton
     {
         RunMenuDefaults normalizedDefaults = NormalizeDefaults(new RunMenuDefaults(
             config.ProfileName,
-            config.UiMode,
             config.DockerNetworkMode,
             config.ContainerMounts,
             config.SessionAddons,
@@ -567,7 +538,6 @@ internal sealed partial class RunMenuDefaultsService : Singleton
 
         return new WorkspaceRunMenuConfig(
             normalizedDefaults.DefaultProfileName,
-            normalizedDefaults.DefaultUiMode,
             config.WorkspaceMountMode,
             normalizedDefaults.DefaultDockerNetworkMode,
             config.Privileged,
@@ -656,13 +626,6 @@ internal sealed partial class RunMenuDefaultsService : Singleton
         return candidateName;
     }
 
-    private static string GetPersistedRunUiModeValue(RunUiMode runUiMode) => runUiMode switch
-    {
-        RunUiMode.Web => "web",
-        RunUiMode.Desktop => "desktop",
-        _ => "tui"
-    };
-
     private static string GetPersistedWorkspaceMountModeValue(WorkspaceMountMode workspaceMountMode) => workspaceMountMode switch
     {
         WorkspaceMountMode.None => "none",
@@ -680,25 +643,6 @@ internal sealed partial class RunMenuDefaultsService : Singleton
         ContainerMountAccessMode.ReadOnly => "readOnly",
         _ => "readWrite"
     };
-
-    private static bool TryParseRunUiMode(string? persistedValue, out RunUiMode runUiMode)
-    {
-        switch(persistedValue?.Trim().ToLowerInvariant())
-        {
-            case "tui":
-                runUiMode = RunUiMode.Tui;
-                return true;
-            case "web":
-                runUiMode = RunUiMode.Web;
-                return true;
-            case "desktop":
-                runUiMode = RunUiMode.Desktop;
-                return true;
-            default:
-                runUiMode = default;
-                return false;
-        }
-    }
 
     private static bool TryParseWorkspaceMountMode(string? persistedValue, out WorkspaceMountMode workspaceMountMode)
     {
@@ -759,12 +703,12 @@ internal sealed partial class RunMenuDefaultsService : Singleton
         : StringComparer.Ordinal;
 }
 
-internal sealed record RunMenuDefaults(string? DefaultProfileName, RunUiMode? DefaultUiMode, DockerNetworkMode? DefaultDockerNetworkMode, IReadOnlyList<ContainerMount> ContainerMounts, IReadOnlyList<string> SessionAddons, IReadOnlyList<string> DockerNetworks, string? ServerPassword = null)
+internal sealed record RunMenuDefaults(string? DefaultProfileName, DockerNetworkMode? DefaultDockerNetworkMode, IReadOnlyList<ContainerMount> ContainerMounts, IReadOnlyList<string> SessionAddons, IReadOnlyList<string> DockerNetworks, string? ServerPassword = null)
 {
-    public static RunMenuDefaults Empty { get; } = new(null, null, null, [], [], []);
+    public static RunMenuDefaults Empty { get; } = new(null, null, [], [], []);
 }
 
-internal sealed record WorkspaceRunMenuConfig(string? ProfileName, RunUiMode? UiMode, WorkspaceMountMode? WorkspaceMountMode, DockerNetworkMode? DockerNetworkMode, bool? Privileged, IReadOnlyList<ContainerMount> ContainerMounts, IReadOnlyList<string> SessionAddons, IReadOnlyList<string> DockerNetworks)
+internal sealed record WorkspaceRunMenuConfig(string? ProfileName, WorkspaceMountMode? WorkspaceMountMode, DockerNetworkMode? DockerNetworkMode, bool? Privileged, IReadOnlyList<ContainerMount> ContainerMounts, IReadOnlyList<string> SessionAddons, IReadOnlyList<string> DockerNetworks)
 {
-    public static WorkspaceRunMenuConfig Empty { get; } = new(null, null, null, null, null, [], [], []);
+    public static WorkspaceRunMenuConfig Empty { get; } = new(null, null, null, null, [], [], []);
 }
