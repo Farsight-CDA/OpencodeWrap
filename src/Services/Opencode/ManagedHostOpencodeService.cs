@@ -41,7 +41,7 @@ internal sealed partial class ManagedHostOpencodeService : Singleton
             return (false, null);
         }
 
-        var (success, executablePath) = await EnsurePinnedLockedAsync(paths, release);
+        var (success, executablePath) = await EnsureResolvedVersionLockedAsync(paths, release);
         if(!success)
         {
             return (false, null);
@@ -63,7 +63,7 @@ internal sealed partial class ManagedHostOpencodeService : Singleton
         }
     }
 
-    private async Task<(bool Success, string ExecutablePath)> EnsurePinnedLockedAsync(OcwHostPaths paths, ResolvedOpencodeRelease release)
+    private async Task<(bool Success, string ExecutablePath)> EnsureResolvedVersionLockedAsync(OcwHostPaths paths, ResolvedOpencodeRelease release)
     {
         _sessionStagingService.CleanupStaleSessions();
         RemoveOrphanedLeaseFiles(paths);
@@ -87,7 +87,7 @@ internal sealed partial class ManagedHostOpencodeService : Singleton
                 return (true, installedExecutablePath);
             }
 
-            _deferredSessionLogService.WriteWarningOrConsole(LogCategories.OPENCODE_HOST, $"Reinstalling managed host OpenCode V2 {release.Version} because the cached executable did not match the pinned version.");
+            _deferredSessionLogService.WriteWarningOrConsole(LogCategories.OPENCODE_HOST, $"Reinstalling managed host OpenCode V2 {release.Version} because the cached executable did not match the resolved session version.");
         }
 
         if(Directory.Exists(versionRoot) && HasActiveLeaseForVersion(paths, release.Version))

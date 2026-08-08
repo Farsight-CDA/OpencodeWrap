@@ -171,7 +171,7 @@ internal sealed partial class OpencodeLauncherService : Singleton
                 return 1;
             }
 
-            LogStartupPhase($"resolved pinned OpenCode V2 version {packageRelease.Version}", LogLevel.Debug);
+            LogStartupPhase($"resolved OpenCode V2 session version {packageRelease.Version}", LogLevel.Debug);
             resolvedOpencodeVersion = packageRelease.Version;
 
             if(useServeSession)
@@ -279,7 +279,8 @@ internal sealed partial class OpencodeLauncherService : Singleton
                 "-e", $"XDG_DATA_HOME={OpencodeWrapConstants.CONTAINER_XDG_DATA_HOME}",
                 "-e", $"XDG_STATE_HOME={OpencodeWrapConstants.CONTAINER_XDG_STATE_HOME}",
                 "-e", $"XDG_CACHE_HOME={OpencodeWrapConstants.CONTAINER_XDG_CACHE_HOME}",
-                "-e", $"OCW_PROFILE_ROOT={OpencodeWrapConstants.CONTAINER_PROFILE_ROOT}"
+                "-e", $"OCW_PROFILE_ROOT={OpencodeWrapConstants.CONTAINER_PROFILE_ROOT}",
+                "-e", $"{OpencodeWrapConstants.OPENCODE_DISABLE_AUTOUPDATE_ENVIRONMENT_VARIABLE}=1"
             ]);
 
             if(useServerPassword)
@@ -475,8 +476,8 @@ internal sealed partial class OpencodeLauncherService : Singleton
 
         Task<(bool Success, ResolvedOpencodeRelease Release)> BeginPackageReleaseResolutionAsync()
         {
-            _deferredSessionLogService.Write(LogCategories.OPENCODE_VERSION, "Resolving pinned OpenCode V2 package...", LogLevel.Information);
-            return _opencodeReleaseMetadataService.TryResolvePinnedAsync();
+            _deferredSessionLogService.Write(LogCategories.OPENCODE_VERSION, "Checking for OpenCode V2 updates...", LogLevel.Information);
+            return _opencodeReleaseMetadataService.TryResolveCurrentV2Async();
         }
 
         Task<(bool Success, ManagedHostOpencodeService.ManagedHostOpencodeLease? Lease)> BeginManagedHostClientPreparationAsync(string sessionId, ResolvedOpencodeRelease packageRelease)

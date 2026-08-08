@@ -1,13 +1,10 @@
 using Microsoft.Extensions.Logging;
-using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Runtime.Intrinsics.X86;
 using System.Text;
 using System.Text.Json;
 
 namespace OpencodeWrap.Services.Opencode;
-
-internal sealed record OpencodePackagePin(string Name, string Version);
 
 internal sealed record OpencodeNpmPackageAsset(
     string PackageName,
@@ -27,6 +24,8 @@ internal sealed record ResolvedOpencodeBinaryAsset(
 internal sealed partial class OpencodeReleaseMetadataService : Singleton
 {
     private const string NPM_REGISTRY_ROOT = "https://registry.npmjs.org";
+    private const string OPENCODE_V2_PACKAGE_NAME = "@opencode-ai/cli";
+    private const string OPENCODE_V2_DIST_TAG = "next";
     private static readonly string[] _requiredPlatformTargets =
     [
         "darwin-arm64",
@@ -43,7 +42,6 @@ internal sealed partial class OpencodeReleaseMetadataService : Singleton
         "windows-x64-baseline"
     ];
     private static readonly HttpClient _httpClient = CreateHttpClient();
-    private static readonly OpencodePackagePin _packagePin = LoadPackagePin();
 
     [Inject]
     private readonly DeferredSessionLogService _deferredSessionLogService;
@@ -54,7 +52,7 @@ internal sealed partial class OpencodeReleaseMetadataService : Singleton
     [Inject]
     private readonly FileLockService _fileLockService;
 
-    public async Task<(bool Success, ResolvedOpencodeRelease Release)> TryResolvePinnedAsync()
+    public async Task<(bool Success, ResolvedOpencodeRelease Release)> TryResolveCurrentV2Async()
     {
         var emptyRelease = CreateEmptyRelease();
         if(!_hostPathService.TryGetPaths(out var paths))
@@ -69,23 +67,26 @@ internal sealed partial class OpencodeReleaseMetadataService : Singleton
         }
 
         var cachedRelease = TryReadCachedRelease(paths.OpencodePackageCachePath);
-        if(cachedRelease is not null && IsExpectedPinnedRelease(cachedRelease))
+        _deferredSessionLogService.Write(LogCategories.OPENCODE_VERSION, $"resolving current OpenCode V2 package {OPENCODE_V2_PACKAGE_NAME}@{OPENCODE_V2_DIST_TAG}", LogLevel.Information);
+        var (success, release) = await TryFetchCurrentV2ReleaseAsync(cachedRelease);
+        if(success)
         {
-            _deferredSessionLogService.Write(LogCategories.OPENCODE_VERSION, $"reusing cached OpenCode V2 package metadata for {_packagePin.Name}@{_packagePin.Version}", LogLevel.Information);
+            if(!ReferenceEquals(release, cachedRelease))
+            {
+                await TryWriteCachedReleaseAsync(paths.OpencodePackageCachePath, release);
+            }
+            _deferredSessionLogService.Write(LogCategories.OPENCODE_VERSION, $"resolved OpenCode V2 {release.Version} for this session", LogLevel.Information);
+            return (true, release);
+        }
+
+        if(cachedRelease is not null && IsValidRelease(cachedRelease))
+        {
+            _deferredSessionLogService.WriteWarningOrConsole(LogCategories.OPENCODE_VERSION, $"Could not resolve the current OpenCode V2 release; using cached {cachedRelease.Version} for this session.");
             return (true, cachedRelease);
         }
 
-        _deferredSessionLogService.Write(LogCategories.OPENCODE_VERSION, $"resolving pinned OpenCode V2 package {_packagePin.Name}@{_packagePin.Version}", LogLevel.Information);
-        var (success, release) = await TryFetchPinnedReleaseAsync();
-        if(!success)
-        {
-            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.OPENCODE_VERSION, $"Failed to resolve pinned OpenCode V2 package {_packagePin.Name}@{_packagePin.Version}.");
-            return (false, emptyRelease);
-        }
-
-        await TryWriteCachedReleaseAsync(paths.OpencodePackageCachePath, release);
-        _deferredSessionLogService.Write(LogCategories.OPENCODE_VERSION, $"resolved pinned OpenCode V2 package {_packagePin.Name}@{release.Version}", LogLevel.Information);
-        return (true, release);
+        _deferredSessionLogService.WriteErrorOrConsole(LogCategories.OPENCODE_VERSION, $"Failed to resolve {OPENCODE_V2_PACKAGE_NAME}@{OPENCODE_V2_DIST_TAG}, and no valid cached V2 release is available.");
+        return (false, emptyRelease);
     }
 
     public async Task<(bool Success, ResolvedOpencodeBinaryAsset Asset)> TryResolveCurrentHostBinaryAsync(ResolvedOpencodeRelease release)
@@ -151,12 +152,8 @@ internal sealed partial class OpencodeReleaseMetadataService : Singleton
         asset = new OpencodeNpmPackageAsset("", "", "", "");
         errorMessage = String.Empty;
 
-        string name = root.TryGetProperty("name", out var nameElement)
-            ? nameElement.GetString() ?? String.Empty
-            : String.Empty;
-        string version = root.TryGetProperty("version", out var versionElement)
-            ? versionElement.GetString() ?? String.Empty
-            : String.Empty;
+        string name = TryGetStringProperty(root, "name");
+        string version = TryGetStringProperty(root, "version");
 
         if(!String.Equals(name, expectedName, StringComparison.Ordinal))
         {
@@ -166,22 +163,20 @@ internal sealed partial class OpencodeReleaseMetadataService : Singleton
 
         if(!String.Equals(version, expectedVersion, StringComparison.Ordinal))
         {
-            errorMessage = $"npm returned {name}@{version} instead of the pinned version {expectedVersion}.";
+            errorMessage = $"npm returned {name}@{version} instead of the resolved version {expectedVersion}.";
             return false;
         }
 
-        if(!root.TryGetProperty("dist", out var distElement) || distElement.ValueKind != JsonValueKind.Object)
+        if(root.ValueKind != JsonValueKind.Object
+            || !root.TryGetProperty("dist", out var distElement)
+            || distElement.ValueKind != JsonValueKind.Object)
         {
             errorMessage = $"npm metadata for {name}@{version} did not include dist metadata.";
             return false;
         }
 
-        string downloadUrl = distElement.TryGetProperty("tarball", out var tarballElement)
-            ? tarballElement.GetString() ?? String.Empty
-            : String.Empty;
-        string integrity = distElement.TryGetProperty("integrity", out var integrityElement)
-            ? integrityElement.GetString() ?? String.Empty
-            : String.Empty;
+        string downloadUrl = TryGetStringProperty(distElement, "tarball");
+        string integrity = TryGetStringProperty(distElement, "integrity");
 
         if(!Uri.TryCreate(downloadUrl, UriKind.Absolute, out var downloadUri)
             || downloadUri.Scheme != Uri.UriSchemeHttps)
@@ -224,22 +219,39 @@ internal sealed partial class OpencodeReleaseMetadataService : Singleton
         return (false, emptyAsset);
     }
 
-    private async Task<(bool Success, ResolvedOpencodeRelease Release)> TryFetchPinnedReleaseAsync()
+    private async Task<(bool Success, ResolvedOpencodeRelease Release)> TryFetchCurrentV2ReleaseAsync(ResolvedOpencodeRelease? cachedRelease)
     {
         var emptyRelease = CreateEmptyRelease();
-        var (cliSuccess, cliRoot) = await TryFetchPackageMetadataAsync(_packagePin.Name, _packagePin.Version);
+        var (cliSuccess, cliRoot) = await TryFetchPackageMetadataAsync(OPENCODE_V2_PACKAGE_NAME, OPENCODE_V2_DIST_TAG);
         if(!cliSuccess)
         {
             return (false, emptyRelease);
         }
 
-        if(!TryReadPinnedPlatformDependencies(cliRoot, out var platformPackageNames, out string dependencyError))
+        string resolvedVersion = TryGetStringProperty(cliRoot, "version");
+        string cliError = String.Empty;
+        if(String.IsNullOrWhiteSpace(resolvedVersion)
+            || !TryParsePackageAsset(cliRoot, OPENCODE_V2_PACKAGE_NAME, resolvedVersion, out _, out cliError))
         {
-            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.OPENCODE_VERSION, dependencyError);
+            _deferredSessionLogService.WriteWarningOrConsole(LogCategories.OPENCODE_VERSION, String.IsNullOrWhiteSpace(cliError) ? "npm returned invalid OpenCode V2 package metadata." : cliError);
             return (false, emptyRelease);
         }
 
-        var packageTasks = platformPackageNames.Select(TryFetchPinnedPlatformPackageAsync).ToArray();
+        if(!TryReadPlatformDependencies(cliRoot, resolvedVersion, out var platformPackageNames, out string dependencyError))
+        {
+            _deferredSessionLogService.WriteWarningOrConsole(LogCategories.OPENCODE_VERSION, dependencyError);
+            return (false, emptyRelease);
+        }
+
+        if(cachedRelease is not null
+            && String.Equals(cachedRelease.Version, resolvedVersion, StringComparison.Ordinal)
+            && IsValidRelease(cachedRelease))
+        {
+            _deferredSessionLogService.Write(LogCategories.OPENCODE_VERSION, $"reusing cached package metadata for OpenCode V2 {resolvedVersion}", LogLevel.Information);
+            return (true, cachedRelease);
+        }
+
+        var packageTasks = platformPackageNames.Select(packageName => TryFetchPlatformPackageAsync(packageName, resolvedVersion)).ToArray();
         var packageResults = await Task.WhenAll(packageTasks);
         if(packageResults.Any(result => !result.Success))
         {
@@ -251,21 +263,21 @@ internal sealed partial class OpencodeReleaseMetadataService : Singleton
             result => result.Asset,
             StringComparer.Ordinal);
 
-        return (true, new ResolvedOpencodeRelease(_packagePin.Name, _packagePin.Version, platformPackages));
+        return (true, new ResolvedOpencodeRelease(OPENCODE_V2_PACKAGE_NAME, resolvedVersion, platformPackages));
     }
 
-    private async Task<(bool Success, OpencodeNpmPackageAsset Asset)> TryFetchPinnedPlatformPackageAsync(string packageName)
+    private async Task<(bool Success, OpencodeNpmPackageAsset Asset)> TryFetchPlatformPackageAsync(string packageName, string resolvedVersion)
     {
         var emptyAsset = new OpencodeNpmPackageAsset("", "", "", "");
-        var (success, root) = await TryFetchPackageMetadataAsync(packageName, _packagePin.Version);
+        var (success, root) = await TryFetchPackageMetadataAsync(packageName, resolvedVersion);
         if(!success)
         {
             return (false, emptyAsset);
         }
 
-        if(!TryParsePackageAsset(root, packageName, _packagePin.Version, out var asset, out string errorMessage))
+        if(!TryParsePackageAsset(root, packageName, resolvedVersion, out var asset, out string errorMessage))
         {
-            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.OPENCODE_VERSION, errorMessage);
+            _deferredSessionLogService.WriteWarningOrConsole(LogCategories.OPENCODE_VERSION, errorMessage);
             return (false, emptyAsset);
         }
 
@@ -281,7 +293,7 @@ internal sealed partial class OpencodeReleaseMetadataService : Singleton
             using var response = await _httpClient.GetAsync($"{NPM_REGISTRY_ROOT}/{escapedName}/{escapedVersion}", HttpCompletionOption.ResponseHeadersRead);
             if(!response.IsSuccessStatusCode)
             {
-                _deferredSessionLogService.WriteErrorOrConsole(LogCategories.OPENCODE_VERSION, $"npm metadata lookup for {packageName}@{version} failed with HTTP {(int) response.StatusCode} {response.ReasonPhrase}.");
+                _deferredSessionLogService.WriteWarningOrConsole(LogCategories.OPENCODE_VERSION, $"npm metadata lookup for {packageName}@{version} failed with HTTP {(int) response.StatusCode} {response.ReasonPhrase}.");
                 return (false, default);
             }
 
@@ -291,48 +303,45 @@ internal sealed partial class OpencodeReleaseMetadataService : Singleton
         }
         catch(Exception ex)
         {
-            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.OPENCODE_VERSION, $"Failed to fetch npm metadata for {packageName}@{version}: {ex.Message}");
+            _deferredSessionLogService.WriteWarningOrConsole(LogCategories.OPENCODE_VERSION, $"Failed to fetch npm metadata for {packageName}@{version}: {ex.Message}");
             return (false, default);
         }
     }
 
-    private bool TryReadPinnedPlatformDependencies(JsonElement cliRoot, out List<string> packageNames, out string errorMessage)
+    private static bool TryReadPlatformDependencies(JsonElement cliRoot, string resolvedVersion, out List<string> packageNames, out string errorMessage)
     {
         packageNames = [];
         errorMessage = String.Empty;
-        if(!cliRoot.TryGetProperty("optionalDependencies", out var dependencies)
+        if(cliRoot.ValueKind != JsonValueKind.Object
+            || !cliRoot.TryGetProperty("optionalDependencies", out var dependencies)
             || dependencies.ValueKind != JsonValueKind.Object)
         {
-            errorMessage = $"npm metadata for {_packagePin.Name}@{_packagePin.Version} did not include platform optional dependencies.";
+            errorMessage = $"npm metadata for {OPENCODE_V2_PACKAGE_NAME}@{resolvedVersion} did not include platform optional dependencies.";
             return false;
         }
 
-        string platformPackagePrefix = $"{_packagePin.Name}-";
-        foreach(var dependency in dependencies.EnumerateObject())
+        foreach(string target in _requiredPlatformTargets)
         {
-            if(!dependency.Name.StartsWith(platformPackagePrefix, StringComparison.Ordinal))
+            string packageName = $"{OPENCODE_V2_PACKAGE_NAME}-{target}";
+            if(!dependencies.TryGetProperty(packageName, out var dependency))
             {
-                continue;
-            }
-
-            string dependencyVersion = dependency.Value.GetString() ?? String.Empty;
-            if(!String.Equals(dependencyVersion, _packagePin.Version, StringComparison.Ordinal))
-            {
-                errorMessage = $"{_packagePin.Name}@{_packagePin.Version} references {dependency.Name}@{dependencyVersion}; every platform package must match the pinned CLI version.";
+                errorMessage = $"npm metadata for {OPENCODE_V2_PACKAGE_NAME}@{resolvedVersion} did not include required platform package {packageName}.";
                 return false;
             }
 
-            packageNames.Add(dependency.Name);
+            string dependencyVersion = dependency.ValueKind == JsonValueKind.String
+                ? dependency.GetString() ?? String.Empty
+                : String.Empty;
+            if(!String.Equals(dependencyVersion, resolvedVersion, StringComparison.Ordinal))
+            {
+                errorMessage = $"{OPENCODE_V2_PACKAGE_NAME}@{resolvedVersion} references {packageName}@{dependencyVersion}; every platform package must match the resolved CLI version.";
+                return false;
+            }
+
+            packageNames.Add(packageName);
         }
 
         packageNames.Sort(StringComparer.Ordinal);
-        string[] requiredPackageNames = [.. _requiredPlatformTargets.Select(target => $"{_packagePin.Name}-{target}")];
-        if(!packageNames.SequenceEqual(requiredPackageNames, StringComparer.Ordinal))
-        {
-            errorMessage = $"npm metadata for {_packagePin.Name}@{_packagePin.Version} did not contain the complete pinned platform package set.";
-            return false;
-        }
-
         return true;
     }
 
@@ -387,60 +396,61 @@ internal sealed partial class OpencodeReleaseMetadataService : Singleton
 
     private async Task TryWriteCachedReleaseAsync(string cachePath, ResolvedOpencodeRelease release)
     {
+        string temporaryPath = $"{cachePath}.{Guid.NewGuid():N}.tmp";
         try
         {
             string json = JsonSerializer.Serialize(release, OpencodeJsonContext.Default.ResolvedOpencodeRelease);
-            await File.WriteAllTextAsync(cachePath, json);
+            await File.WriteAllTextAsync(temporaryPath, json);
+            File.Move(temporaryPath, cachePath, overwrite: true);
         }
         catch(Exception ex)
         {
             _deferredSessionLogService.WriteWarningOrConsole(LogCategories.OPENCODE_VERSION, $"Failed to write cached OpenCode V2 package metadata '{cachePath}': {ex.Message}");
         }
+        finally
+        {
+            try
+            {
+                File.Delete(temporaryPath);
+            }
+            catch
+            {
+            }
+        }
     }
 
-    private static bool IsExpectedPinnedRelease(ResolvedOpencodeRelease release)
-        => String.Equals(release.PackageName, _packagePin.Name, StringComparison.Ordinal)
-            && String.Equals(release.Version, _packagePin.Version, StringComparison.Ordinal)
+    private static bool IsValidRelease(ResolvedOpencodeRelease release)
+        => String.Equals(release.PackageName, OPENCODE_V2_PACKAGE_NAME, StringComparison.Ordinal)
+            && !String.IsNullOrWhiteSpace(release.Version)
             && release.PlatformPackages is not null
             && release.PlatformPackages.Count == _requiredPlatformTargets.Length
             && _requiredPlatformTargets.All(target =>
             {
-                string packageName = $"{_packagePin.Name}-{target}";
+                string packageName = $"{OPENCODE_V2_PACKAGE_NAME}-{target}";
                 return release.PlatformPackages.TryGetValue(packageName, out var package)
-                    && IsExpectedPackageAsset(package, packageName);
+                    && IsExpectedPackageAsset(package, packageName, release.Version);
             });
 
-    private static bool IsExpectedPackageAsset(OpencodeNpmPackageAsset? asset, string expectedName)
+    private static bool IsExpectedPackageAsset(OpencodeNpmPackageAsset? asset, string expectedName, string expectedVersion)
         => asset is not null
             && String.Equals(asset.PackageName, expectedName, StringComparison.Ordinal)
-            && String.Equals(asset.Version, _packagePin.Version, StringComparison.Ordinal)
+            && String.Equals(asset.Version, expectedVersion, StringComparison.Ordinal)
             && Uri.TryCreate(asset.DownloadUrl, UriKind.Absolute, out var downloadUri)
             && downloadUri.Scheme == Uri.UriSchemeHttps
             && OpencodePackageArtifactService.TryGetSha512Digest(asset.Integrity, out _);
-
-    private static OpencodePackagePin LoadPackagePin()
-    {
-        var assembly = Assembly.GetExecutingAssembly();
-        string resourceName = assembly.GetManifestResourceNames()
-            .Single(name => name.EndsWith("OpencodeV2Package.json", StringComparison.Ordinal));
-        using var stream = assembly.GetManifestResourceStream(resourceName)
-            ?? throw new InvalidOperationException("The embedded OpenCode V2 package pin could not be loaded.");
-        var pin = JsonSerializer.Deserialize(stream, OpencodeJsonContext.Default.OpencodePackagePin)
-            ?? throw new InvalidOperationException("The embedded OpenCode V2 package pin is invalid.");
-
-        if(String.IsNullOrWhiteSpace(pin.Name) || String.IsNullOrWhiteSpace(pin.Version))
-        {
-            throw new InvalidOperationException("The embedded OpenCode V2 package pin must include a package name and exact version.");
-        }
-
-        return pin;
-    }
 
     private static ResolvedOpencodeRelease CreateEmptyRelease()
         => new("", "", []);
 
     private static ResolvedOpencodeBinaryAsset CreateEmptyBinaryAsset()
         => new("", new OpencodeNpmPackageAsset("", "", "", ""));
+
+    private static string TryGetStringProperty(JsonElement root, string propertyName)
+        => root.ValueKind == JsonValueKind.Object
+            && root.TryGetProperty(propertyName, out var value)
+            && value.ValueKind == JsonValueKind.String
+                ? value.GetString() ?? String.Empty
+                : String.Empty;
 
     private static HttpClient CreateHttpClient()
     {

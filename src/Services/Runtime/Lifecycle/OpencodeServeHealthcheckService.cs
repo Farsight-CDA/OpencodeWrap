@@ -105,7 +105,7 @@ internal sealed partial class OpencodeServeHealthcheckService : Singleton
                 : String.Empty;
             if(!String.Equals(version, expectedVersion, StringComparison.Ordinal))
             {
-                errorMessage = $"health response version '{version}' did not match pinned version '{expectedVersion}'";
+                errorMessage = $"health response version '{version}' did not match session version '{expectedVersion}'";
                 return false;
             }
 
