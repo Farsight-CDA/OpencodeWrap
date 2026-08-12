@@ -1,5 +1,7 @@
 using Microsoft.Extensions.Logging;
 using System.Diagnostics;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace OpencodeWrap.Services.Runtime.Launch;
 
@@ -11,7 +13,7 @@ internal sealed partial class HostOpencodeClientService : Singleton
     [Inject]
     private readonly SessionOutputService _sessionOutputService;
 
-    public async Task<int> RunAsync(string executablePath, string serverUrl, string serverPassword, string tuiChannel)
+    public async Task<int> RunAsync(string executablePath, string serverUrl, string serverPassword, string tuiChannel, string sessionDirectory)
     {
         if(String.IsNullOrWhiteSpace(executablePath))
         {
@@ -34,10 +36,10 @@ internal sealed partial class HostOpencodeClientService : Singleton
 
         _deferredSessionLogService.Write(LogCategories.CLIENT, $"launching managed OpenCode V2 host client '{executablePath}' against '{serverUrl}'", LogLevel.Information);
 
-        var startInfo = BuildStartInfo(executablePath, serverUrl, serverPassword, tuiChannel);
-
         try
         {
+            string configDirectory = PrepareConfigDirectory(sessionDirectory);
+            var startInfo = BuildStartInfo(executablePath, serverUrl, serverPassword, tuiChannel, configDirectory);
             var process = await _sessionOutputService.RunWithLoadingStateAsync(
                 LogCategories.CLIENT,
                 "Launching OpenCode terminal...",
@@ -65,7 +67,7 @@ internal sealed partial class HostOpencodeClientService : Singleton
         }
     }
 
-    internal static ProcessStartInfo BuildStartInfo(string executablePath, string serverUrl, string serverPassword, string tuiChannel)
+    internal static ProcessStartInfo BuildStartInfo(string executablePath, string serverUrl, string serverPassword, string tuiChannel, string configDirectory)
     {
         var startInfo = new ProcessStartInfo(executablePath)
         {
@@ -83,8 +85,51 @@ internal sealed partial class HostOpencodeClientService : Singleton
         startInfo.Environment["no_proxy"] = noProxyValue;
         startInfo.Environment[OpencodeWrapConstants.OPENCODE_PASSWORD_ENVIRONMENT_VARIABLE] = serverPassword;
         startInfo.Environment[OpencodeWrapConstants.OPENCODE_DISABLE_AUTOUPDATE_ENVIRONMENT_VARIABLE] = "1";
+        startInfo.Environment[OpencodeWrapConstants.OPENCODE_CONFIG_DIR_ENVIRONMENT_VARIABLE] = configDirectory;
         startInfo.Environment["OPENCODE_TUI_CHANNEL"] = tuiChannel;
         return startInfo;
+    }
+
+    private static string PrepareConfigDirectory(string sessionDirectory)
+    {
+        string directory = Path.Combine(sessionDirectory, "opencode-client-config");
+        Directory.CreateDirectory(directory);
+
+        JsonObject root = ReadHostCliConfig() ?? [];
+        JsonObject session = root["session"] as JsonObject ?? [];
+        root["session"] = session;
+        session["new_location"] = "inherit";
+        File.WriteAllText(Path.Combine(directory, "cli.json"), root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+        return directory;
+    }
+
+    private static JsonObject? ReadHostCliConfig()
+    {
+        string configDirectory = Environment.GetEnvironmentVariable(OpencodeWrapConstants.OPENCODE_CONFIG_DIR_ENVIRONMENT_VARIABLE)
+            ?? Path.Combine(
+                Environment.GetEnvironmentVariable("XDG_CONFIG_HOME")
+                    ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".config"),
+                "opencode");
+        string path = Path.Combine(configDirectory, "cli.json");
+        if(!File.Exists(path))
+        {
+            return null;
+        }
+
+        try
+        {
+            return JsonNode.Parse(
+                File.ReadAllText(path),
+                documentOptions: new JsonDocumentOptions
+                {
+                    AllowTrailingCommas = true,
+                    CommentHandling = JsonCommentHandling.Skip
+                }) as JsonObject;
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private static void CleanupTuiChannel(string tuiChannel)

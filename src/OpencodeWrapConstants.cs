@@ -25,6 +25,7 @@ internal static class OpencodeWrapConstants
     public const string HOST_OPENCODE_HOST_LOCK_FILE_NAME = "opencode2-host.lock";
     public const string OPENCODE_PASSWORD_ENVIRONMENT_VARIABLE = "OPENCODE_PASSWORD";
     public const string OPENCODE_DISABLE_AUTOUPDATE_ENVIRONMENT_VARIABLE = "OPENCODE_DISABLE_AUTOUPDATE";
+    public const string OPENCODE_CONFIG_DIR_ENVIRONMENT_VARIABLE = "OPENCODE_CONFIG_DIR";
     public const string OPENCODE_BASIC_AUTH_USERNAME = "opencode";
     public const string PROFILE_DOCKERFILE_NAME = "Dockerfile";
     public const string PROFILE_BIN_DIRECTORY_NAME = "bin";
