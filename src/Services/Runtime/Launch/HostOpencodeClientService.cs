@@ -1,7 +1,5 @@
 using Microsoft.Extensions.Logging;
 using System.Diagnostics;
-using System.Text.Json;
-using System.Text.Json.Nodes;
 
 namespace OpencodeWrap.Services.Runtime.Launch;
 
@@ -94,42 +92,16 @@ internal sealed partial class HostOpencodeClientService : Singleton
     {
         string directory = Path.Combine(sessionDirectory, "opencode-client-config");
         Directory.CreateDirectory(directory);
-
-        JsonObject root = ReadHostCliConfig() ?? [];
-        JsonObject session = root["session"] as JsonObject ?? [];
-        root["session"] = session;
-        session["new_location"] = "inherit";
-        File.WriteAllText(Path.Combine(directory, "cli.json"), root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+        File.WriteAllText(
+            Path.Combine(directory, "cli.json"),
+            """
+            {
+              "session": {
+                "new_location": "inherit"
+              }
+            }
+            """);
         return directory;
-    }
-
-    private static JsonObject? ReadHostCliConfig()
-    {
-        string configDirectory = Environment.GetEnvironmentVariable(OpencodeWrapConstants.OPENCODE_CONFIG_DIR_ENVIRONMENT_VARIABLE)
-            ?? Path.Combine(
-                Environment.GetEnvironmentVariable("XDG_CONFIG_HOME")
-                    ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".config"),
-                "opencode");
-        string path = Path.Combine(configDirectory, "cli.json");
-        if(!File.Exists(path))
-        {
-            return null;
-        }
-
-        try
-        {
-            return JsonNode.Parse(
-                File.ReadAllText(path),
-                documentOptions: new JsonDocumentOptions
-                {
-                    AllowTrailingCommas = true,
-                    CommentHandling = JsonCommentHandling.Skip
-                }) as JsonObject;
-        }
-        catch
-        {
-            return null;
-        }
     }
 
     private static void CleanupTuiChannel(string tuiChannel)
