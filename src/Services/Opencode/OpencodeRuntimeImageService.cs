@@ -142,6 +142,7 @@ internal sealed partial class OpencodeRuntimeImageService : Singleton
 
     internal static string BuildRuntimeDockerfile()
         => """
+        # check=skip=InvalidDefaultArgInFrom
         ARG BASE_IMAGE
         FROM ${BASE_IMAGE}
         ARG OPENCODE_VERSION
