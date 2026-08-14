@@ -75,6 +75,7 @@ internal sealed partial class HostOpencodeClientService : Singleton
             RedirectStandardError = false
         };
 
+        startInfo.ArgumentList.Add("--auto");
         startInfo.ArgumentList.Add("--server");
         startInfo.ArgumentList.Add(serverUrl);
 
