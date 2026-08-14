@@ -215,6 +215,7 @@ internal sealed partial class OpencodeLauncherService : Singleton
             var (baseImageReady, baseImageTag) = await baseImageTask;
             if(!baseImageReady)
             {
+                clearConsoleOnSessionLogFlush = false;
                 return 1;
             }
 
@@ -239,6 +240,7 @@ internal sealed partial class OpencodeLauncherService : Singleton
             var (runtimeImageReady, runtimeImageTag) = await runtimeImageTask;
             if(!runtimeImageReady)
             {
+                clearConsoleOnSessionLogFlush = false;
                 return 1;
             }
 
@@ -523,7 +525,7 @@ internal sealed partial class OpencodeLauncherService : Singleton
 
     private async Task<bool> StartBackendContainerAsync(IReadOnlyList<string> containerArgs, IReadOnlyDictionary<string, string?>? dockerEnvironmentVariables)
     {
-        List<string> runArgs = ["run", "-d", "--rm", .. containerArgs];
+        List<string> runArgs = ["run", "-d", .. containerArgs];
         var runResult = await ProcessRunner.RunAsync("docker", runArgs, environmentVariables: dockerEnvironmentVariables);
         if(runResult.Success)
         {
