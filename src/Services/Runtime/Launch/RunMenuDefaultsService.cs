@@ -117,6 +117,12 @@ internal sealed partial class RunMenuDefaultsService : Singleton
         {
             var normalizedConfig = NormalizeWorkspaceConfig(config);
 
+            if(IsEmpty(normalizedConfig))
+            {
+                File.Delete(configPath);
+                return true;
+            }
+
             using var stream = File.Create(configPath);
             using var writer = new Utf8JsonWriter(stream, new JsonWriterOptions
             {
@@ -144,37 +150,47 @@ internal sealed partial class RunMenuDefaultsService : Singleton
                 writer.WriteBoolean("privileged", privileged);
             }
 
-            writer.WritePropertyName("containerMounts");
-            writer.WriteStartArray();
-            foreach(ContainerMount containerMount in normalizedConfig.ContainerMounts)
+            if(normalizedConfig.ContainerMounts.Count > 0)
             {
-                writer.WriteStartObject();
-                writer.WriteString("sourceType", GetPersistedContainerMountSourceTypeValue(containerMount.SourceType));
-                writer.WriteString("source", containerMount.Source);
-                writer.WriteString("containerPath", containerMount.ContainerPath);
-                writer.WriteString("accessMode", GetPersistedContainerMountAccessModeValue(containerMount.AccessMode));
-                writer.WriteEndObject();
+                writer.WritePropertyName("containerMounts");
+                writer.WriteStartArray();
+                foreach(ContainerMount containerMount in normalizedConfig.ContainerMounts)
+                {
+                    writer.WriteStartObject();
+                    writer.WriteString("sourceType", GetPersistedContainerMountSourceTypeValue(containerMount.SourceType));
+                    writer.WriteString("source", containerMount.Source);
+                    writer.WriteString("containerPath", containerMount.ContainerPath);
+                    writer.WriteString("accessMode", GetPersistedContainerMountAccessModeValue(containerMount.AccessMode));
+                    writer.WriteEndObject();
+                }
+
+                writer.WriteEndArray();
             }
 
-            writer.WriteEndArray();
-
-            writer.WritePropertyName("sessionAddons");
-            writer.WriteStartArray();
-            foreach(string addonName in normalizedConfig.SessionAddons)
+            if(normalizedConfig.SessionAddons.Count > 0)
             {
-                writer.WriteStringValue(addonName);
+                writer.WritePropertyName("sessionAddons");
+                writer.WriteStartArray();
+                foreach(string addonName in normalizedConfig.SessionAddons)
+                {
+                    writer.WriteStringValue(addonName);
+                }
+
+                writer.WriteEndArray();
             }
 
-            writer.WriteEndArray();
-
-            writer.WritePropertyName("dockerNetworks");
-            writer.WriteStartArray();
-            foreach(string networkName in normalizedConfig.DockerNetworks)
+            if(normalizedConfig.DockerNetworks.Count > 0)
             {
-                writer.WriteStringValue(networkName);
+                writer.WritePropertyName("dockerNetworks");
+                writer.WriteStartArray();
+                foreach(string networkName in normalizedConfig.DockerNetworks)
+                {
+                    writer.WriteStringValue(networkName);
+                }
+
+                writer.WriteEndArray();
             }
 
-            writer.WriteEndArray();
             writer.WriteEndObject();
             writer.Flush();
             return true;
@@ -545,6 +561,15 @@ internal sealed partial class RunMenuDefaultsService : Singleton
             normalizedDefaults.SessionAddons,
             normalizedDefaults.DockerNetworks);
     }
+
+    private static bool IsEmpty(WorkspaceRunMenuConfig config)
+        => config.ProfileName is null
+            && config.WorkspaceMountMode is null
+            && config.DockerNetworkMode is null
+            && config.Privileged is null
+            && config.ContainerMounts.Count == 0
+            && config.SessionAddons.Count == 0
+            && config.DockerNetworks.Count == 0;
 
     private static bool TryNormalizeContainerMount(ContainerMount requestedMount, out ContainerMount normalizedMount)
     {
