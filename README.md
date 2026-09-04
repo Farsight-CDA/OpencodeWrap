@@ -36,7 +36,7 @@ ocw run
 
 Choose a profile and start coding with the built-in all-in-one profile or your own custom one.
 
-OCW resolves the current `@opencode-ai/cli@next` release when a run starts, then disables OpenCode's own updater for that session so its server and client stay on the same resolved version. A session-local loopback bridge maps host paths to their container mounts, including on Windows. The host tab strip is scoped to each run; backend sessions remain persistent and can be reopened with `/sessions`. V2 state uses the fresh `opencode-wrap-xdg-v2` Docker volume; OCW does not automatically import the old V1 volume.
+OCW resolves the current `@opencode-ai/cli@beta` release when a run starts, then disables OpenCode's own updater for that session so its server and client stay on the same resolved version. A session-local loopback bridge maps host paths to their container mounts, including on Windows. The host tab strip is scoped to each run; backend sessions remain persistent and can be reopened with `/sessions`. V2 state uses the fresh `opencode-wrap-xdg-v2` Docker volume; OCW does not automatically import the old V1 volume.
 
 ---
 

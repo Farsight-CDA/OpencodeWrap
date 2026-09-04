@@ -25,7 +25,7 @@ internal sealed partial class OpencodeReleaseMetadataService : Singleton
 {
     private const string NPM_REGISTRY_ROOT = "https://registry.npmjs.org";
     private const string OPENCODE_V2_PACKAGE_NAME = "@opencode-ai/cli";
-    private const string OPENCODE_V2_DIST_TAG = "next";
+    private const string OPENCODE_V2_DIST_TAG = "beta";
     private static readonly string[] _requiredPlatformTargets =
     [
         "darwin-arm64",
