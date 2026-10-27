@@ -66,19 +66,20 @@ RUN arch="$(dpkg --print-architecture)" \
 ARG SOLC_VERSION=0.8.38
 
 RUN npm install -g --no-fund --no-audit \
-        @playwright/test \
-        eslint \
-        hardhat \
-        http-server \
-        jest \
-        prettier \
-        prettier-plugin-solidity \
-        serve \
-        solc@${SOLC_VERSION} \
-        solhint \
-        typescript \
-        vite \
-        vitest
+    @bitwarden/cli \
+    @playwright/test \
+    eslint \
+    hardhat \
+    http-server \
+    jest \
+    prettier \
+    prettier-plugin-solidity \
+    serve \
+    solc@${SOLC_VERSION} \
+    solhint \
+    typescript \
+    vite \
+    vitest
 
 RUN curl -fsSL https://bun.sh/install | bash
 
