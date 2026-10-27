@@ -109,7 +109,7 @@ internal sealed partial class OpencodeLocationProxyService : Singleton
 
     private static async Task ForwardAsync(HttpContext context, HttpClient httpClient, Uri backendUri, OpencodeLocationMapper mapper)
     {
-        Uri upstreamUri = BuildUpstreamUri(context.Request, backendUri, mapper);
+        var upstreamUri = BuildUpstreamUri(context.Request, backendUri, mapper);
         if(context.WebSockets.IsWebSocketRequest)
         {
             await ForwardWebSocketAsync(context, upstreamUri, mapper);
@@ -215,7 +215,7 @@ internal sealed partial class OpencodeLocationProxyService : Singleton
             }
         }
 
-        string directory = request.Headers.TryGetValue("x-opencode-directory", out StringValues headerDirectory)
+        string directory = request.Headers.TryGetValue("x-opencode-directory", out var headerDirectory)
             ? mapper.Map(DecodeDirectoryHeader(headerDirectory.ToString()))
             : mapper.DefaultContainerDirectory;
         upstreamRequest.Headers.TryAddWithoutValidation("x-opencode-directory", Uri.EscapeDataString(directory));
@@ -351,19 +351,19 @@ internal sealed partial class OpencodeLocationProxyService : Singleton
             upstream.Options.SetRequestHeader(header.Key, header.Value.ToString());
         }
 
-        string directory = context.Request.Headers.TryGetValue("x-opencode-directory", out StringValues headerDirectory)
+        string directory = context.Request.Headers.TryGetValue("x-opencode-directory", out var headerDirectory)
             ? mapper.Map(DecodeDirectoryHeader(headerDirectory.ToString()))
             : mapper.DefaultContainerDirectory;
         upstream.Options.SetRequestHeader("x-opencode-directory", Uri.EscapeDataString(directory));
         upstream.Options.SetRequestHeader("Origin", $"{upstreamHttpUri.Scheme}://{upstreamHttpUri.Authority}");
 
         await upstream.ConnectAsync(upstreamUri, context.RequestAborted);
-        using WebSocket client = await context.WebSockets.AcceptWebSocketAsync(upstream.SubProtocol);
+        using var client = await context.WebSockets.AcceptWebSocketAsync(upstream.SubProtocol);
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted);
-        Task upstreamPump = PumpWebSocketAsync(client, upstream, cancellation.Token);
-        Task clientPump = PumpWebSocketAsync(upstream, client, cancellation.Token);
-        Task completed = await Task.WhenAny(upstreamPump, clientPump);
-        Task remaining = ReferenceEquals(completed, upstreamPump) ? clientPump : upstreamPump;
+        var upstreamPump = PumpWebSocketAsync(client, upstream, cancellation.Token);
+        var clientPump = PumpWebSocketAsync(upstream, client, cancellation.Token);
+        var completed = await Task.WhenAny(upstreamPump, clientPump);
+        var remaining = ReferenceEquals(completed, upstreamPump) ? clientPump : upstreamPump;
         if(completed.IsCompletedSuccessfully)
         {
             await Task.WhenAny(remaining, Task.Delay(TimeSpan.FromSeconds(2), context.RequestAborted));
@@ -381,7 +381,7 @@ internal sealed partial class OpencodeLocationProxyService : Singleton
             && source.State is WebSocketState.Open
             && destination.State is WebSocketState.Open)
         {
-            WebSocketReceiveResult result = await source.ReceiveAsync(buffer, cancellationToken);
+            var result = await source.ReceiveAsync(buffer, cancellationToken);
             if(result.MessageType == WebSocketMessageType.Close)
             {
                 await destination.CloseOutputAsync(

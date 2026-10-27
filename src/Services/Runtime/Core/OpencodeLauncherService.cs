@@ -826,7 +826,7 @@ internal sealed partial class OpencodeLauncherService : Singleton
         }
 
         var seenMounts = new HashSet<ContainerMount>();
-        foreach(ContainerMount requestedMount in requestedMounts)
+        foreach(var requestedMount in requestedMounts)
         {
             if(!TryNormalizeContainerMount(requestedMount, out var normalizedMount, out string validationMessage))
             {
@@ -839,7 +839,7 @@ internal sealed partial class OpencodeLauncherService : Singleton
                 continue;
             }
 
-            ContainerMount? conflictingMount = normalizedMounts.FirstOrDefault(mount => String.Equals(mount.ContainerPath, normalizedMount.ContainerPath, StringComparison.Ordinal));
+            var conflictingMount = normalizedMounts.FirstOrDefault(mount => String.Equals(mount.ContainerPath, normalizedMount.ContainerPath, StringComparison.Ordinal));
             if(conflictingMount is not null)
             {
                 _deferredSessionLogService.WriteErrorOrConsole("startup", $"Container mount path '{normalizedMount.ContainerPath}' conflicts with another selected mount at '{conflictingMount.ContainerPath}'.");

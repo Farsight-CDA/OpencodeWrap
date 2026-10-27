@@ -154,7 +154,7 @@ internal sealed partial class RunMenuDefaultsService : Singleton
             {
                 writer.WritePropertyName("containerMounts");
                 writer.WriteStartArray();
-                foreach(ContainerMount containerMount in normalizedConfig.ContainerMounts)
+                foreach(var containerMount in normalizedConfig.ContainerMounts)
                 {
                     writer.WriteStartObject();
                     writer.WriteString("sourceType", GetPersistedContainerMountSourceTypeValue(containerMount.SourceType));
@@ -337,7 +337,7 @@ internal sealed partial class RunMenuDefaultsService : Singleton
                     continue;
                 }
 
-                ContainerMountAccessMode accessMode = ContainerMountAccessMode.ReadWrite;
+                var accessMode = ContainerMountAccessMode.ReadWrite;
                 if(item.TryGetProperty("accessMode", out var accessModeElement)
                     && accessModeElement.ValueKind is JsonValueKind.String
                     && accessModeElement.GetString() is { } persistedAccessMode
@@ -420,7 +420,7 @@ internal sealed partial class RunMenuDefaultsService : Singleton
         var seenContainerPaths = new HashSet<string>(StringComparer.Ordinal);
         var seenContainerMounts = new HashSet<ContainerMount>();
         var containerMounts = new List<ContainerMount>();
-        foreach(ContainerMount requestedMount in defaults.ContainerMounts)
+        foreach(var requestedMount in defaults.ContainerMounts)
         {
             if(!TryNormalizeContainerMount(requestedMount, out var normalizedMount)
                 || !seenContainerPaths.Add(normalizedMount.ContainerPath)
@@ -491,7 +491,7 @@ internal sealed partial class RunMenuDefaultsService : Singleton
 
                 writer.WritePropertyName("containerMounts");
                 writer.WriteStartArray();
-                foreach(ContainerMount containerMount in defaults.ContainerMounts)
+                foreach(var containerMount in defaults.ContainerMounts)
                 {
                     writer.WriteStartObject();
                     writer.WriteString("sourceType", GetPersistedContainerMountSourceTypeValue(containerMount.SourceType));
@@ -545,7 +545,7 @@ internal sealed partial class RunMenuDefaultsService : Singleton
 
     private static WorkspaceRunMenuConfig NormalizeWorkspaceConfig(WorkspaceRunMenuConfig config)
     {
-        RunMenuDefaults normalizedDefaults = NormalizeDefaults(new RunMenuDefaults(
+        var normalizedDefaults = NormalizeDefaults(new RunMenuDefaults(
             config.ProfileName,
             config.DockerNetworkMode,
             config.ContainerMounts,

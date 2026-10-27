@@ -32,7 +32,7 @@ internal sealed partial class OpencodeCatalogReadinessService : Singleton
             Timeout = _requestTimeout
         };
 
-        Uri agentsUri = BuildLocationUri(serverUri, "/api/agent", containerDirectory);
+        var agentsUri = BuildLocationUri(serverUri, "/api/agent", containerDirectory);
         var deadlineUtc = DateTime.UtcNow + _catalogTimeout;
         string? lastFailureDetail = null;
 

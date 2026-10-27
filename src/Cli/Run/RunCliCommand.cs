@@ -136,13 +136,13 @@ internal sealed class RunCliCommand : Command
             selectedIndex = 0;
         }
 
-        WorkspaceMountMode? configuredMountMode = workspaceConfigExists ? workspaceConfig.WorkspaceMountMode : null;
+        var configuredMountMode = workspaceConfigExists ? workspaceConfig.WorkspaceMountMode : null;
         var mountMode = configuredMountMode ?? WorkspaceMountMode.ReadWrite;
         List<ContainerMount> selectedContainerMounts = [];
         var defaultContainerMounts = new HashSet<ContainerMount>();
         var configuredContainerMounts = new HashSet<ContainerMount>();
         var availableVolumeNameSet = new HashSet<string>(availableVolumeNames, StringComparer.Ordinal);
-        foreach(ContainerMount savedContainerMount in runMenuDefaults.ContainerMounts)
+        foreach(var savedContainerMount in runMenuDefaults.ContainerMounts)
         {
             ContainerMount normalizedContainerMount;
             switch(savedContainerMount.SourceType)
@@ -186,7 +186,7 @@ internal sealed class RunCliCommand : Command
 
         if(workspaceConfigExists)
         {
-            foreach(ContainerMount configuredContainerMount in workspaceConfig.ContainerMounts)
+            foreach(var configuredContainerMount in workspaceConfig.ContainerMounts)
             {
                 ContainerMount normalizedContainerMount;
                 switch(configuredContainerMount.SourceType)
@@ -226,7 +226,7 @@ internal sealed class RunCliCommand : Command
 
                 if(FindConflictingContainerMountPath(selectedContainerMounts, normalizedContainerMount.ContainerPath) is { } conflictingContainerPath)
                 {
-                    ContainerMount? conflictingContainerMount = selectedContainerMounts.FirstOrDefault(containerMount => String.Equals(containerMount.ContainerPath, conflictingContainerPath, StringComparison.Ordinal));
+                    var conflictingContainerMount = selectedContainerMounts.FirstOrDefault(containerMount => String.Equals(containerMount.ContainerPath, conflictingContainerPath, StringComparison.Ordinal));
                     if(conflictingContainerMount is not null)
                     {
                         selectedContainerMounts.Remove(conflictingContainerMount);
@@ -344,7 +344,7 @@ internal sealed class RunCliCommand : Command
                     case RunSelectionTab.Volumes:
                         if(selectedVolumeIndex > 0)
                         {
-                            ContainerMount selectedContainerMount = selectedContainerMounts[selectedVolumeIndex - 1];
+                            var selectedContainerMount = selectedContainerMounts[selectedVolumeIndex - 1];
                             bool mountWasDefault = defaultContainerMounts.Contains(selectedContainerMount);
                             if(mountWasDefault)
                             {
@@ -459,8 +459,8 @@ internal sealed class RunCliCommand : Command
             if(IsWorkspaceConfigToggleKey(keyInfo.Value))
             {
                 string? configuredProfile = profileChoices.FirstOrDefault(choice => choice.IsConfigured)?.Name;
-                WorkspaceMountMode? previousConfiguredMountMode = configuredMountMode;
-                DockerNetworkMode? previousConfiguredNetworkMode = configuredNetworkMode;
+                var previousConfiguredMountMode = configuredMountMode;
+                var previousConfiguredNetworkMode = configuredNetworkMode;
                 bool? previousConfiguredPrivileged = workspaceConfig.Privileged;
                 var previousConfiguredContainerMounts = new HashSet<ContainerMount>(configuredContainerMounts);
                 var previousConfiguredAddonNames = new HashSet<string>(configuredAddonNames, GetHostPathComparer());
@@ -482,7 +482,7 @@ internal sealed class RunCliCommand : Command
                             continue;
                         }
 
-                        ContainerMount selectedContainerMount = selectedContainerMounts[selectedVolumeIndex - 1];
+                        var selectedContainerMount = selectedContainerMounts[selectedVolumeIndex - 1];
                         if(!configuredContainerMounts.Add(selectedContainerMount))
                         {
                             configuredContainerMounts.Remove(selectedContainerMount);
@@ -720,7 +720,7 @@ internal sealed class RunCliCommand : Command
                     if(selectedTab is RunSelectionTab.Volumes && selectedVolumeIndex > 0)
                     {
                         int containerMountIndex = selectedVolumeIndex - 1;
-                        ContainerMount removedContainerMount = selectedContainerMounts[containerMountIndex];
+                        var removedContainerMount = selectedContainerMounts[containerMountIndex];
                         selectedContainerMounts.RemoveAt(containerMountIndex);
                         if(defaultContainerMounts.Remove(removedContainerMount))
                         {
@@ -997,7 +997,7 @@ internal sealed class RunCliCommand : Command
             return new Markup(content.ToString());
         }
 
-        ListViewport viewport = CreateListViewport(profileChoices.Count, selectedIndex, RunMenuContentRowCount);
+        var viewport = CreateListViewport(profileChoices.Count, selectedIndex, RunMenuContentRowCount);
         AppendViewportOverflowIndicator(content, viewport.HiddenBeforeCount, movingUp: true);
 
         for(int i = viewport.StartIndex; i < viewport.EndIndex; i++)
@@ -1052,12 +1052,12 @@ internal sealed class RunCliCommand : Command
             int fixedRowCount = availableVolumeNames.Count == 0 ? 2 : 1;
             int mountRowCount = RunMenuContentRowCount - fixedRowCount - 1;
             int selectedMountIndex = Math.Max(0, selectedVolumeIndex - 1);
-            ListViewport viewport = CreateListViewport(selectedContainerMounts.Count, selectedMountIndex, mountRowCount);
+            var viewport = CreateListViewport(selectedContainerMounts.Count, selectedMountIndex, mountRowCount);
             AppendViewportOverflowIndicator(content, viewport.HiddenBeforeCount, movingUp: true);
 
             for(int i = viewport.StartIndex; i < viewport.EndIndex; i++)
             {
-                ContainerMount containerMount = selectedContainerMounts[i];
+                var containerMount = selectedContainerMounts[i];
                 bool isSelected = selectedVolumeIndex == i + 1;
                 string sourceMarkers = CreateSourceMarkers(defaultContainerMounts.Contains(containerMount), configuredContainerMounts.Contains(containerMount));
                 string sourceTypeLabel = containerMount.SourceType is ContainerMountSourceType.NamedVolume ? "[dodgerblue1]vol[/]" : "[green]dir[/]";
@@ -1093,7 +1093,7 @@ internal sealed class RunCliCommand : Command
             return new Markup(content.ToString());
         }
 
-        ListViewport viewport = CreateListViewport(availableAddonNames.Count, selectedAddonIndex, RunMenuContentRowCount);
+        var viewport = CreateListViewport(availableAddonNames.Count, selectedAddonIndex, RunMenuContentRowCount);
         AppendViewportOverflowIndicator(content, viewport.HiddenBeforeCount, movingUp: true);
 
         for(int i = viewport.StartIndex; i < viewport.EndIndex; i++)
@@ -1162,7 +1162,7 @@ internal sealed class RunCliCommand : Command
         content.AppendLine("  [grey50]────────────────────────────────────────[/]");
         bool hasNetworkHint = showWindowsHostNetworkingHint && selectedNetworkMode is DockerNetworkMode.Host;
         int fixedRowCount = hasNetworkHint ? 4 : 3;
-        ListViewport viewport = CreateListViewport(
+        var viewport = CreateListViewport(
             availableNetworkNames.Count,
             Math.Max(0, selectedNetworkIndex - 1),
             RunMenuContentRowCount - fixedRowCount);
@@ -1344,7 +1344,7 @@ internal sealed class RunCliCommand : Command
         List<ContainerMount> selectedContainerMounts,
         ref int selectedVolumeIndex)
     {
-        ContainerMount? selectedContainerMount = PromptForContainerMount(currentWorkspacePath, availableVolumeNames, selectedContainerMounts);
+        var selectedContainerMount = PromptForContainerMount(currentWorkspacePath, availableVolumeNames, selectedContainerMounts);
         if(selectedContainerMount is null)
         {
             return;
@@ -1380,7 +1380,7 @@ internal sealed class RunCliCommand : Command
                         case PromptNavigation.Back:
                             break;
                         case PromptNavigation.Confirm:
-                            ContainerMountSourceType nextSourceType = sourceTypeResult.SourceType!.Value;
+                            var nextSourceType = sourceTypeResult.SourceType!.Value;
                             if(selectedSourceType != nextSourceType)
                             {
                                 source = null;
@@ -1784,7 +1784,7 @@ internal sealed class RunCliCommand : Command
         AppIO.WriteHeader("Named Volume");
 
         var content = new StringBuilder();
-        ListViewport viewport = CreateListViewport(availableVolumeNames.Count, selectedIndex, RunMenuContentRowCount);
+        var viewport = CreateListViewport(availableVolumeNames.Count, selectedIndex, RunMenuContentRowCount);
         AppendViewportOverflowIndicator(content, viewport.HiddenBeforeCount, movingUp: true);
 
         for(int i = viewport.StartIndex; i < viewport.EndIndex; i++)
@@ -2125,7 +2125,7 @@ internal sealed class RunCliCommand : Command
         }
         else
         {
-            ListViewport viewport = CreateListViewport(entries.Count, selectedIndex, DirectoryBrowserRowCount);
+            var viewport = CreateListViewport(entries.Count, selectedIndex, DirectoryBrowserRowCount);
             if(viewport.HiddenBeforeCount > 0)
             {
                 entryTable.AddRow($"  [grey58]↑ {viewport.HiddenBeforeCount} more[/]");
