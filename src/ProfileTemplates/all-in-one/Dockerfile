@@ -1,4 +1,4 @@
-FROM ubuntu:24.04
+FROM ubuntu:26.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -10,6 +10,7 @@ RUN apt-get update \
         clang \
         coreutils \
         curl \
+        dotnet-sdk-10.0 \
         file \
         gh \
         git \
@@ -38,19 +39,15 @@ RUN apt-get update \
 RUN mkdir -p /etc/apt/keyrings \
     && curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg \
     && chmod go+r /etc/apt/keyrings/nodesource.gpg \
-    && echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_24.x nodistro main" > /etc/apt/sources.list.d/nodesource.list \
-    && curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor -o /etc/apt/keyrings/microsoft.gpg \
-    && chmod go+r /etc/apt/keyrings/microsoft.gpg \
-    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/microsoft.gpg] https://packages.microsoft.com/ubuntu/24.04/prod noble main" > /etc/apt/sources.list.d/microsoft-prod.list \
+    && echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_26.x nodistro main" > /etc/apt/sources.list.d/nodesource.list \
     && apt-get update \
     && apt-get install -y --no-install-recommends \
-        dotnet-sdk-10.0 \
         nodejs \
     && rm -rf /var/lib/apt/lists/*
 
-RUN corepack enable \
-    && corepack prepare yarn@stable --activate \
-    && corepack prepare pnpm@latest --activate
+RUN npm install -g --no-fund --no-audit npm@latest corepack@latest \
+    && corepack enable \
+    && corepack install --global yarn@stable pnpm@latest
 
 RUN dotnet tool install --global dotnet-t4
 
@@ -66,7 +63,7 @@ RUN arch="$(dpkg --print-architecture)" \
     && tar -C /usr/local -xzf /tmp/go.tgz \
     && rm /tmp/go.tgz
 
-ARG SOLC_VERSION=0.8.30
+ARG SOLC_VERSION=0.8.38
 
 RUN npm install -g --no-fund --no-audit \
         @playwright/test \
