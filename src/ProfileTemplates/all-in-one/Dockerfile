@@ -21,6 +21,7 @@ RUN apt-get update \
         less \
         libssl-dev \
         miller \
+        openssh-client \
         postgresql-client \
         procps \
         python3 \
