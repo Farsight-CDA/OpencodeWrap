@@ -7,10 +7,6 @@
     { "action": "read", "resource": "*", "effect": "allow" },
     { "action": "read", "resource": "*.env", "effect": "deny" },
     { "action": "read", "resource": "*.env.*", "effect": "deny" },
-    { "action": "read", "resource": "*.env.example", "effect": "allow" },
-    { "action": "read", "resource": "appsettings.json", "effect": "deny" },
-    { "action": "read", "resource": "**/appsettings.json", "effect": "deny" },
-    { "action": "read", "resource": "appsettings.*.json", "effect": "deny" },
-    { "action": "read", "resource": "**/appsettings.*.json", "effect": "deny" }
+    { "action": "read", "resource": "*.env.example", "effect": "allow" }
   ]
 }
