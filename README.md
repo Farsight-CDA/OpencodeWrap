@@ -24,7 +24,7 @@ Your backend sessions and server data persist. Just type `ocw run`.
 npm i -g @farsight-cda/ocw
 ```
 
-Windows x64 and Docker Desktop configured for Linux containers are required.
+Windows x64 with AVX2 support and Docker Desktop configured for Linux containers are required. The Docker environment must also expose AVX2 when running x64 images; CPUs without AVX2 are not supported.
 
 ---
 

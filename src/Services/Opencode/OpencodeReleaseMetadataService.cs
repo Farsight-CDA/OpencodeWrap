@@ -1,7 +1,5 @@
 using Microsoft.Extensions.Logging;
 using System.Runtime.InteropServices;
-using System.Runtime.Intrinsics.X86;
-using System.Text;
 using System.Text.Json;
 
 namespace OpencodeWrap.Services.Opencode;
@@ -31,12 +29,9 @@ internal sealed partial class OpencodeReleaseMetadataService : Singleton
         "linux-arm64",
         "linux-arm64-musl",
         "linux-x64",
-        "linux-x64-baseline",
-        "linux-x64-baseline-musl",
         "linux-x64-musl",
         "windows-arm64",
-        "windows-x64",
-        "windows-x64-baseline"
+        "windows-x64"
     ];
     private static readonly HttpClient _httpClient = CreateHttpClient();
 
@@ -96,15 +91,14 @@ internal sealed partial class OpencodeReleaseMetadataService : Singleton
             return (false, emptyAsset);
         }
 
-        bool needsBaseline = arch == "x64" && !Avx2.IsSupported;
-        return TryResolveBinaryAsset(release, BuildTarget("windows", arch, isMusl: false, needsBaseline), "windows", LogCategories.OPENCODE_HOST);
+        return TryResolveBinaryAsset(release, BuildTarget("windows", arch, isMusl: false), "windows", LogCategories.OPENCODE_HOST);
     }
 
     public (bool Success, ResolvedOpencodeBinaryAsset Asset) TryResolveLinuxRuntimeBinary(
         ResolvedOpencodeRelease release,
         string architecture,
-        bool isMusl,
-        bool needsBaseline)
+        bool isMusl
+    )
     {
         var emptyAsset = CreateEmptyBinaryAsset();
         string? normalizedArchitecture = NormalizeArchitecture(architecture);
@@ -116,26 +110,13 @@ internal sealed partial class OpencodeReleaseMetadataService : Singleton
 
         return TryResolveBinaryAsset(
             release,
-            BuildTarget("linux", normalizedArchitecture, isMusl, normalizedArchitecture == "x64" && needsBaseline),
+            BuildTarget("linux", normalizedArchitecture, isMusl),
             "linux",
             LogCategories.OPENCODE_RUNTIME);
     }
 
-    internal static string BuildTarget(string os, string arch, bool isMusl, bool needsBaseline)
-    {
-        var target = new StringBuilder($"{os}-{arch}");
-        if(arch == "x64" && needsBaseline)
-        {
-            target.Append("-baseline");
-        }
-
-        if(os == "linux" && isMusl)
-        {
-            target.Append("-musl");
-        }
-
-        return target.ToString();
-    }
+    internal static string BuildTarget(string os, string arch, bool isMusl)
+        => os == "linux" && isMusl ? $"{os}-{arch}-musl" : $"{os}-{arch}";
 
     internal static bool TryParsePackageAsset(
         JsonElement root,
@@ -396,7 +377,6 @@ internal sealed partial class OpencodeReleaseMetadataService : Singleton
         => String.Equals(release.PackageName, OPENCODE_V2_PACKAGE_NAME, StringComparison.Ordinal)
             && !String.IsNullOrWhiteSpace(release.Version)
             && release.PlatformPackages is not null
-            && release.PlatformPackages.Count == _requiredPlatformTargets.Length
             && _requiredPlatformTargets.All(target =>
             {
                 string packageName = $"{OPENCODE_V2_PACKAGE_NAME}-{target}";

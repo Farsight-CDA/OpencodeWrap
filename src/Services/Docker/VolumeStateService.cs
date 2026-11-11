@@ -88,9 +88,16 @@ internal sealed partial class VolumeStateService : Singleton
         return (true, true);
     }
 
-    public string BuildBindMount(string source, string target) => $"type=bind,src={Path.GetFullPath(source)},dst={target}";
+    public string BuildBindMount(string source, string target)
+        => $"type=bind,{EscapeMountField($"src={Path.GetFullPath(source)}")},{EscapeMountField($"dst={target}")}";
 
-    public string BuildVolumeMount(string source, string target) => $"type=volume,src={source},dst={target}";
+    public string BuildVolumeMount(string source, string target)
+        => $"type=volume,{EscapeMountField($"src={source}")},{EscapeMountField($"dst={target}")}";
+
+    private static string EscapeMountField(string field)
+        => field.IndexOfAny([',', '"', '\r', '\n']) >= 0
+            ? $"\"{field.Replace("\"", "\"\"")}\""
+            : field;
 
     private async Task<bool> EnsureVolumeAsync(string volumeName)
     {

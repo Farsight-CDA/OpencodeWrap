@@ -51,13 +51,13 @@ internal sealed partial class OpencodeRuntimeImageService : Singleton
             return (false, unavailableTag);
         }
 
-        var (platformDetected, isMusl, needsBaseline) = await TryDetectRuntimePlatformAsync(baseImageTag, image.Architecture);
-        if(!platformDetected)
+        var (libcDetected, isMusl) = await TryDetectLibcAsync(image.Id, image.Architecture);
+        if(!libcDetected)
         {
             return (false, unavailableTag);
         }
 
-        var (assetResolved, asset) = _releaseMetadataService.TryResolveLinuxRuntimeBinary(release, image.Architecture, isMusl, needsBaseline);
+        var (assetResolved, asset) = _releaseMetadataService.TryResolveLinuxRuntimeBinary(release, image.Architecture, isMusl);
         if(!assetResolved)
         {
             return (false, unavailableTag);
@@ -81,7 +81,7 @@ internal sealed partial class OpencodeRuntimeImageService : Singleton
         }
 
         _deferredSessionLogService.Write(LogCategories.OPENCODE_RUNTIME, $"building runtime image '{imageTag}' for OpenCode {release.Version}", LogLevel.Information);
-        return await TryBuildRuntimeImageAsync(baseImageTag, imageTag, release, asset);
+        return await TryBuildRuntimeImageAsync(image.Id, imageTag, release, asset);
     }
 
     private async Task<(bool Success, string ImageTag)> TryBuildRuntimeImageAsync(
@@ -154,36 +154,33 @@ internal sealed partial class OpencodeRuntimeImageService : Singleton
             && test "$actual" = "opencode2 v${OPENCODE_VERSION}"
         """;
 
-    private async Task<(bool Success, bool IsMusl, bool NeedsBaseline)> TryDetectRuntimePlatformAsync(string imageTag, string architecture)
+    private async Task<(bool Success, bool IsMusl)> TryDetectLibcAsync(string imageId, string architecture)
     {
-        string? normalizedArchitecture = OpencodeReleaseMetadataService.NormalizeArchitecture(architecture);
-        if(normalizedArchitecture is null)
+        if(OpencodeReleaseMetadataService.NormalizeArchitecture(architecture) is null)
         {
             _deferredSessionLogService.WriteErrorOrConsole(LogCategories.OPENCODE_RUNTIME, $"Unsupported Docker image architecture '{architecture}'.");
-            return (false, false, false);
+            return (false, false);
         }
 
-        const string platformProbe = "if [ -f /etc/alpine-release ] || (command -v ldd >/dev/null 2>&1 && ldd --version 2>&1 | grep -qi musl); then printf musl; else printf glibc; fi; printf '|'; if grep -qw avx2 /proc/cpuinfo 2>/dev/null; then printf avx2; else printf baseline; fi";
+        const string LIBC_PROBE = "if [ -f /etc/alpine-release ] || (command -v ldd >/dev/null 2>&1 && ldd --version 2>&1 | grep -qi musl); then printf musl; else printf glibc; fi";
         var probeResult = await ProcessRunner.RunAsync(
             "docker",
-            ["run", "--rm", "--entrypoint", "bash", imageTag, "-lc", platformProbe]);
+            ["run", "--rm", "--entrypoint", "bash", imageId, "-lc", LIBC_PROBE]);
         if(!probeResult.Success)
         {
-            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.OPENCODE_RUNTIME, $"Failed to detect libc and CPU support in base profile image '{imageTag}'.");
+            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.OPENCODE_RUNTIME, $"Failed to detect libc in base profile image '{imageId}'.");
             _deferredSessionLogService.WriteErrorDetailsOrConsole(LogCategories.OPENCODE_RUNTIME, probeResult.StdErr);
-            return (false, false, false);
+            return (false, false);
         }
 
-        string[] parts = probeResult.StdOut.Trim().Split('|', StringSplitOptions.TrimEntries);
-        if(parts.Length != 2 || parts[0] is not ("glibc" or "musl") || parts[1] is not ("avx2" or "baseline"))
+        string libc = probeResult.StdOut.Trim();
+        if(libc is not ("glibc" or "musl"))
         {
-            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.OPENCODE_RUNTIME, $"Base profile image '{imageTag}' returned an invalid runtime platform probe result.");
-            return (false, false, false);
+            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.OPENCODE_RUNTIME, $"Base profile image '{imageId}' returned an invalid libc probe result.");
+            return (false, false);
         }
 
-        bool isMusl = parts[0] == "musl";
-        bool needsBaseline = normalizedArchitecture == "x64" && parts[1] != "avx2";
-        return (true, isMusl, needsBaseline);
+        return (true, libc == "musl");
     }
 
     private static string ComputeSha256(string value)
