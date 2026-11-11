@@ -15,18 +15,7 @@ internal sealed partial class VolumeStateService : Singleton
             return false;
         }
 
-        if(!await EnsureVolumeAsync(OpencodeWrapConstants.XDG_VOLUME_NAME))
-        {
-            return false;
-        }
-
-        if(!_hostService.IsUnixLike)
-        {
-            return true;
-        }
-
-        var (success, userSpec) = await _hostService.TryGetUnixUserSpecAsync();
-        return success && await EnsureVolumeIsWritableAsync(OpencodeWrapConstants.XDG_VOLUME_NAME, userSpec);
+        return await EnsureVolumeAsync(OpencodeWrapConstants.XDG_VOLUME_NAME);
     }
 
     public async Task<bool> ValidateImportTargetStateAsync(bool force)
@@ -67,18 +56,7 @@ internal sealed partial class VolumeStateService : Singleton
             return false;
         }
 
-        if(!await CopyHostXdgDirectoryToVolumeAsync(sourceRoot, OpencodeWrapConstants.XDG_VOLUME_NAME))
-        {
-            return false;
-        }
-
-        if(!_hostService.IsUnixLike)
-        {
-            return true;
-        }
-
-        var (success, userSpec) = await _hostService.TryGetUnixUserSpecAsync();
-        return success && await EnsureVolumeIsWritableAsync(OpencodeWrapConstants.XDG_VOLUME_NAME, userSpec);
+        return await CopyHostXdgDirectoryToVolumeAsync(sourceRoot, OpencodeWrapConstants.XDG_VOLUME_NAME);
     }
 
     public Task<bool> ExportVolumeToHostArchiveAsync(string destinationArchive)
@@ -134,35 +112,6 @@ internal sealed partial class VolumeStateService : Singleton
         return true;
     }
 
-    private async Task<bool> EnsureVolumeIsWritableAsync(string volumeName, string userSpec)
-    {
-        var result = await ProcessRunner.RunAsync(
-            "docker",
-            [
-                "run",
-                "--rm",
-                "--user", "root",
-                "--mount", BuildVolumeMount(volumeName, "/target"),
-                "ubuntu:24.04",
-                "bash",
-                "-lc",
-                $"""
-                set -e
-                mkdir -p /target
-                chown -R {userSpec} /target
-                chmod -R u+rwX /target
-                """
-            ]);
-
-        if(!result.Success)
-        {
-            _deferredSessionLogService.WriteErrorOrConsole("docker", $"Failed to set permissions on Docker volume '{volumeName}'.");
-            _deferredSessionLogService.WriteErrorDetailsOrConsole("docker", result.StdErr);
-        }
-
-        return result.Success;
-    }
-
     private async Task<bool> CopyHostXdgDirectoryToVolumeAsync(string sourceRootDirectory, string volumeName)
     {
         var result = await ProcessRunner.RunAsync(
@@ -214,16 +163,9 @@ internal sealed partial class VolumeStateService : Singleton
             return false;
         }
 
-        var runArgs = new List<string> { "run", "--rm" };
-
-        string? userSpec = await _hostService.GetContainerUserSpecAsync();
-        if(userSpec is not null)
-        {
-            runArgs.AddRange(["--user", userSpec]);
-        }
-
-        runArgs.AddRange(
+        var result = await ProcessRunner.RunAsync("docker",
         [
+            "run", "--rm",
             "--mount", BuildVolumeMount(volumeName, "/source"),
             "--mount", BuildBindMount(destinationDirectory, "/target"),
             "python:3.12-alpine",
@@ -311,7 +253,6 @@ internal sealed partial class VolumeStateService : Singleton
             archiveFileName
         ]);
 
-        var result = await ProcessRunner.RunAsync("docker", runArgs);
         if(!result.Success)
         {
             _deferredSessionLogService.WriteErrorOrConsole("docker", $"Failed to create export archive '{destinationArchive}' from Docker volume '{volumeName}'.");

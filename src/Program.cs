@@ -9,6 +9,13 @@ internal static class Program
 {
     public static async Task Main(string[] args)
     {
+        if(!OperatingSystem.IsWindows())
+        {
+            Console.Error.WriteLine("OpencodeWrap is only supported on Windows.");
+            Environment.ExitCode = 1;
+            return;
+        }
+
         try
         {
             EnsureUnicodeConsoleEncoding();

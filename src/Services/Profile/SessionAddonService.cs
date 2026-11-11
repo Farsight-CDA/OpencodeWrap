@@ -96,7 +96,7 @@ internal sealed partial class SessionAddonService : Singleton
         }
 
         var resolvedAddons = new List<ResolvedSessionAddon>();
-        var seenAddonNames = new HashSet<string>(GetHostNameComparer());
+        var seenAddonNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach(string requestedAddonName in requestedAddonNames)
         {
@@ -144,7 +144,7 @@ internal sealed partial class SessionAddonService : Singleton
 
     private Dictionary<string, SessionAddonCatalogEntry> DiscoverAddons(string addonsRoot)
     {
-        var addons = new Dictionary<string, SessionAddonCatalogEntry>(GetHostNameComparer());
+        var addons = new Dictionary<string, SessionAddonCatalogEntry>(StringComparer.OrdinalIgnoreCase);
 
         foreach(var builtInAddon in _builtInSessionAddonService.BuiltInAddons)
         {
@@ -193,7 +193,7 @@ internal sealed partial class SessionAddonService : Singleton
     }
 
     private static SessionAddonCatalog CreateEmptyCatalog()
-        => new("", "", new Dictionary<string, SessionAddonCatalogEntry>(GetHostNameComparer()));
+        => new("", "", new Dictionary<string, SessionAddonCatalogEntry>(StringComparer.OrdinalIgnoreCase));
 
     private static bool PathIsWithin(string parentDirectoryPath, string childDirectoryPath)
     {
@@ -205,10 +205,6 @@ internal sealed partial class SessionAddonService : Singleton
             .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
             + Path.DirectorySeparatorChar;
 
-        return normalizedChild.StartsWith(normalizedParent, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
+        return normalizedChild.StartsWith(normalizedParent, StringComparison.OrdinalIgnoreCase);
     }
-
-    private static StringComparer GetHostNameComparer() => OperatingSystem.IsWindows()
-        ? StringComparer.OrdinalIgnoreCase
-        : StringComparer.Ordinal;
 }

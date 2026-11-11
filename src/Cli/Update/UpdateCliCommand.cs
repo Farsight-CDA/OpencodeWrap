@@ -113,11 +113,6 @@ internal sealed class UpdateCliCommand : Command
 
     private static Task<ProcessRunner.ProcessRunResult> RunNpmAsync(IReadOnlyList<string> npmArgs)
     {
-        if(!OperatingSystem.IsWindows())
-        {
-            return ProcessRunner.RunAsync("npm", npmArgs);
-        }
-
         var cmdArgs = new List<string>(4 + npmArgs.Count)
         {
             "/d",

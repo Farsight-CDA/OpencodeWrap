@@ -2,29 +2,18 @@
 
 const { spawnSync } = require("node:child_process");
 
-const platformPackageMap = {
-  "linux-x64": { packageName: "@farsight-cda/ocw-linux-x64", binaryPath: "bin/ocw" },
-  "darwin-arm64": { packageName: "@farsight-cda/ocw-darwin-arm64", binaryPath: "bin/ocw" },
-  "win32-x64": { packageName: "@farsight-cda/ocw-win32-x64", binaryPath: "bin/ocw.exe" }
-};
-
-function getPackageForHost() {
-  const key = `${process.platform}-${process.arch}`;
-  return platformPackageMap[key] ?? null;
-}
+const packageName = "@farsight-cda/ocw-win32-x64";
 
 function resolveHostBinaryPath() {
-  const match = getPackageForHost();
-  if (!match) {
-    const supported = Object.keys(platformPackageMap).join(", ");
-    throw new Error(`Unsupported platform '${process.platform}-${process.arch}'. Supported: ${supported}.`);
+  if (process.platform !== "win32" || process.arch !== "x64") {
+    throw new Error(`Unsupported platform '${process.platform}-${process.arch}'. Only Windows x64 is supported.`);
   }
 
   try {
-    return require.resolve(`${match.packageName}/${match.binaryPath}`);
+    return require.resolve(`${packageName}/bin/ocw.exe`);
   } catch {
     throw new Error(
-      `Missing platform binary package '${match.packageName}'. Reinstall with 'npm i -g @farsight-cda/ocw'.`
+      `Missing platform binary package '${packageName}'. Reinstall with 'npm i -g @farsight-cda/ocw'.`
     );
   }
 }

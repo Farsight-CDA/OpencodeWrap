@@ -118,35 +118,13 @@ jobs:
           fi
 
   publish-dev-platform-package:
-    name: Publish dev ${{ matrix.package_suffix }}
+    name: Publish dev Windows package
     if: github.ref_type != 'tag'
-    runs-on: ${{ matrix.os }}
+    runs-on: windows-latest
     needs: resolve-publish-context
     concurrency:
-      group: npm-publish-${{ matrix.package_suffix }}
+      group: npm-publish-win32-x64
       cancel-in-progress: false
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-latest
-            runtime: linux-x64
-            binary: ocw
-            package_dir: npm/ocw-linux-x64
-            package_suffix: linux-x64
-            asset_name: ocw-linux-x64
-          - os: windows-latest
-            runtime: win-x64
-            binary: ocw.exe
-            package_dir: npm/ocw-win32-x64
-            package_suffix: win32-x64
-            asset_name: ocw-win-x64.exe
-          - os: macos-15
-            runtime: osx-arm64
-            binary: ocw
-            package_dir: npm/ocw-darwin-arm64
-            package_suffix: darwin-arm64
-            asset_name: ocw-osx-arm64
 
     steps:
       - name: Checkout
@@ -163,13 +141,8 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v6
         with:
-          node-version: 20
+          node-version: 26.13.0
           registry-url: https://registry.npmjs.org
-
-      - name: Install Native AOT prerequisites
-        if: runner.os == 'Linux'
-        shell: bash
-        run: sudo apt-get update && sudo apt-get install -y clang zlib1g-dev
 
       - name: Build and publish platform package
         shell: bash
@@ -179,25 +152,21 @@ jobs:
         run: |
           set -euo pipefail
 
-          dotnet restore src/OpencodeWrap.csproj -r "${{ matrix.runtime }}"
-          dotnet publish src/OpencodeWrap.csproj -c Release -r "${{ matrix.runtime }}" --self-contained true -p:PublishAot=true -p:PublishSingleFile=true -p:PublishTrimmed=true
+          dotnet restore src/OpencodeWrap.csproj -r win-x64
+          dotnet publish src/OpencodeWrap.csproj -c Release -r win-x64 --self-contained true -p:PublishAot=true -p:PublishSingleFile=true -p:PublishTrimmed=true
 
-          mkdir -p "${{ matrix.package_dir }}/bin"
-          cp "src/bin/Release/net11.0/${{ matrix.runtime }}/publish/${{ matrix.binary }}" "${{ matrix.package_dir }}/bin/${{ matrix.binary }}"
+          mkdir -p npm/ocw-win32-x64/bin
+          cp src/bin/Release/net11.0-windows/win-x64/publish/ocw.exe npm/ocw-win32-x64/bin/ocw.exe
 
-          if [[ "${{ matrix.binary }}" != *.exe ]]; then
-            chmod +x "${{ matrix.package_dir }}/bin/${{ matrix.binary }}"
-          fi
+          npm version "$VERSION" --no-git-tag-version --prefix npm/ocw-win32-x64
 
-          npm version "$VERSION" --no-git-tag-version --prefix "${{ matrix.package_dir }}"
-
-          PACKAGE_NAME=$(node -p "require('./${{ matrix.package_dir }}/package.json').name")
+          PACKAGE_NAME=$(node -p "require('./npm/ocw-win32-x64/package.json').name")
           if npm view --prefer-online "${PACKAGE_NAME}@${VERSION}" version >/dev/null 2>&1; then
             echo "Skipping ${PACKAGE_NAME}@${VERSION}, already published."
             exit 0
           fi
 
-          bash .github/scripts/publish-npm-with-retry.sh "${{ matrix.package_dir }}" "${PACKAGE_NAME}" "${VERSION}" dev
+          bash .github/scripts/publish-npm-with-retry.sh npm/ocw-win32-x64 "${PACKAGE_NAME}" "${VERSION}" dev
 
   publish-dev-main-package:
     name: Publish dev main package
@@ -224,7 +193,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v6
         with:
-          node-version: 20
+          node-version: 26.13.0
           registry-url: https://registry.npmjs.org
 
       - name: Prepare and publish main package
@@ -238,7 +207,7 @@ jobs:
           npm version "$VERSION" --no-git-tag-version --prefix npm/ocw
 
           export VERSION
-          node -e 'const fs=require("node:fs"); const p="npm/ocw/package.json"; const version=process.env.VERSION; const pkg=JSON.parse(fs.readFileSync(p, "utf8")); pkg.optionalDependencies["@farsight-cda/ocw-linux-x64"]=version; pkg.optionalDependencies["@farsight-cda/ocw-darwin-arm64"]=version; pkg.optionalDependencies["@farsight-cda/ocw-win32-x64"]=version; fs.writeFileSync(p, JSON.stringify(pkg, null, 2)+"\n");'
+          node -e 'const fs=require("node:fs"); const p="npm/ocw/package.json"; const version=process.env.VERSION; const pkg=JSON.parse(fs.readFileSync(p, "utf8")); pkg.optionalDependencies["@farsight-cda/ocw-win32-x64"]=version; fs.writeFileSync(p, JSON.stringify(pkg, null, 2)+"\n");'
 
           PACKAGE_NAME=$(node -p "require('./npm/ocw/package.json').name")
           if npm view --prefer-online "${PACKAGE_NAME}@${VERSION}" version >/dev/null 2>&1; then
@@ -249,39 +218,17 @@ jobs:
           bash .github/scripts/publish-npm-with-retry.sh npm/ocw "${PACKAGE_NAME}" "${VERSION}" dev
 
   publish-release-platform-package:
-    name: Publish release ${{ matrix.package_suffix }}
+    name: Publish release Windows package
     if: needs.resolve-publish-context.outputs.should_publish_release == 'true'
-    runs-on: ${{ matrix.os }}
+    runs-on: windows-latest
     needs:
       - resolve-publish-context
       - prepare-release
     concurrency:
-      group: npm-publish-${{ matrix.package_suffix }}
+      group: npm-publish-win32-x64
       cancel-in-progress: false
     permissions:
       contents: write
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-latest
-            runtime: linux-x64
-            binary: ocw
-            package_dir: npm/ocw-linux-x64
-            package_suffix: linux-x64
-            asset_name: ocw-linux-x64
-          - os: windows-latest
-            runtime: win-x64
-            binary: ocw.exe
-            package_dir: npm/ocw-win32-x64
-            package_suffix: win32-x64
-            asset_name: ocw-win-x64.exe
-          - os: macos-15
-            runtime: osx-arm64
-            binary: ocw
-            package_dir: npm/ocw-darwin-arm64
-            package_suffix: darwin-arm64
-            asset_name: ocw-osx-arm64
 
     steps:
       - name: Checkout
@@ -298,13 +245,8 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v6
         with:
-          node-version: 20
+          node-version: 26.13.0
           registry-url: https://registry.npmjs.org
-
-      - name: Install Native AOT prerequisites
-        if: runner.os == 'Linux'
-        shell: bash
-        run: sudo apt-get update && sudo apt-get install -y clang zlib1g-dev
 
       - name: Build, publish package, and upload release asset
         shell: bash
@@ -316,28 +258,23 @@ jobs:
         run: |
           set -euo pipefail
 
-          dotnet restore src/OpencodeWrap.csproj -r "${{ matrix.runtime }}"
-          dotnet publish src/OpencodeWrap.csproj -c Release -r "${{ matrix.runtime }}" --self-contained true -p:PublishAot=true -p:PublishSingleFile=true -p:PublishTrimmed=true
+          dotnet restore src/OpencodeWrap.csproj -r win-x64
+          dotnet publish src/OpencodeWrap.csproj -c Release -r win-x64 --self-contained true -p:PublishAot=true -p:PublishSingleFile=true -p:PublishTrimmed=true
 
-          mkdir -p "${{ matrix.package_dir }}/bin" release-assets
-          cp "src/bin/Release/net11.0/${{ matrix.runtime }}/publish/${{ matrix.binary }}" "${{ matrix.package_dir }}/bin/${{ matrix.binary }}"
-          cp "src/bin/Release/net11.0/${{ matrix.runtime }}/publish/${{ matrix.binary }}" "release-assets/${{ matrix.asset_name }}"
+          mkdir -p npm/ocw-win32-x64/bin release-assets
+          cp src/bin/Release/net11.0-windows/win-x64/publish/ocw.exe npm/ocw-win32-x64/bin/ocw.exe
+          cp src/bin/Release/net11.0-windows/win-x64/publish/ocw.exe release-assets/ocw-win-x64.exe
 
-          if [[ "${{ matrix.binary }}" != *.exe ]]; then
-            chmod +x "${{ matrix.package_dir }}/bin/${{ matrix.binary }}"
-            chmod +x "release-assets/${{ matrix.asset_name }}"
-          fi
+          npm version "$VERSION" --no-git-tag-version --prefix npm/ocw-win32-x64
 
-          npm version "$VERSION" --no-git-tag-version --prefix "${{ matrix.package_dir }}"
-
-          PACKAGE_NAME=$(node -p "require('./${{ matrix.package_dir }}/package.json').name")
+          PACKAGE_NAME=$(node -p "require('./npm/ocw-win32-x64/package.json').name")
           if npm view --prefer-online "${PACKAGE_NAME}@${VERSION}" version >/dev/null 2>&1; then
             echo "Skipping ${PACKAGE_NAME}@${VERSION}, already published."
           else
-            bash .github/scripts/publish-npm-with-retry.sh "${{ matrix.package_dir }}" "${PACKAGE_NAME}" "${VERSION}" latest
+            bash .github/scripts/publish-npm-with-retry.sh npm/ocw-win32-x64 "${PACKAGE_NAME}" "${VERSION}" latest
           fi
 
-          gh release upload "$RELEASE_TAG" "release-assets/${{ matrix.asset_name }}" --clobber
+          gh release upload "$RELEASE_TAG" release-assets/ocw-win-x64.exe --clobber
 
   publish-release-main-package:
     name: Publish release main package
@@ -364,7 +301,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v6
         with:
-          node-version: 20
+          node-version: 26.13.0
           registry-url: https://registry.npmjs.org
 
       - name: Prepare and publish main package
@@ -378,7 +315,7 @@ jobs:
           npm version "$VERSION" --no-git-tag-version --prefix npm/ocw
 
           export VERSION
-          node -e 'const fs=require("node:fs"); const p="npm/ocw/package.json"; const version=process.env.VERSION; const pkg=JSON.parse(fs.readFileSync(p, "utf8")); pkg.optionalDependencies["@farsight-cda/ocw-linux-x64"]=version; pkg.optionalDependencies["@farsight-cda/ocw-darwin-arm64"]=version; pkg.optionalDependencies["@farsight-cda/ocw-win32-x64"]=version; fs.writeFileSync(p, JSON.stringify(pkg, null, 2)+"\n");'
+          node -e 'const fs=require("node:fs"); const p="npm/ocw/package.json"; const version=process.env.VERSION; const pkg=JSON.parse(fs.readFileSync(p, "utf8")); pkg.optionalDependencies["@farsight-cda/ocw-win32-x64"]=version; fs.writeFileSync(p, JSON.stringify(pkg, null, 2)+"\n");'
 
           PACKAGE_NAME=$(node -p "require('./npm/ocw/package.json').name")
           if npm view --prefer-online "${PACKAGE_NAME}@${VERSION}" version >/dev/null 2>&1; then

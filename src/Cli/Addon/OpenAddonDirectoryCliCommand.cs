@@ -5,26 +5,24 @@ namespace OpencodeWrap.Cli.Addon;
 
 internal sealed class OpenAddonDirectoryCliCommand : Command
 {
-    private readonly DockerHostService _hostService;
     private readonly SessionAddonService _sessionAddonService;
 
-    public OpenAddonDirectoryCliCommand(DockerHostService hostService, SessionAddonService sessionAddonService)
-        : base("open", "Open $HOME/.opencode-wrap/addons in the file explorer.")
+    public OpenAddonDirectoryCliCommand(SessionAddonService sessionAddonService)
+        : base("open", "Open %USERPROFILE%\\.opencode-wrap\\addons in File Explorer.")
     {
-        _hostService = hostService;
         _sessionAddonService = sessionAddonService;
 
-        SetAction(async _ => await ExecuteAsync());
+        SetAction(_ => Execute());
     }
 
-    private async Task<int> ExecuteAsync()
+    private int Execute()
     {
         if(!_sessionAddonService.TryLoadCatalog(out var catalog))
         {
             return 1;
         }
 
-        bool opened = await TryOpenDirectoryAsync(catalog.AddonsRoot);
+        bool opened = TryOpenDirectory(catalog.AddonsRoot);
         if(!opened)
         {
             return 1;
@@ -34,39 +32,23 @@ internal sealed class OpenAddonDirectoryCliCommand : Command
         return 0;
     }
 
-    private async Task<bool> TryOpenDirectoryAsync(string directoryPath)
+    private static bool TryOpenDirectory(string directoryPath)
     {
-        if(_hostService.IsWindows)
+        try
         {
-            try
+            using var process = Process.Start(new ProcessStartInfo
             {
-                using var process = Process.Start(new ProcessStartInfo
-                {
-                    FileName = directoryPath,
-                    UseShellExecute = true
-                });
+                FileName = directoryPath,
+                UseShellExecute = true
+            });
 
-                return true;
-            }
-            catch(Exception ex)
-            {
-                AppIO.WriteError($"Failed to open addon directory '{directoryPath}'.");
-                AppIO.WriteError(ex.Message);
-                return false;
-            }
+            return true;
         }
-
-        string openCommand = _hostService.IsMacOS ? "open" : "xdg-open";
-        var openResult = await ProcessRunner.RunAsync(openCommand, [directoryPath]);
-        if(!openResult.Success)
+        catch(Exception ex)
         {
             AppIO.WriteError($"Failed to open addon directory '{directoryPath}'.");
-            if(!String.IsNullOrWhiteSpace(openResult.StdErr))
-            {
-                AppIO.WriteError(openResult.StdErr.Trim());
-            }
+            AppIO.WriteError(ex.Message);
+            return false;
         }
-
-        return openResult.Success;
     }
 }

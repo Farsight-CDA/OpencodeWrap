@@ -28,9 +28,6 @@ internal sealed partial class OpencodeReleaseMetadataService : Singleton
     private const string OPENCODE_V2_DIST_TAG = "beta";
     private static readonly string[] _requiredPlatformTargets =
     [
-        "darwin-arm64",
-        "darwin-x64",
-        "darwin-x64-baseline",
         "linux-arm64",
         "linux-arm64-musl",
         "linux-x64",
@@ -89,20 +86,18 @@ internal sealed partial class OpencodeReleaseMetadataService : Singleton
         return (false, emptyRelease);
     }
 
-    public async Task<(bool Success, ResolvedOpencodeBinaryAsset Asset)> TryResolveCurrentHostBinaryAsync(ResolvedOpencodeRelease release)
+    public (bool Success, ResolvedOpencodeBinaryAsset Asset) TryResolveCurrentHostBinary(ResolvedOpencodeRelease release)
     {
         var emptyAsset = CreateEmptyBinaryAsset();
-        string? os = GetCurrentHostOs();
         string? arch = NormalizeArchitecture(RuntimeInformation.OSArchitecture.ToString());
-        if(String.IsNullOrWhiteSpace(os) || String.IsNullOrWhiteSpace(arch))
+        if(String.IsNullOrWhiteSpace(arch))
         {
             _deferredSessionLogService.WriteErrorOrConsole(LogCategories.OPENCODE_HOST, "Unsupported host platform for managed OpenCode V2 installation.");
             return (false, emptyAsset);
         }
 
-        bool isMusl = os == "linux" && await IsMuslLinuxHostAsync();
         bool needsBaseline = arch == "x64" && !Avx2.IsSupported;
-        return TryResolveBinaryAsset(release, BuildTarget(os, arch, isMusl, needsBaseline), os, LogCategories.OPENCODE_HOST);
+        return TryResolveBinaryAsset(release, BuildTarget("windows", arch, isMusl: false, needsBaseline), "windows", LogCategories.OPENCODE_HOST);
     }
 
     public (bool Success, ResolvedOpencodeBinaryAsset Asset) TryResolveLinuxRuntimeBinary(
@@ -345,15 +340,6 @@ internal sealed partial class OpencodeReleaseMetadataService : Singleton
         return true;
     }
 
-    private static string? GetCurrentHostOs()
-        => OperatingSystem.IsLinux()
-            ? "linux"
-            : OperatingSystem.IsMacOS()
-                ? "darwin"
-                : OperatingSystem.IsWindows()
-                    ? "windows"
-                    : null;
-
     internal static string? NormalizeArchitecture(string architecture)
         => architecture.Trim().ToLowerInvariant() switch
         {
@@ -361,19 +347,6 @@ internal sealed partial class OpencodeReleaseMetadataService : Singleton
             "arm64" or "aarch64" => "arm64",
             _ => null
         };
-
-    private static async Task<bool> IsMuslLinuxHostAsync()
-    {
-        if(File.Exists("/etc/alpine-release"))
-        {
-            return true;
-        }
-
-        var lddResult = await ProcessRunner.RunAsync("ldd", ["--version"]);
-        return lddResult.Started
-            && (lddResult.StdOut.Contains("musl", StringComparison.OrdinalIgnoreCase)
-                || lddResult.StdErr.Contains("musl", StringComparison.OrdinalIgnoreCase));
-    }
 
     private ResolvedOpencodeRelease? TryReadCachedRelease(string cachePath)
     {

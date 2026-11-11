@@ -5,19 +5,17 @@ namespace OpencodeWrap.Cli.Profile;
 
 internal sealed class OpenProfileDirectoryCliCommand : Command
 {
-    private readonly DockerHostService _hostService;
     private readonly ProfileService _profileService;
 
-    public OpenProfileDirectoryCliCommand(DockerHostService hostService, ProfileService profileService)
-        : base("open", "Open $HOME/.opencode-wrap/profiles in the file explorer.")
+    public OpenProfileDirectoryCliCommand(ProfileService profileService)
+        : base("open", "Open %USERPROFILE%\\.opencode-wrap\\profiles in File Explorer.")
     {
-        _hostService = hostService;
         _profileService = profileService;
 
-        SetAction(async _ => await ExecuteAsync());
+        SetAction(_ => Execute());
     }
 
-    private async Task<int> ExecuteAsync()
+    private int Execute()
     {
         var (success, catalog) = _profileService.TryLoadProfileCatalog();
         if(!success)
@@ -25,7 +23,7 @@ internal sealed class OpenProfileDirectoryCliCommand : Command
             return 1;
         }
 
-        bool opened = await TryOpenDirectoryAsync(catalog.ProfilesRoot);
+        bool opened = TryOpenDirectory(catalog.ProfilesRoot);
 
         if(!opened)
         {
@@ -36,39 +34,23 @@ internal sealed class OpenProfileDirectoryCliCommand : Command
         return 0;
     }
 
-    private async Task<bool> TryOpenDirectoryAsync(string directoryPath)
+    private static bool TryOpenDirectory(string directoryPath)
     {
-        if(_hostService.IsWindows)
+        try
         {
-            try
+            using var process = Process.Start(new ProcessStartInfo
             {
-                using var process = Process.Start(new ProcessStartInfo
-                {
-                    FileName = directoryPath,
-                    UseShellExecute = true
-                });
+                FileName = directoryPath,
+                UseShellExecute = true
+            });
 
-                return true;
-            }
-            catch(Exception ex)
-            {
-                AppIO.WriteError($"Failed to open profile directory '{directoryPath}'.");
-                AppIO.WriteError(ex.Message);
-                return false;
-            }
+            return true;
         }
-
-        string openCommand = _hostService.IsMacOS ? "open" : "xdg-open";
-        var openResult = await ProcessRunner.RunAsync(openCommand, [directoryPath]);
-        if(!openResult.Success)
+        catch(Exception ex)
         {
             AppIO.WriteError($"Failed to open profile directory '{directoryPath}'.");
-            if(!String.IsNullOrWhiteSpace(openResult.StdErr))
-            {
-                AppIO.WriteError(openResult.StdErr.Trim());
-            }
+            AppIO.WriteError(ex.Message);
+            return false;
         }
-
-        return openResult.Success;
     }
 }

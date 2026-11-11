@@ -9,7 +9,8 @@
     <FileVersion>$(Version).0</FileVersion>
     <InformationalVersion>$(Version)</InformationalVersion>
     <PackageVersion>$(Version)</PackageVersion>
-    <TargetFramework>net11.0</TargetFramework>
+    <TargetFramework>net11.0-windows</TargetFramework>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
@@ -35,10 +36,11 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="CliWrap" Version="3.10.0" />
-    <PackageReference Include="Farsight.Common" Version="0.9.5-beta" />
-    <PackageReference Include="Spectre.Console" Version="0.54.0" />
-    <PackageReference Include="System.CommandLine" Version="2.0.3" />
+    <PackageReference Include="CliWrap" Version="3.10.5" />
+    <PackageReference Include="Farsight.Common" Version="1.2.0" />
+    <PackageReference Include="FluentValidation" Version="12.2.0" />
+    <PackageReference Include="Spectre.Console" Version="0.57.2" />
+    <PackageReference Include="System.CommandLine" Version="3.0.0" />
   </ItemGroup>
 
   <ItemGroup>

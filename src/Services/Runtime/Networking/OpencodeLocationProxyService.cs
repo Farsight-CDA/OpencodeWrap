@@ -446,11 +446,9 @@ internal sealed class OpencodeLocationMapper
     {
         foreach(var mapping in _mappings)
         {
-            bool windowsPath = IsWindowsPath(mapping.HostPath);
-            string hostPath = NormalizeHostPath(mapping.HostPath, windowsPath);
-            string candidatePath = windowsPath ? path.Replace('/', '\\') : path;
-            var comparison = windowsPath ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
-            if(String.Equals(candidatePath, hostPath, comparison))
+            string hostPath = NormalizeHostPath(mapping.HostPath);
+            string candidatePath = path.Replace('/', '\\');
+            if(String.Equals(candidatePath, hostPath, StringComparison.OrdinalIgnoreCase))
             {
                 return mapping.ContainerPath;
             }
@@ -458,7 +456,7 @@ internal sealed class OpencodeLocationMapper
             int suffixStart;
             if(hostPath.Length > 0 && IsDirectorySeparator(hostPath[^1]))
             {
-                if(!candidatePath.StartsWith(hostPath, comparison))
+                if(!candidatePath.StartsWith(hostPath, StringComparison.OrdinalIgnoreCase))
                 {
                     continue;
                 }
@@ -468,7 +466,7 @@ internal sealed class OpencodeLocationMapper
             else
             {
                 if(candidatePath.Length <= hostPath.Length
-                    || !candidatePath.StartsWith(hostPath, comparison)
+                    || !candidatePath.StartsWith(hostPath, StringComparison.OrdinalIgnoreCase)
                     || !IsDirectorySeparator(candidatePath[hostPath.Length]))
                 {
                     continue;
@@ -486,15 +484,10 @@ internal sealed class OpencodeLocationMapper
         return path;
     }
 
-    private static bool IsWindowsPath(string path)
-        => (path.Length >= 3 && Char.IsAsciiLetter(path[0]) && path[1] == ':' && IsDirectorySeparator(path[2]))
-            || path.StartsWith("\\\\", StringComparison.Ordinal)
-            || path.StartsWith("//", StringComparison.Ordinal);
-
-    private static string NormalizeHostPath(string path, bool windowsPath)
+    private static string NormalizeHostPath(string path)
     {
-        string normalized = windowsPath ? path.Replace('/', '\\') : path;
-        int minimumLength = windowsPath && normalized.Length >= 3 && normalized[1] == ':' ? 3 : 1;
+        string normalized = path.Replace('/', '\\');
+        int minimumLength = normalized.Length >= 3 && normalized[1] == ':' ? 3 : 1;
         return normalized.Length > minimumLength ? normalized.TrimEnd('/', '\\') : normalized;
     }
 

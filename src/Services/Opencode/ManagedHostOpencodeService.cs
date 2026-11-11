@@ -68,7 +68,7 @@ internal sealed partial class ManagedHostOpencodeService : Singleton
         _sessionStagingService.CleanupStaleSessions();
         RemoveOrphanedLeaseFiles(paths);
 
-        var (success, asset) = await _releaseMetadataService.TryResolveCurrentHostBinaryAsync(release);
+        var (success, asset) = _releaseMetadataService.TryResolveCurrentHostBinary(release);
         if(!success)
         {
             return (false, String.Empty);
@@ -80,7 +80,6 @@ internal sealed partial class ManagedHostOpencodeService : Singleton
         string versionRoot = GetVersionRoot(paths, release.Version);
         if(TryGetInstalledExecutablePath(versionRoot, binaryAsset.ExecutableFileName, out string installedExecutablePath))
         {
-            EnsureExecutablePermissions(installedExecutablePath);
             if(await ValidateExecutableAsync(installedExecutablePath, release.Version))
             {
                 _deferredSessionLogService.Write(LogCategories.OPENCODE_HOST, $"reusing managed host OpenCode V2 {release.Version}", LogLevel.Information);
@@ -122,7 +121,6 @@ internal sealed partial class ManagedHostOpencodeService : Singleton
                 return (false, String.Empty);
             }
 
-            EnsureExecutablePermissions(extractedExecutablePath);
             if(!await ValidateExecutableAsync(extractedExecutablePath, release.Version))
             {
                 return (false, String.Empty);
@@ -180,26 +178,6 @@ internal sealed partial class ManagedHostOpencodeService : Singleton
         }
 
         CleanupEmptyLeaseDirectories(paths.OpencodeLeasesRoot);
-    }
-
-    private static void EnsureExecutablePermissions(string executablePath)
-    {
-        if(OperatingSystem.IsWindows())
-        {
-            return;
-        }
-
-        try
-        {
-            File.SetUnixFileMode(
-                executablePath,
-                UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
-                UnixFileMode.GroupRead | UnixFileMode.GroupExecute |
-                UnixFileMode.OtherRead | UnixFileMode.OtherExecute);
-        }
-        catch
-        {
-        }
     }
 
     private async Task<bool> ValidateExecutableAsync(string executablePath, string expectedVersion)

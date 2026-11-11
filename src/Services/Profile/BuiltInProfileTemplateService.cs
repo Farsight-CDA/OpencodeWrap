@@ -23,8 +23,6 @@ internal sealed partial class BuiltInProfileTemplateService : Singleton
 
         Profile Dockerfiles should provide the environment and toolchain only.
         OCW installs its session-resolved OpenCode V2 runtime separately at launch time.
-
-        On Unix-like hosts, remember to mark scripts or binaries as executable.
         """;
 
     public async Task<(bool Success, string TemporaryDirectoryPath)> TryMaterializeBuiltInProfileAsync(BuiltInProfileTemplate builtInProfile)

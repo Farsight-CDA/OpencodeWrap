@@ -1,6 +1,5 @@
 using Microsoft.Extensions.Logging;
 using System.Globalization;
-using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -33,7 +32,6 @@ internal sealed partial class OpencodeLauncherService : Singleton
     private int _cleanupStarted;
     private string? _containerName;
     private string? _hostSessionDirectory;
-    private readonly List<PosixSignalRegistration> _signalRegistrations = [];
 
     public async Task<int> ExecuteAsync(
         IReadOnlyList<string> opencodeArgs,
@@ -176,9 +174,8 @@ internal sealed partial class OpencodeLauncherService : Singleton
 
             if(useServeSession)
             {
-                bool useWindowsHostNetworking = _hostService.IsWindows
-                    && selectedDockerNetworkMode.IsHost();
-                if(useWindowsHostNetworking)
+                bool useHostNetworking = selectedDockerNetworkMode.IsHost();
+                if(useHostNetworking)
                 {
                     switch(_hostService.GetDockerDesktopHostNetworkingState())
                     {
@@ -192,7 +189,7 @@ internal sealed partial class OpencodeLauncherService : Singleton
                     }
                 }
 
-                bool portPrepared = useWindowsHostNetworking
+                bool portPrepared = useHostNetworking
                     ? _localPortReservationService.TrySelectUnusedTcpPort(out var allocatedPort)
                     : _localPortReservationService.TryReserveLoopbackPort(out allocatedPort);
                 if(!portPrepared)
@@ -255,14 +252,8 @@ internal sealed partial class OpencodeLauncherService : Singleton
                 LogStartupPhase($"using OpenCode config home '{containerXdgConfigHome}'", LogLevel.Debug);
             }
 
-            string? userSpec = await _hostService.GetContainerUserSpecAsync();
             var containerArgs = new List<string>();
             IReadOnlyDictionary<string, string?>? dockerEnvironmentVariables = null;
-
-            if(userSpec is not null)
-            {
-                containerArgs.AddRange(["--user", userSpec]);
-            }
 
             if(privileged)
             {
@@ -357,7 +348,7 @@ internal sealed partial class OpencodeLauncherService : Singleton
             {
                 containerArgs.Add("serve");
                 containerArgs.Add("--hostname");
-                containerArgs.Add(ResolveServeHostname(selectedDockerNetworkMode, _hostService.IsWindows));
+                containerArgs.Add("0.0.0.0");
                 containerArgs.Add("--port");
                 containerArgs.Add(session.Port!.Value.ToString(CultureInfo.InvariantCulture));
             }
@@ -992,28 +983,10 @@ internal sealed partial class OpencodeLauncherService : Singleton
         }
     }
 
-    private static string ResolveServeHostname(DockerNetworkMode dockerNetworkMode, bool isWindows)
-        => dockerNetworkMode.IsHost() && !isWindows
-            ? "127.0.0.1"
-            : "0.0.0.0";
-
     private void RegisterCleanupHandlers()
     {
         AppDomain.CurrentDomain.ProcessExit += (_, _) => CleanupContainer(force: true);
         AppDomain.CurrentDomain.UnhandledException += (_, _) => CleanupContainer(force: true);
-
-        if(OperatingSystem.IsLinux() || OperatingSystem.IsMacOS())
-        {
-            _signalRegistrations.Add(PosixSignalRegistration.Create(PosixSignal.SIGHUP, HandleTerminationSignal));
-            _signalRegistrations.Add(PosixSignalRegistration.Create(PosixSignal.SIGTERM, HandleTerminationSignal));
-        }
-    }
-
-    private void HandleTerminationSignal(PosixSignalContext context)
-    {
-        context.Cancel = true;
-        CleanupContainer(force: true);
-        Environment.Exit(128 + (int) context.Signal);
     }
 
     private void CleanupContainer(bool force)
@@ -1036,13 +1009,6 @@ internal sealed partial class OpencodeLauncherService : Singleton
         {
             AppIO.TryDeleteDirectory(_hostSessionDirectory);
         }
-
-        foreach(var registration in _signalRegistrations)
-        {
-            registration.Dispose();
-        }
-
-        _signalRegistrations.Clear();
     }
 
     private async Task EnsureCleanupWatchdogAsync(string containerName, string sessionDirectoryPath)

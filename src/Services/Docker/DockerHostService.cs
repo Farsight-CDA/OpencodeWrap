@@ -1,5 +1,4 @@
 using System.Collections.Frozen;
-using System.Runtime.InteropServices;
 using System.Text.Json;
 
 namespace OpencodeWrap.Services.Docker;
@@ -14,18 +13,8 @@ internal sealed partial class DockerHostService : Singleton
     [Inject]
     private readonly DeferredSessionLogService _deferredSessionLogService;
 
-    public bool IsWindows { get; } = RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
-    public bool IsLinux { get; } = RuntimeInformation.IsOSPlatform(OSPlatform.Linux);
-    public bool IsMacOS { get; } = RuntimeInformation.IsOSPlatform(OSPlatform.OSX);
-    public bool IsUnixLike => IsLinux || IsMacOS;
-
     public DockerDesktopHostNetworkingState GetDockerDesktopHostNetworkingState()
     {
-        if(!IsWindows)
-        {
-            return DockerDesktopHostNetworkingState.NotApplicable;
-        }
-
         string appDataDirectory = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
         if(String.IsNullOrWhiteSpace(appDataDirectory))
         {
@@ -64,12 +53,6 @@ internal sealed partial class DockerHostService : Singleton
 
     public async Task<bool> EnsureHostAndDockerAsync()
     {
-        if(!IsWindows && !IsLinux && !IsMacOS)
-        {
-            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.DOCKER, "Unsupported host OS. Only Windows, Linux, and macOS are supported.");
-            return false;
-        }
-
         var dockerCheck = await ProcessRunner.RunAsync("docker", ["version"]);
         if(dockerCheck.Success)
         {
@@ -79,43 +62,6 @@ internal sealed partial class DockerHostService : Singleton
         _deferredSessionLogService.WriteErrorOrConsole(LogCategories.DOCKER, "Docker is required but is not functional on this host.");
         WriteDockerErrorDetails(dockerCheck.StdErr);
         return false;
-    }
-
-    public async Task<string?> GetContainerUserSpecAsync() => !IsUnixLike
-            ? null
-            : await TryGetUnixUserSpecAsync() is { Success: true, UserSpec: string userSpec }
-            ? userSpec
-            : null;
-
-    public async Task<(bool Success, string UserSpec)> TryGetUnixUserSpecAsync()
-    {
-        var uidResult = await ProcessRunner.RunAsync("id", ["-u"]);
-        if(!uidResult.Success)
-        {
-            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.DOCKER, "Failed to resolve current Unix user ID.");
-            _deferredSessionLogService.WriteErrorDetailsOrConsole(LogCategories.DOCKER, uidResult.StdErr);
-
-            return (false, "");
-        }
-
-        var gidResult = await ProcessRunner.RunAsync("id", ["-g"]);
-        if(!gidResult.Success)
-        {
-            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.DOCKER, "Failed to resolve current Unix group ID.");
-            _deferredSessionLogService.WriteErrorDetailsOrConsole(LogCategories.DOCKER, gidResult.StdErr);
-
-            return (false, "");
-        }
-
-        string uid = uidResult.StdOut.Trim();
-        string gid = gidResult.StdOut.Trim();
-        if(uid.Length == 0 || gid.Length == 0)
-        {
-            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.DOCKER, "Unix user ID/group ID cannot be empty.");
-            return (false, "");
-        }
-
-        return (true, $"{uid}:{gid}");
     }
 
     public async Task<(bool Success, IReadOnlyList<string> NetworkNames)> TryListNetworkNamesAsync()
@@ -200,21 +146,6 @@ internal sealed partial class DockerHostService : Singleton
         string details = dockerError.Trim();
         _deferredSessionLogService.WriteErrorOrConsole(LogCategories.DOCKER, details);
 
-        if(IsUnixLike && (details.Contains("permission denied", StringComparison.OrdinalIgnoreCase) || details.Contains("got permission denied", StringComparison.OrdinalIgnoreCase)))
-        {
-            if(IsLinux)
-            {
-                _deferredSessionLogService.WriteWarningOrConsole(LogCategories.DOCKER, "your user may not have access to /var/run/docker.sock.");
-                _deferredSessionLogService.WriteWarningOrConsole(LogCategories.DOCKER, "add your user to the docker group or run with appropriate privileges.");
-            }
-            else if(IsMacOS)
-            {
-                _deferredSessionLogService.WriteWarningOrConsole(LogCategories.DOCKER, "ensure Docker Desktop is running and your shell has access to the Docker socket.");
-            }
-
-            return;
-        }
-
         if(details.Contains("Cannot connect to the Docker daemon", StringComparison.OrdinalIgnoreCase))
         {
             _deferredSessionLogService.WriteWarningOrConsole(LogCategories.DOCKER, "start the Docker daemon and try again.");
@@ -246,7 +177,6 @@ internal sealed partial class DockerHostService : Singleton
 
 internal enum DockerDesktopHostNetworkingState
 {
-    NotApplicable,
     Unknown,
     Disabled,
     Enabled

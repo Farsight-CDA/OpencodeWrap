@@ -245,11 +245,11 @@ internal sealed class RunCliCommand : Command
             }
         }
 
-        List<string> availableAddonNames = [.. addonCatalog.Addons.Keys.OrderBy(name => name, GetHostPathComparer())];
-        var activeAddonNames = new HashSet<string>(GetHostPathComparer());
-        var defaultAddonNames = new HashSet<string>(GetHostPathComparer());
-        var configuredAddonNames = new HashSet<string>(GetHostPathComparer());
-        var savedAddonNames = new HashSet<string>(runMenuDefaults.SessionAddons, GetHostPathComparer());
+        List<string> availableAddonNames = [.. addonCatalog.Addons.Keys.OrderBy(name => name, StringComparer.OrdinalIgnoreCase)];
+        var activeAddonNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var defaultAddonNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var configuredAddonNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var savedAddonNames = new HashSet<string>(runMenuDefaults.SessionAddons, StringComparer.OrdinalIgnoreCase);
         foreach(string addonName in availableAddonNames)
         {
             if(!savedAddonNames.Contains(addonName))
@@ -263,7 +263,7 @@ internal sealed class RunCliCommand : Command
 
         if(workspaceConfigExists)
         {
-            var configuredAddonNameSet = new HashSet<string>(workspaceConfig.SessionAddons, GetHostPathComparer());
+            var configuredAddonNameSet = new HashSet<string>(workspaceConfig.SessionAddons, StringComparer.OrdinalIgnoreCase);
             foreach(string addonName in availableAddonNames)
             {
                 if(!configuredAddonNameSet.Contains(addonName))
@@ -313,7 +313,7 @@ internal sealed class RunCliCommand : Command
         {
             bool isPrivilegedConfigured = workspaceConfig.Privileged is { } configuredPrivileged
                 && configuredPrivileged == privileged;
-            RenderRunSelectionScreen(profileChoices, selectedIndex, selectedTab, mountMode, configuredMountMode == mountMode, currentWorkspacePath, availableVolumeNames, selectedContainerMounts, defaultContainerMounts, configuredContainerMounts, selectedVolumeIndex, addonCatalog.AddonsRoot, availableAddonNames, defaultAddonNames, configuredAddonNames, selectedAddonIndex, activeAddonNames, availableNetworkNames, defaultNetworkNames, configuredNetworkNames, selectedNetworkIndex, selectedNetworkMode, defaultNetworkMode, configuredNetworkMode, activeNetworkNames, selectedDockerOptionIndex, privileged, isPrivilegedConfigured, showWindowsHostNetworkingHint: _dockerHostService.IsWindows);
+            RenderRunSelectionScreen(profileChoices, selectedIndex, selectedTab, mountMode, configuredMountMode == mountMode, currentWorkspacePath, availableVolumeNames, selectedContainerMounts, defaultContainerMounts, configuredContainerMounts, selectedVolumeIndex, addonCatalog.AddonsRoot, availableAddonNames, defaultAddonNames, configuredAddonNames, selectedAddonIndex, activeAddonNames, availableNetworkNames, defaultNetworkNames, configuredNetworkNames, selectedNetworkIndex, selectedNetworkMode, defaultNetworkMode, configuredNetworkMode, activeNetworkNames, selectedDockerOptionIndex, privileged, isPrivilegedConfigured);
             var keyInfo = AnsiConsole.Console.Input.ReadKey(intercept: true);
             if(keyInfo is null)
             {
@@ -463,9 +463,9 @@ internal sealed class RunCliCommand : Command
                 var previousConfiguredNetworkMode = configuredNetworkMode;
                 bool? previousConfiguredPrivileged = workspaceConfig.Privileged;
                 var previousConfiguredContainerMounts = new HashSet<ContainerMount>(configuredContainerMounts);
-                var previousConfiguredAddonNames = new HashSet<string>(configuredAddonNames, GetHostPathComparer());
+                var previousConfiguredAddonNames = new HashSet<string>(configuredAddonNames, StringComparer.OrdinalIgnoreCase);
                 var previousConfiguredNetworkNames = new HashSet<string>(configuredNetworkNames, StringComparer.Ordinal);
-                var previousActiveAddonNames = new HashSet<string>(activeAddonNames, GetHostPathComparer());
+                var previousActiveAddonNames = new HashSet<string>(activeAddonNames, StringComparer.OrdinalIgnoreCase);
                 var previousActiveNetworkNames = new HashSet<string>(activeNetworkNames, StringComparer.Ordinal);
 
                 switch(selectedTab)
@@ -878,8 +878,8 @@ internal sealed class RunCliCommand : Command
         HashSet<string> activeNetworkNames,
         int selectedDockerOptionIndex,
         bool privileged,
-        bool isPrivilegedConfigured,
-        bool showWindowsHostNetworkingHint)
+        bool isPrivilegedConfigured
+    )
     {
         AnsiConsole.Clear();
         AppIO.WriteHeader("Run Setup");
@@ -914,7 +914,7 @@ internal sealed class RunCliCommand : Command
         {
             RunSelectionTab.Volumes => CreateVolumeSelectionContent(availableVolumeNames, selectedContainerMounts, defaultContainerMounts, configuredContainerMounts, selectedVolumeIndex),
             RunSelectionTab.Addons => CreateAddonSelectionContent(addonsRootPath, availableAddonNames, defaultAddonNames, configuredAddonNames, selectedAddonIndex, activeAddonNames),
-            RunSelectionTab.Networks => CreateNetworkSelectionContent(availableNetworkNames, defaultNetworkNames, configuredNetworkNames, selectedNetworkIndex, selectedNetworkMode, defaultNetworkMode, configuredNetworkMode, activeNetworkNames, showWindowsHostNetworkingHint),
+            RunSelectionTab.Networks => CreateNetworkSelectionContent(availableNetworkNames, defaultNetworkNames, configuredNetworkNames, selectedNetworkIndex, selectedNetworkMode, defaultNetworkMode, configuredNetworkMode, activeNetworkNames),
             RunSelectionTab.Docker => CreateDockerSelectionContent(mountMode, isMountModeConfigured, selectedDockerOptionIndex, privileged, isPrivilegedConfigured),
             _ => CreateProfileSelectionContent(profileChoices, selectedIndex)
         };
@@ -1119,7 +1119,7 @@ internal sealed class RunCliCommand : Command
         return new Markup(content.ToString());
     }
 
-    private static Markup CreateNetworkSelectionContent(IReadOnlyList<string> availableNetworkNames, HashSet<string> defaultNetworkNames, HashSet<string> configuredNetworkNames, int selectedNetworkIndex, DockerNetworkMode selectedNetworkMode, DockerNetworkMode? defaultNetworkMode, DockerNetworkMode? configuredNetworkMode, HashSet<string> activeNetworkNames, bool showWindowsHostNetworkingHint)
+    private static Markup CreateNetworkSelectionContent(IReadOnlyList<string> availableNetworkNames, HashSet<string> defaultNetworkNames, HashSet<string> configuredNetworkNames, int selectedNetworkIndex, DockerNetworkMode selectedNetworkMode, DockerNetworkMode? defaultNetworkMode, DockerNetworkMode? configuredNetworkMode, HashSet<string> activeNetworkNames)
     {
         var content = new StringBuilder();
 
@@ -1140,7 +1140,7 @@ internal sealed class RunCliCommand : Command
             content.AppendLine($"  [grey70]Network mode[/] {modeDisplay}{modeSourceMarkers}");
         }
 
-        if(showWindowsHostNetworkingHint && selectedNetworkMode is DockerNetworkMode.Host)
+        if(selectedNetworkMode is DockerNetworkMode.Host)
         {
             content.AppendLine("[grey]  Windows host mode requires Docker Desktop host networking to be enabled.[/]");
         }
@@ -1160,7 +1160,7 @@ internal sealed class RunCliCommand : Command
         }
 
         content.AppendLine("  [grey50]────────────────────────────────────────[/]");
-        bool hasNetworkHint = showWindowsHostNetworkingHint && selectedNetworkMode is DockerNetworkMode.Host;
+        bool hasNetworkHint = selectedNetworkMode is DockerNetworkMode.Host;
         int fixedRowCount = hasNetworkHint ? 4 : 3;
         var viewport = CreateListViewport(
             availableNetworkNames.Count,
@@ -1956,7 +1956,7 @@ internal sealed class RunCliCommand : Command
                 {
                     entries.Add(new ExplorerEntry(".. (parent)", ExplorerEntryType.Parent));
                 }
-                else if(OperatingSystem.IsWindows())
+                else
                 {
                     entries.Add(new ExplorerEntry(".. (drives)", ExplorerEntryType.Parent));
                 }
@@ -2020,7 +2020,7 @@ internal sealed class RunCliCommand : Command
                         currentDirectory = parentDirectory;
                         selectedIndex = 0;
                     }
-                    else if(OperatingSystem.IsWindows())
+                    else
                     {
                         selectingDrive = true;
                         selectedIndex = 0;
@@ -2063,7 +2063,7 @@ internal sealed class RunCliCommand : Command
                             currentDirectory = nextParentDirectory;
                             selectedIndex = 0;
                         }
-                        else if(OperatingSystem.IsWindows())
+                        else
                         {
                             selectingDrive = true;
                             selectedIndex = 0;
@@ -2175,7 +2175,7 @@ internal sealed class RunCliCommand : Command
         {
             var children = Directory
                 .GetDirectories(directory)
-                .OrderBy(path => path, GetHostPathComparer())
+                .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
                 .ToList();
             return children;
         }
@@ -2191,18 +2191,13 @@ internal sealed class RunCliCommand : Command
 
     private static List<string> GetAvailableDriveRoots()
     {
-        if(!OperatingSystem.IsWindows())
-        {
-            return [];
-        }
-
         try
         {
             var drives = DriveInfo
                 .GetDrives()
                 .Where(drive => drive.IsReady)
                 .Select(drive => Path.GetFullPath(drive.RootDirectory.FullName))
-                .OrderBy(path => path, GetHostPathComparer())
+                .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
                 .ToList();
             return drives;
         }
@@ -2240,10 +2235,6 @@ internal sealed class RunCliCommand : Command
         normalizedPath = Path.TrimEndingDirectorySeparator(Path.GetFullPath(requestedDirectory));
         return Directory.Exists(normalizedPath);
     }
-
-    private static StringComparer GetHostPathComparer() => OperatingSystem.IsWindows()
-        ? StringComparer.OrdinalIgnoreCase
-        : StringComparer.Ordinal;
 
     private static int MoveSelectableContainerMountSourceTypeChoice(IReadOnlyList<ContainerMountSourceTypeChoice> choices, int selectedIndex, bool movingForward)
     {

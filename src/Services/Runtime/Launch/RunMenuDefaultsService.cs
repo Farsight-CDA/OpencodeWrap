@@ -438,7 +438,7 @@ internal sealed partial class RunMenuDefaultsService : Singleton
             .Select(name => name.Trim())
             .Where(seenNetworkNames.Add)];
 
-        var seenAddonNames = new HashSet<string>(GetHostPathComparer());
+        var seenAddonNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         List<string> sessionAddons = [.. defaults.SessionAddons
             .Where(name => !String.IsNullOrWhiteSpace(name))
             .Select(name => name.Trim())
@@ -464,11 +464,6 @@ internal sealed partial class RunMenuDefaultsService : Singleton
                 Share = FileShare.None,
                 Options = FileOptions.WriteThrough
             };
-
-            if(!OperatingSystem.IsWindows())
-            {
-                fileOptions.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
-            }
 
             using(var stream = new FileStream(temporaryPath, fileOptions))
             using(var writer = new Utf8JsonWriter(stream, new JsonWriterOptions
@@ -722,10 +717,6 @@ internal sealed partial class RunMenuDefaultsService : Singleton
 
     private static string GetWorkspaceConfigPath(string workspacePath)
         => Path.Combine(workspacePath, OpencodeWrapConstants.HOST_WORKSPACE_RUN_CONFIG_FILE_NAME);
-
-    private static StringComparer GetHostPathComparer() => OperatingSystem.IsWindows()
-        ? StringComparer.OrdinalIgnoreCase
-        : StringComparer.Ordinal;
 }
 
 internal sealed record RunMenuDefaults(string? DefaultProfileName, DockerNetworkMode? DefaultDockerNetworkMode, IReadOnlyList<ContainerMount> ContainerMounts, IReadOnlyList<string> SessionAddons, IReadOnlyList<string> DockerNetworks, string? ServerPassword = null)

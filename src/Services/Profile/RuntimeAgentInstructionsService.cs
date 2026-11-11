@@ -5,9 +5,6 @@ namespace OpencodeWrap.Services.Profile;
 
 internal sealed partial class RuntimeAgentInstructionsService : Singleton
 {
-    [Inject]
-    private readonly DockerHostService _dockerHostService;
-
     public string Build(
         string containerWorkDir,
         WorkspaceMountMode workspaceMountMode,
@@ -19,9 +16,7 @@ internal sealed partial class RuntimeAgentInstructionsService : Singleton
         builder.AppendLine("- You're running in a disposable Docker container started by OpencodeWrap.");
         builder.AppendLine("- You may clone temporary reference repositories and create scratch files under `/tmp`.");
         builder.AppendLine("- You may freely install tools into writable locations such as `/tmp`");
-        builder.AppendLine(_dockerHostService.IsWindows
-            ? "- The container runs as root."
-            : "- Do not assume root access or that system-wide package installation is available.");
+        builder.AppendLine("- The container runs as root.");
 
         if(workspaceMountMode == WorkspaceMountMode.None)
         {

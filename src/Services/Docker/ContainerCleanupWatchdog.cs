@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using System.Globalization;
-using System.Runtime.InteropServices;
 
 namespace OpencodeWrap.Services.Docker;
 
@@ -14,8 +13,6 @@ internal static class ContainerCleanupWatchdog
     private static readonly TimeSpan _readyPollInterval = TimeSpan.FromMilliseconds(25);
     private static readonly TimeSpan _removalRetryDuration = TimeSpan.FromSeconds(20);
     private static readonly TimeSpan _removalRetryInterval = TimeSpan.FromMilliseconds(250);
-    private static readonly Lock _signalRegistrationLock = new();
-    private static List<PosixSignalRegistration>? _ignoreSignalRegistrations;
     private readonly record struct WatchdogRunConfig(
         int ParentPid,
         long ParentStartTicks,
@@ -43,14 +40,6 @@ internal static class ContainerCleanupWatchdog
         }
 
         string[] watchdogArgs = BuildWatchdogArgs(parentPid, parentStartTicks, containerName, sessionDirectoryPath, out string readyFilePath);
-
-        if(OperatingSystem.IsLinux() || OperatingSystem.IsMacOS())
-        {
-            if(TryStartWatchdog("setsid", [executablePath!, .. watchdogArgs]))
-            {
-                return await WaitForReadyAsync(readyFilePath, timeout);
-            }
-        }
 
         if(TryStartWatchdog(executablePath!, watchdogArgs))
         {
@@ -92,7 +81,6 @@ internal static class ContainerCleanupWatchdog
 
     private static async Task<int> WaitForParentAndCleanupAsync(WatchdogRunConfig config)
     {
-        RegisterIgnoreTerminationHandlers();
         WriteReadyFile(config.ReadyFilePath);
 
         while(ProcessIdentity.IsProcessAlive(config.ParentPid, config.ParentStartTicks))
@@ -236,28 +224,6 @@ internal static class ContainerCleanupWatchdog
         return true;
     }
 
-    private static bool ContainerExists(string containerName) => ProcessRunner.CommandSucceedsBlocking("docker", ["container", "inspect", containerName]);
-
-    private static void RegisterIgnoreTerminationHandlers()
-    {
-        if(!(OperatingSystem.IsLinux() || OperatingSystem.IsMacOS()))
-        {
-            return;
-        }
-
-        lock(_signalRegistrationLock)
-        {
-            if(_ignoreSignalRegistrations is not null)
-            {
-                return;
-            }
-
-            _ignoreSignalRegistrations =
-            [
-                PosixSignalRegistration.Create(PosixSignal.SIGHUP, static context => context.Cancel = true),
-                PosixSignalRegistration.Create(PosixSignal.SIGTERM, static context => context.Cancel = true),
-                PosixSignalRegistration.Create(PosixSignal.SIGINT, static context => context.Cancel = true)
-            ];
-        }
-    }
+    private static bool ContainerExists(string containerName)
+        => ProcessRunner.CommandSucceedsBlocking("docker", ["container", "inspect", containerName]);
 }
