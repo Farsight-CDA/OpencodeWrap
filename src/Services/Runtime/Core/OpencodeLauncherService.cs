@@ -26,6 +26,7 @@ internal sealed partial class OpencodeLauncherService : Singleton
     [Inject] private readonly OpencodeCatalogReadinessService _opencodeCatalogReadinessService;
     [Inject] private readonly OpencodeLocationProxyService _opencodeLocationProxyService;
     [Inject] private readonly OpencodeServeHealthcheckService _opencodeServeHealthcheckService;
+    [Inject] private readonly OpencodeBackendReadinessService _opencodeBackendReadinessService;
     [Inject] private readonly RuntimeAgentInstructionsService _runtimeAgentInstructionsService;
     [Inject] private readonly RunMenuDefaultsService _runMenuDefaultsService;
 
@@ -384,7 +385,9 @@ internal sealed partial class OpencodeLauncherService : Singleton
                 bool backendReady = await _sessionOutputService.RunWithLoadingStateAsync(
                     LogCategories.STARTUP,
                     "Waiting for OpenCode backend...",
-                    () => _opencodeServeHealthcheckService.WaitUntilReadyAsync(session.ServerUrl!, serverPassword!, packageRelease.Version));
+                    () => _opencodeBackendReadinessService.WaitUntilReadyAsync(
+                        _containerName!,
+                        cancellationToken => _opencodeServeHealthcheckService.WaitUntilReadyAsync(session.ServerUrl!, serverPassword!, packageRelease.Version, cancellationToken)));
                 if(!backendReady)
                 {
                     await WriteContainerLogsAsync(_containerName!);
@@ -395,7 +398,9 @@ internal sealed partial class OpencodeLauncherService : Singleton
                 bool catalogReady = await _sessionOutputService.RunWithLoadingStateAsync(
                     LogCategories.STARTUP,
                     "Loading OpenCode catalog...",
-                    () => _opencodeCatalogReadinessService.WaitUntilReadyAsync(session.ServerUrl!, serverPassword!, containerWorkDir));
+                    () => _opencodeBackendReadinessService.WaitUntilReadyAsync(
+                        _containerName!,
+                        cancellationToken => _opencodeCatalogReadinessService.WaitUntilReadyAsync(session.ServerUrl!, serverPassword!, containerWorkDir, cancellationToken)));
                 if(!catalogReady)
                 {
                     await WriteContainerLogsAsync(_containerName!);
@@ -1036,7 +1041,7 @@ internal sealed partial class OpencodeLauncherService : Singleton
 
         if(String.IsNullOrWhiteSpace(output.Value.StdOut) && String.IsNullOrWhiteSpace(output.Value.StdErr))
         {
-            _deferredSessionLogService.WriteWarningOrConsole("docker", $"Backend container '{containerName}' produced no logs before readiness timed out.");
+            _deferredSessionLogService.WriteWarningOrConsole("docker", $"Backend container '{containerName}' produced no logs during startup.");
             return;
         }
 

@@ -29,19 +29,29 @@ internal static class ProcessRunner
         IReadOnlyList<string> args,
         bool captureOutput = true,
         string? workDir = null,
-        IReadOnlyDictionary<string, string?>? environmentVariables = null)
+        IReadOnlyDictionary<string, string?>? environmentVariables = null
+    )
+        => captureOutput
+            ? await RunAsync(fileName, args, CancellationToken.None, workDir, environmentVariables)
+            : await RunAttachedAsync(fileName, args, workDir, environmentVariables);
+
+    public static async Task<ProcessRunResult> RunAsync(
+        string fileName,
+        IReadOnlyList<string> args,
+        CancellationToken cancellationToken,
+        string? workDir = null,
+        IReadOnlyDictionary<string, string?>? environmentVariables = null
+    )
     {
         try
         {
             var command = CreateCommand(fileName, args, workDir, environmentVariables);
-
-            if(!captureOutput)
-            {
-                return await RunAttachedAsync(fileName, args, workDir, environmentVariables);
-            }
-
-            var bufferedResult = await command.ExecuteBufferedAsync();
+            var bufferedResult = await command.ExecuteBufferedAsync(cancellationToken);
             return new ProcessRunResult(true, bufferedResult.ExitCode, bufferedResult.StandardOutput, bufferedResult.StandardError);
+        }
+        catch(OperationCanceledException) when(cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch(Exception ex)
         {

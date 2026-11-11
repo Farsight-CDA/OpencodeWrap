@@ -15,6 +15,9 @@ internal static class DockerCommand
         return Classify(result);
     }
 
+    public static async Task<DockerResult<DockerOutput>> RunAsync(IReadOnlyList<string> args, CancellationToken cancellationToken)
+        => Classify(await ProcessRunner.RunAsync("docker", args, cancellationToken));
+
     public static async Task<DockerResult<DockerOutput>> RunAttachedAsync(
         IReadOnlyList<string> args,
         IReadOnlyDictionary<string, string?>? environmentVariables = null

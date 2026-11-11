@@ -14,7 +14,12 @@ internal sealed partial class OpencodeCatalogReadinessService : Singleton
     [Inject]
     private readonly DeferredSessionLogService _deferredSessionLogService;
 
-    public async Task<bool> WaitUntilReadyAsync(string serverUrl, string serverPassword, string containerDirectory)
+    public async Task<bool> WaitUntilReadyAsync(
+        string serverUrl,
+        string serverPassword,
+        string containerDirectory,
+        CancellationToken cancellationToken = default
+    )
     {
         if(!Uri.TryCreate(serverUrl, UriKind.Absolute, out var serverUri))
         {
@@ -33,18 +38,19 @@ internal sealed partial class OpencodeCatalogReadinessService : Singleton
         };
 
         var agentsUri = BuildLocationUri(serverUri, "/api/agent", containerDirectory);
-        var deadlineUtc = DateTime.UtcNow + _catalogTimeout;
+        using var readinessCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        readinessCancellation.CancelAfter(_catalogTimeout);
         string? lastFailureDetail = null;
 
-        while(DateTime.UtcNow < deadlineUtc)
+        while(!readinessCancellation.IsCancellationRequested)
         {
             try
             {
                 using var request = CreateAuthenticatedRequest(agentsUri, serverPassword);
-                using var response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseContentRead);
+                using var response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseContentRead, readinessCancellation.Token);
                 if(response.IsSuccessStatusCode)
                 {
-                    string json = await response.Content.ReadAsStringAsync();
+                    string json = await response.Content.ReadAsStringAsync(readinessCancellation.Token);
                     if(HasAgents(json))
                     {
                         _deferredSessionLogService.Write(LogCategories.CLIENT, $"OpenCode V2 catalog ready for '{containerDirectory}'", LogLevel.Information);
@@ -63,9 +69,17 @@ internal sealed partial class OpencodeCatalogReadinessService : Singleton
                 lastFailureDetail = $"{agentsUri}: {ex.Message}";
             }
 
-            await Task.Delay(_pollInterval);
+            try
+            {
+                await Task.Delay(_pollInterval, readinessCancellation.Token);
+            }
+            catch(OperationCanceledException) when(readinessCancellation.IsCancellationRequested)
+            {
+                break;
+            }
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
         _deferredSessionLogService.WriteErrorOrConsole(LogCategories.CLIENT, $"OpenCode V2 agent catalog did not become ready for '{containerDirectory}' within {_catalogTimeout.TotalSeconds:F0}s.");
         if(!String.IsNullOrWhiteSpace(lastFailureDetail))
         {

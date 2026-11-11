@@ -14,7 +14,12 @@ internal sealed partial class OpencodeServeHealthcheckService : Singleton
     [Inject]
     private readonly DeferredSessionLogService _deferredSessionLogService;
 
-    public async Task<bool> WaitUntilReadyAsync(string serverUrl, string serverPassword, string expectedVersion)
+    public async Task<bool> WaitUntilReadyAsync(
+        string serverUrl,
+        string serverPassword,
+        string expectedVersion,
+        CancellationToken cancellationToken = default
+    )
     {
         if(!Uri.TryCreate(serverUrl, UriKind.Absolute, out var serverUri))
         {
@@ -35,7 +40,8 @@ internal sealed partial class OpencodeServeHealthcheckService : Singleton
             Timeout = _requestTimeout
         };
 
-        using var readinessCancellation = new CancellationTokenSource(_readinessTimeout);
+        using var readinessCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        readinessCancellation.CancelAfter(_readinessTimeout);
         string? lastFailureDetail = null;
 
         while(!readinessCancellation.IsCancellationRequested)
@@ -75,6 +81,7 @@ internal sealed partial class OpencodeServeHealthcheckService : Singleton
             }
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
         _deferredSessionLogService.WriteErrorOrConsole(LogCategories.STARTUP, $"OpenCode V2 backend did not become ready at '{healthUri}' within {_readinessTimeout.TotalSeconds:F0}s.");
         if(!String.IsNullOrWhiteSpace(lastFailureDetail))
         {
