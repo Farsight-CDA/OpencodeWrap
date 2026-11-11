@@ -24,7 +24,7 @@ Your backend sessions and server data persist. Just type `ocw run`.
 npm i -g @farsight-cda/ocw
 ```
 
-Windows x64 with AVX2 support and Docker Desktop configured for Linux containers are required. The Docker environment must also expose AVX2 when running x64 images; CPUs without AVX2 are not supported.
+Windows x64 with AVX2 support and Docker Desktop configured for Linux containers are required.
 
 ---
 
@@ -47,6 +47,8 @@ OCW resolves the current `@opencode-ai/cli@beta` release when a run starts, then
 | `all-in-one` | Combined frontend, .NET, Go, Rust, Postgres/data, and Solidity tooling |
 
 Create your own with `ocw profile add <name>`.
+
+Custom profile images must provide Node.js and npm. OCW uses OpenCode's upstream npm installer during the runtime-image build to select the appropriate Linux binary for the profile. The exact session-resolved version is installed and verified, and the resulting image is cached; cached launches do not start a platform-probe container.
 
 ---
 

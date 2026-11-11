@@ -26,10 +26,6 @@ internal sealed partial class OpencodeReleaseMetadataService : Singleton
     private const string OPENCODE_V2_DIST_TAG = "beta";
     private static readonly string[] _requiredPlatformTargets =
     [
-        "linux-arm64",
-        "linux-arm64-musl",
-        "linux-x64",
-        "linux-x64-musl",
         "windows-arm64",
         "windows-x64"
     ];
@@ -91,32 +87,8 @@ internal sealed partial class OpencodeReleaseMetadataService : Singleton
             return (false, emptyAsset);
         }
 
-        return TryResolveBinaryAsset(release, BuildTarget("windows", arch, isMusl: false), "windows", LogCategories.OPENCODE_HOST);
+        return TryResolveBinaryAsset(release, $"windows-{arch}");
     }
-
-    public (bool Success, ResolvedOpencodeBinaryAsset Asset) TryResolveLinuxRuntimeBinary(
-        ResolvedOpencodeRelease release,
-        string architecture,
-        bool isMusl
-    )
-    {
-        var emptyAsset = CreateEmptyBinaryAsset();
-        string? normalizedArchitecture = NormalizeArchitecture(architecture);
-        if(String.IsNullOrWhiteSpace(normalizedArchitecture))
-        {
-            _deferredSessionLogService.WriteErrorOrConsole(LogCategories.OPENCODE_RUNTIME, $"Unsupported Docker image architecture '{architecture}'.");
-            return (false, emptyAsset);
-        }
-
-        return TryResolveBinaryAsset(
-            release,
-            BuildTarget("linux", normalizedArchitecture, isMusl),
-            "linux",
-            LogCategories.OPENCODE_RUNTIME);
-    }
-
-    internal static string BuildTarget(string os, string arch, bool isMusl)
-        => os == "linux" && isMusl ? $"{os}-{arch}-musl" : $"{os}-{arch}";
 
     internal static bool TryParsePackageAsset(
         JsonElement root,
@@ -173,24 +145,19 @@ internal sealed partial class OpencodeReleaseMetadataService : Singleton
 
     private (bool Success, ResolvedOpencodeBinaryAsset Asset) TryResolveBinaryAsset(
         ResolvedOpencodeRelease release,
-        string target,
-        string operatingSystem,
-        string logCategory)
+        string target
+    )
     {
         var emptyAsset = CreateEmptyBinaryAsset();
-        string executableFileName = operatingSystem == "windows"
-            ? "opencode2.exe"
-            : "opencode2";
-
         string packageName = $"{release.PackageName}-{target}";
         if(release.PlatformPackages.TryGetValue(packageName, out var package)
             && String.Equals(package.Version, release.Version, StringComparison.Ordinal))
         {
-            return (true, new ResolvedOpencodeBinaryAsset(executableFileName, package));
+            return (true, new ResolvedOpencodeBinaryAsset("opencode2.exe", package));
         }
 
         _deferredSessionLogService.WriteErrorOrConsole(
-            logCategory,
+            LogCategories.OPENCODE_HOST,
             $"OpenCode V2 npm platform package '{packageName}' was not found.");
         return (false, emptyAsset);
     }

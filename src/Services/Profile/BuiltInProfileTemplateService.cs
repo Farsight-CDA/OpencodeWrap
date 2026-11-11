@@ -22,6 +22,7 @@ internal sealed partial class BuiltInProfileTemplateService : Singleton
         and adds it to `PATH` for profile runs.
 
         Profile Dockerfiles should provide the environment and toolchain only.
+        Include Node.js and npm for OpenCode's upstream installer, which runs during the runtime-image build.
         OCW installs its session-resolved OpenCode V2 runtime separately at launch time.
         """;
 
