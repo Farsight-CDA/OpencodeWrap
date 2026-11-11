@@ -4,27 +4,17 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-        ca-certificates \
-        curl \
-        gpg \
-    && mkdir -p /etc/apt/keyrings \
-    && curl -fsSL 'https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x45A3F127159BE9E5017811C62125B164E8E5D3FA' | gpg --dearmor -o /etc/apt/keyrings/dotnet-backports.gpg \
-    && chmod go+r /etc/apt/keyrings/dotnet-backports.gpg \
-    && echo "deb [signed-by=/etc/apt/keyrings/dotnet-backports.gpg] https://ppa.launchpadcontent.net/dotnet/backports/ubuntu resolute main" > /etc/apt/sources.list.d/dotnet-backports.list \
-    && rm -rf /var/lib/apt/lists/*
-
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
         bash \
         binutils \
+        ca-certificates \
         clang \
         coreutils \
-        dotnet-sdk-10.0 \
-        dotnet-sdk-11.0 \
+        curl \
         file \
         gh \
         git \
         gnuplot \
+        gpg \
         iproute2 \
         jq \
         less \
@@ -45,6 +35,13 @@ RUN apt-get update \
         zlib1g-dev \
         zip \
     && rm -rf /var/lib/apt/lists/*
+
+RUN curl -fsSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh \
+    && chmod +x /tmp/dotnet-install.sh \
+    && /tmp/dotnet-install.sh --channel 10.0 --install-dir /usr/share/dotnet --no-path \
+    && /tmp/dotnet-install.sh --channel 11.0 --install-dir /usr/share/dotnet --no-path \
+    && ln -s /usr/share/dotnet/dotnet /usr/local/bin/dotnet \
+    && rm /tmp/dotnet-install.sh
 
 RUN mkdir -p /etc/apt/keyrings \
     && curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg \
