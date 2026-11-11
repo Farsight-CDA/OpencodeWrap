@@ -57,11 +57,11 @@ internal sealed partial class OpencodeRuntimeImageService : Singleton
         }
 
         _deferredSessionLogService.Write(LogCategories.OPENCODE_RUNTIME, $"building runtime image '{imageTag}' for OpenCode {release.Version}", LogLevel.Information);
-        return await TryBuildRuntimeImageAsync(image.Id, imageTag, release);
+        return await TryBuildRuntimeImageAsync(baseImage.Tag, imageTag, release);
     }
 
     private async Task<DockerResult<string>> TryBuildRuntimeImageAsync(
-        string baseImageId,
+        string baseImageRef,
         string imageTag,
         ResolvedOpencodeRelease release
     )
@@ -80,7 +80,7 @@ internal sealed partial class OpencodeRuntimeImageService : Singleton
                 "build",
                 "-f", dockerfilePath,
                 "-t", imageTag,
-                "--build-arg", $"BASE_IMAGE={baseImageId}",
+                "--build-arg", $"BASE_IMAGE={baseImageRef}",
                 "--build-arg", $"OPENCODE_PACKAGE={release.PackageName}",
                 "--build-arg", $"OPENCODE_VERSION={release.Version}",
                 "."
