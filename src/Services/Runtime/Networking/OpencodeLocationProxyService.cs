@@ -60,11 +60,13 @@ internal sealed partial class OpencodeLocationProxyService : Singleton
                 Timeout = Timeout.InfiniteTimeSpan
             };
 
-            var builder = WebApplication.CreateSlimBuilder(new WebApplicationOptions
+            // The bridge must not inherit the workspace's appsettings or ASP.NET environment configuration.
+            var builder = WebApplication.CreateEmptyBuilder(new WebApplicationOptions
             {
                 Args = []
             });
             builder.Logging.ClearProviders();
+            builder.WebHost.UseKestrelCore();
             builder.WebHost.ConfigureKestrel(options =>
             {
                 options.AddServerHeader = false;
@@ -260,7 +262,7 @@ internal sealed partial class OpencodeLocationProxyService : Singleton
         }
 
         string path = request.Path.Value ?? String.Empty;
-        return path is "/api/session" or "/api/session/import" or "/api/pty" or "/api/shell"
+        return path is "/api/session" or "/api/session/import" or "/api/pty" or "/api/shell" or "/api/worktree"
             || (path.StartsWith("/api/session/", StringComparison.Ordinal) && path.EndsWith("/move", StringComparison.Ordinal))
             || (path.StartsWith("/experimental/project/", StringComparison.Ordinal) && path.EndsWith("/copy", StringComparison.Ordinal));
     }
@@ -297,6 +299,17 @@ internal sealed partial class OpencodeLocationProxyService : Singleton
         }
 
         string propertyName = path is "/api/pty" or "/api/shell" ? "cwd" : "directory";
+        bool changed = RewriteJsonPath(root, propertyName, mapper);
+        if(path is "/api/worktree")
+        {
+            changed |= RewriteJsonPath(root, "from", mapper);
+        }
+
+        return changed;
+    }
+
+    private static bool RewriteJsonPath(JsonObject root, string propertyName, OpencodeLocationMapper mapper)
+    {
         if(root[propertyName] is not JsonValue value || !value.TryGetValue<string>(out string? sourceDirectory))
         {
             return false;
