@@ -9,7 +9,7 @@ internal sealed partial class OpencodeServeHealthcheckService : Singleton
 {
     private static readonly TimeSpan _readinessTimeout = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan _pollInterval = TimeSpan.FromMilliseconds(100);
-    private static readonly TimeSpan _requestTimeout = TimeSpan.FromMilliseconds(500);
+    private static readonly TimeSpan _requestTimeout = TimeSpan.FromSeconds(5);
 
     [Inject]
     private readonly DeferredSessionLogService _deferredSessionLogService;
@@ -35,18 +35,18 @@ internal sealed partial class OpencodeServeHealthcheckService : Singleton
             Timeout = _requestTimeout
         };
 
-        var deadlineUtc = DateTime.UtcNow + _readinessTimeout;
+        using var readinessCancellation = new CancellationTokenSource(_readinessTimeout);
         string? lastFailureDetail = null;
 
-        while(DateTime.UtcNow < deadlineUtc)
+        while(!readinessCancellation.IsCancellationRequested)
         {
             try
             {
                 using var request = CreateHealthRequest(serverUri, serverPassword);
-                using var response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseContentRead);
+                using var response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseContentRead, readinessCancellation.Token);
                 if(response.IsSuccessStatusCode)
                 {
-                    string json = await response.Content.ReadAsStringAsync();
+                    string json = await response.Content.ReadAsStringAsync(readinessCancellation.Token);
                     if(TryValidateHealthResponse(json, expectedVersion, out string validationError))
                     {
                         _deferredSessionLogService.Write(LogCategories.STARTUP, $"OpenCode V2 backend {expectedVersion} reported ready at '{healthUri}'", LogLevel.Information);
@@ -65,7 +65,14 @@ internal sealed partial class OpencodeServeHealthcheckService : Singleton
                 lastFailureDetail = $"{healthUri}: {ex.Message}";
             }
 
-            await Task.Delay(_pollInterval);
+            try
+            {
+                await Task.Delay(_pollInterval, readinessCancellation.Token);
+            }
+            catch(OperationCanceledException) when(readinessCancellation.IsCancellationRequested)
+            {
+                break;
+            }
         }
 
         _deferredSessionLogService.WriteErrorOrConsole(LogCategories.STARTUP, $"OpenCode V2 backend did not become ready at '{healthUri}' within {_readinessTimeout.TotalSeconds:F0}s.");
