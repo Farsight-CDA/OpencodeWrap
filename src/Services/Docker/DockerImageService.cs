@@ -4,6 +4,7 @@ using System.Text;
 namespace OpencodeWrap.Services.Docker;
 
 internal sealed record DockerImageInfo(string Id, string Os, string Architecture);
+internal sealed record ResolvedDockerImage(string Tag, DockerImageInfo Info);
 
 internal sealed partial class DockerImageService : Singleton
 {
@@ -13,42 +14,67 @@ internal sealed partial class DockerImageService : Singleton
     [Inject]
     private readonly SessionOutputService _sessionOutputService;
 
-    public async Task<(bool Success, string ImageTag)> TryEnsureImageAsync(string dockerfilePath)
+    public async Task<DockerResult<ResolvedDockerImage>> TryEnsureImageAsync(string dockerfilePath)
     {
-        string imageTag = "opencode-wrap:unavailable";
-
         if(!File.Exists(dockerfilePath))
         {
-            _deferredSessionLogService.WriteErrorOrConsole("docker", $"Dockerfile not found: '{dockerfilePath}'.");
-            return (false, imageTag);
+            string message = $"Dockerfile not found: '{dockerfilePath}'.";
+            _deferredSessionLogService.WriteErrorOrConsole("docker", message);
+            return new DockerFailure(message);
         }
 
-        imageTag = await BuildImageTagAsync(dockerfilePath);
+        string imageTag = await BuildImageTagAsync(dockerfilePath);
 
-        if(await ImageExistsAsync(imageTag))
+        var inspect = await TryInspectImageAsync(imageTag);
+        if(inspect is DockerValue<DockerImageInfo> image)
         {
-            return (true, imageTag);
+            return new DockerValue<ResolvedDockerImage>(new ResolvedDockerImage(imageTag, image.Value));
+        }
+
+        if(inspect is not DockerNotFound)
+        {
+            var error = inspect.Require();
+            _deferredSessionLogService.WriteErrorOrConsole("docker", $"Failed to inspect Docker image '{imageTag}'.");
+            _deferredSessionLogService.WriteErrorDetailsOrConsole("docker", error.ErrorDetails);
+            return error.Select(info => new ResolvedDockerImage(imageTag, info));
         }
 
         _sessionOutputService.WriteInfo(LogCategories.DOCKER, $"Docker image '{imageTag}' not found. Building it now...");
-        return await TryBuildImageAsync(dockerfilePath, imageTag, noCache: false, _deferredSessionLogService);
+        var build = await TryBuildImageAsync(dockerfilePath, imageTag, noCache: false, _deferredSessionLogService);
+        return build switch
+        {
+            DockerValue<string> => await InspectBuiltImageAsync(),
+            DockerUnavailable unavailable => unavailable,
+            DockerFailure failure => failure
+        };
+
+        async Task<DockerResult<ResolvedDockerImage>> InspectBuiltImageAsync()
+        {
+            var builtImage = (await TryInspectImageAsync(imageTag)).Require();
+            if(builtImage is not DockerValue<DockerImageInfo>)
+            {
+                _deferredSessionLogService.WriteErrorOrConsole("docker", $"Failed to inspect built Docker image '{imageTag}'.");
+                _deferredSessionLogService.WriteErrorDetailsOrConsole("docker", builtImage.ErrorDetails);
+            }
+
+            return builtImage.Select(info => new ResolvedDockerImage(imageTag, info));
+        }
     }
 
-    public async Task<(bool Success, string ImageTag)> TryBuildImageAsync(string dockerfilePath, bool noCache)
+    public async Task<DockerResult<string>> TryBuildImageAsync(string dockerfilePath, bool noCache)
     {
-        string imageTag = "opencode-wrap:unavailable";
-
         if(!File.Exists(dockerfilePath))
         {
-            _deferredSessionLogService.WriteErrorOrConsole("docker", $"Dockerfile not found: '{dockerfilePath}'.");
-            return (false, imageTag);
+            string message = $"Dockerfile not found: '{dockerfilePath}'.";
+            _deferredSessionLogService.WriteErrorOrConsole("docker", message);
+            return new DockerFailure(message);
         }
 
-        imageTag = await BuildImageTagAsync(dockerfilePath);
+        string imageTag = await BuildImageTagAsync(dockerfilePath);
         return await TryBuildImageAsync(dockerfilePath, imageTag, noCache, _deferredSessionLogService);
     }
 
-    private static async Task<(bool Success, string ImageTag)> TryBuildImageAsync(string dockerfilePath, string imageTag, bool noCache, DeferredSessionLogService deferredSessionLogService)
+    private static async Task<DockerResult<string>> TryBuildImageAsync(string dockerfilePath, string imageTag, bool noCache, DeferredSessionLogService deferredSessionLogService)
     {
         string buildContextDirectory = Path.GetDirectoryName(dockerfilePath) ?? AppContext.BaseDirectory;
         var buildArgs = new List<string>
@@ -68,42 +94,44 @@ internal sealed partial class DockerImageService : Singleton
             "."
         ]);
 
-        bool built = (await ProcessRunner.RunAsync("docker", buildArgs, captureOutput: false, workDir: buildContextDirectory)).Success;
-        if(!built)
+        var build = await DockerCommand.RunAsync(buildArgs, captureOutput: false, workDir: buildContextDirectory);
+        if(build is not DockerValue<DockerOutput>)
         {
             deferredSessionLogService.WriteErrorOrConsole("docker", $"Failed to build Docker image '{imageTag}'.");
-            return (false, imageTag);
+            deferredSessionLogService.WriteErrorDetailsOrConsole("docker", build.ErrorDetails);
         }
 
-        return (true, imageTag);
+        return build.Select(_ => imageTag);
     }
 
-    public async Task<bool> ImageExistsAsync(string imageTag)
-        => (await ProcessRunner.RunAsync("docker", ["image", "inspect", imageTag])).Success;
-
-    public async Task<(bool Success, DockerImageInfo Image)> TryInspectImageAsync(string imageTag)
+    public async Task<DockerInspection<DockerImageInfo>> TryInspectImageAsync(string imageTag)
     {
-        var emptyImage = new DockerImageInfo("", "", "");
         if(String.IsNullOrWhiteSpace(imageTag))
         {
-            return (false, emptyImage);
+            return new DockerFailure("A Docker image tag is required.");
         }
 
-        var inspect = await ProcessRunner.RunAsync("docker", ["image", "inspect", "--format", "{{.Id}}|{{.Os}}|{{.Architecture}}", imageTag]);
-        if(!inspect.Success)
+        var inspect = await DockerCommand.InspectAsync("image", imageTag, "{{.Id}}|{{.Os}}|{{.Architecture}}");
+        return inspect switch
         {
-            return (false, emptyImage);
-        }
+            DockerValue<DockerOutput> output => ParseImageInfo(output.Value.StdOut),
+            DockerNotFound missing => missing,
+            DockerUnavailable unavailable => unavailable,
+            DockerFailure failure => failure
+        };
+    }
 
-        string[] parts = inspect.StdOut
+    private static DockerInspection<DockerImageInfo> ParseImageInfo(string output)
+    {
+        string[] parts = output
             .Trim()
             .Split('|', StringSplitOptions.TrimEntries);
-        if(parts.Length != 3)
+        if(parts.Length != 3 || parts.Any(String.IsNullOrWhiteSpace))
         {
-            return (false, emptyImage);
+            return new DockerFailure("Docker image inspection returned invalid ID/platform metadata.");
         }
 
-        return (true, new DockerImageInfo(parts[0], parts[1], parts[2]));
+        return new DockerValue<DockerImageInfo>(new DockerImageInfo(parts[0], parts[1], parts[2]));
     }
 
     private static async Task<string> BuildImageTagAsync(string dockerfilePath)

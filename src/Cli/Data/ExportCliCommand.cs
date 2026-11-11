@@ -28,7 +28,7 @@ internal sealed class ExportCliCommand : Command
 
     private async Task<int> ExecuteAsync(string archivePath)
     {
-        if(!await AppIO.RunWithLoadingStateAsync("Checking Docker volume...", _volumeService.EnsureVolumeReadyAsync))
+        if(await AppIO.RunWithLoadingStateAsync("Checking Docker volume...", _volumeService.EnsureVolumeReadyAsync) is not DockerValue<DockerCompleted>)
         {
             return 1;
         }
@@ -41,7 +41,7 @@ internal sealed class ExportCliCommand : Command
         {
             Directory.CreateDirectory(tempRoot);
 
-            if(!await AppIO.RunWithLoadingStateAsync("Creating archive from volume...", () => _volumeService.ExportVolumeToHostArchiveAsync(temporaryArchive)))
+            if(await AppIO.RunWithLoadingStateAsync("Creating archive from volume...", () => _volumeService.ExportVolumeToHostArchiveAsync(temporaryArchive)) is not DockerValue<DockerCompleted>)
             {
                 return 1;
             }

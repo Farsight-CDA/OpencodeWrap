@@ -33,13 +33,12 @@ internal sealed class BuildProfileCliCommand : Command
             {
                 AppIO.WriteInfo($"Rebuilding base Docker image for profile '{profile.Name}' without cache...");
 
-                var (buildSuccess, imageTag) = await _dockerImageService.TryBuildImageAsync(profile.DockerfilePath, noCache: true);
-                if(!buildSuccess)
+                if(await _dockerImageService.TryBuildImageAsync(profile.DockerfilePath, noCache: true) is not DockerValue<string> image)
                 {
                     return 1;
                 }
 
-                AppIO.WriteSuccess($"Rebuilt base Docker image '{imageTag}' for profile '{profile.Name}'.");
+                AppIO.WriteSuccess($"Rebuilt base Docker image '{image.Value}' for profile '{profile.Name}'.");
                 return 0;
             }
             finally

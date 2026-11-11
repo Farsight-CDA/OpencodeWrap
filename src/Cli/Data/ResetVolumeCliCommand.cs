@@ -22,13 +22,12 @@ internal sealed class ResetVolumeCliCommand : Command
             return 0;
         }
 
-        var (success, removed) = await AppIO.RunWithLoadingStateAsync("Resetting named volume...", _volumeService.ResetNamedVolumeAsync);
-        if(!success)
+        if(await AppIO.RunWithLoadingStateAsync("Resetting named volume...", _volumeService.ResetNamedVolumeAsync) is not DockerValue<DockerVolumeReset> reset)
         {
             return 1;
         }
 
-        if(removed)
+        if(reset.Value is DockerVolumeReset.Removed)
         {
             AppIO.WriteSuccess($"removed Docker volume '{OpencodeWrapConstants.XDG_VOLUME_NAME}'.");
         }

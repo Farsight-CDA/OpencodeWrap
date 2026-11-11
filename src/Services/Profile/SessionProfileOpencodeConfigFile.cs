@@ -91,7 +91,11 @@ internal static class SessionProfileOpencodeConfigFile
 
         try
         {
-            var rootNode = JsonNode.Parse(File.ReadAllText(source.FilePath));
+            var rootNode = JsonNode.Parse(File.ReadAllText(source.FilePath), documentOptions: new JsonDocumentOptions
+            {
+                CommentHandling = JsonCommentHandling.Skip,
+                AllowTrailingCommas = true
+            });
             if(rootNode is null)
             {
                 errorMessage = $"{source.Label} at '{source.FilePath}' is empty. Expected a JSON object.";

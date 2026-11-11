@@ -1,5 +1,6 @@
 using CliWrap;
 using CliWrap.Buffered;
+using System.Text;
 using CliCommand = CliWrap.Command;
 
 namespace OpencodeWrap;
@@ -52,7 +53,9 @@ internal static class ProcessRunner
         string fileName,
         IReadOnlyList<string> args,
         string? workDir = null,
-        IReadOnlyDictionary<string, string?>? environmentVariables = null)
+        IReadOnlyDictionary<string, string?>? environmentVariables = null,
+        bool captureStandardError = false
+    )
     {
         try
         {
@@ -63,7 +66,7 @@ internal static class ProcessRunner
                     UseShellExecute = false,
                     RedirectStandardInput = false,
                     RedirectStandardOutput = false,
-                    RedirectStandardError = false
+                    RedirectStandardError = captureStandardError
                 }
             };
 
@@ -90,12 +93,47 @@ internal static class ProcessRunner
                 return new ProcessRunResult(false, 1, "", "Unable to start process.");
             }
 
-            await process.WaitForExitAsync();
-            return new ProcessRunResult(true, process.ExitCode, "", "");
+            var standardError = new StringBuilder();
+            var errorTask = captureStandardError ? ForwardStandardErrorAsync(process.StandardError, standardError) : Task.CompletedTask;
+            await Task.WhenAll(process.WaitForExitAsync(), errorTask);
+            return new ProcessRunResult(true, process.ExitCode, "", standardError.ToString());
         }
         catch(Exception ex)
         {
             return new ProcessRunResult(false, 1, "", ex.Message);
+        }
+    }
+
+    public static async Task<ProcessRunResult> RunStreamingAsync(
+        string fileName,
+        IReadOnlyList<string> args,
+        string? workDir = null,
+        IReadOnlyDictionary<string, string?>? environmentVariables = null
+    )
+    {
+        var standardError = new StringBuilder();
+        try
+        {
+            var command = CreateCommand(fileName, args, workDir, environmentVariables)
+                .WithStandardOutputPipe(PipeTarget.ToStream(Console.OpenStandardOutput()))
+                .WithStandardErrorPipe(PipeTarget.Merge(PipeTarget.ToStream(Console.OpenStandardError()), PipeTarget.ToStringBuilder(standardError)));
+            var result = await command.ExecuteAsync();
+            return new ProcessRunResult(true, result.ExitCode, "", standardError.ToString());
+        }
+        catch(Exception ex)
+        {
+            return new ProcessRunResult(false, 1, "", ex.Message);
+        }
+    }
+
+    private static async Task ForwardStandardErrorAsync(StreamReader reader, StringBuilder standardError)
+    {
+        char[] buffer = new char[4096];
+        int count;
+        while((count = await reader.ReadAsync(buffer.AsMemory())) > 0)
+        {
+            standardError.Append(buffer, 0, count);
+            await Console.Error.WriteAsync(buffer.AsMemory(0, count));
         }
     }
 

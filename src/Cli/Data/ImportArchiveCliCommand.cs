@@ -34,12 +34,12 @@ internal sealed class ImportArchiveCliCommand : Command
 
     private async Task<int> ExecuteAsync(string archivePath, bool force)
     {
-        if(!await AppIO.RunWithLoadingStateAsync("Checking Docker volume...", _volumeService.EnsureVolumeReadyAsync))
+        if(await AppIO.RunWithLoadingStateAsync("Checking Docker volume...", _volumeService.EnsureVolumeReadyAsync) is not DockerValue<DockerCompleted>)
         {
             return 1;
         }
 
-        if(!await _volumeService.ValidateImportTargetStateAsync(force))
+        if(await _volumeService.ValidateImportTargetStateAsync(force) is not DockerValue<DockerCompleted>)
         {
             return 1;
         }
@@ -60,7 +60,7 @@ internal sealed class ImportArchiveCliCommand : Command
                 return 1;
             }
 
-            if(!await AppIO.RunWithLoadingStateAsync("Importing state into volume...", () => _volumeService.ImportStateFromRootDirectoryAsync(extractRoot)))
+            if(await AppIO.RunWithLoadingStateAsync("Importing state into volume...", () => _volumeService.ImportStateFromRootDirectoryAsync(extractRoot)) is not DockerValue<DockerCompleted>)
             {
                 return 1;
             }

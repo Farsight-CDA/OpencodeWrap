@@ -59,7 +59,7 @@ internal sealed partial class OpencodeLauncherService : Singleton
         string? profileCleanupDirectoryPath = null;
         IReadOnlyList<SessionEnvironmentVariable> sessionEnvironmentVariables = [];
         Task<(bool Success, ResolvedOpencodeRelease Release)>? packageReleaseTask = null;
-        Task<(bool Success, string ImageTag)>? baseImageTask = null;
+        Task<DockerResult<ResolvedDockerImage>>? baseImageTask = null;
         Task<(bool Success, ManagedHostOpencodeService.ManagedHostOpencodeLease? Lease)>? hostLeaseTask = null;
         string? resolvedOpencodeVersion = null;
         string? serverPassword = null;
@@ -78,7 +78,7 @@ internal sealed partial class OpencodeLauncherService : Singleton
                 serverPassword = runMenuDefaults.ServerPassword;
             }
 
-            if(!await _sessionOutputService.RunWithLoadingStateAsync(LogCategories.STARTUP, "Checking Docker volume...", _volumeService.EnsureVolumeReadyAsync))
+            if(await _sessionOutputService.RunWithLoadingStateAsync(LogCategories.STARTUP, "Checking Docker volume...", _volumeService.EnsureVolumeReadyAsync) is not DockerValue<DockerCompleted>)
             {
                 return 1;
             }
@@ -209,16 +209,15 @@ internal sealed partial class OpencodeLauncherService : Singleton
                 hostLeaseTask = BeginManagedHostClientPreparationAsync(session.SessionId, packageRelease);
             }
 
-            var (baseImageReady, baseImageTag) = await baseImageTask;
-            if(!baseImageReady)
+            if(await baseImageTask is not DockerValue<ResolvedDockerImage> baseImage)
             {
                 clearConsoleOnSessionLogFlush = false;
                 return 1;
             }
 
-            LogStartupPhase($"base profile image ready: '{baseImageTag}'", LogLevel.Debug);
+            LogStartupPhase($"base profile image ready: '{baseImage.Value.Tag}'", LogLevel.Debug);
 
-            var runtimeImageTask = _opencodeRuntimeImageService.TryEnsureRuntimeImageAsync(baseImageTag, packageRelease);
+            var runtimeImageTask = _opencodeRuntimeImageService.TryEnsureRuntimeImageAsync(baseImage.Value, packageRelease);
             if(hostLeaseTask is not null)
             {
                 await Task.WhenAll(runtimeImageTask, hostLeaseTask);
@@ -234,13 +233,13 @@ internal sealed partial class OpencodeLauncherService : Singleton
                 LogStartupPhase("managed host OpenCode lease acquired", LogLevel.Debug);
             }
 
-            var (runtimeImageReady, runtimeImageTag) = await runtimeImageTask;
-            if(!runtimeImageReady)
+            if(await runtimeImageTask is not DockerValue<string> runtimeImage)
             {
                 clearConsoleOnSessionLogFlush = false;
                 return 1;
             }
 
+            string runtimeImageTag = runtimeImage.Value;
             LogStartupPhase($"OpenCode runtime image ready: '{runtimeImageTag}'", LogLevel.Debug);
 
             string containerXdgConfigHome = includeProfileConfig
@@ -510,21 +509,26 @@ internal sealed partial class OpencodeLauncherService : Singleton
     private static async Task<int> StartContainerAsync(IReadOnlyList<string> containerArgs, IReadOnlyDictionary<string, string?>? dockerEnvironmentVariables)
     {
         List<string> runArgs = ["run", "--rm", .. containerArgs];
-        var result = await ProcessRunner.RunAttachedAsync("docker", runArgs, environmentVariables: dockerEnvironmentVariables);
-        return !result.Started ? 1 : result.ExitCode;
+        var result = await DockerCommand.RunAttachedAsync(runArgs, environmentVariables: dockerEnvironmentVariables);
+        if(result is DockerUnavailable unavailable)
+        {
+            AppIO.WriteError(unavailable.Details);
+        }
+
+        return result.ExitCode;
     }
 
     private async Task<bool> StartBackendContainerAsync(IReadOnlyList<string> containerArgs, IReadOnlyDictionary<string, string?>? dockerEnvironmentVariables)
     {
         List<string> runArgs = ["run", "-d", .. containerArgs];
-        var runResult = await ProcessRunner.RunAsync("docker", runArgs, environmentVariables: dockerEnvironmentVariables);
-        if(runResult.Success)
+        var runResult = await DockerCommand.RunAsync(runArgs, environmentVariables: dockerEnvironmentVariables);
+        if(runResult is DockerValue<DockerOutput>)
         {
             return true;
         }
 
         WriteSessionError("docker", "Failed to start OpenCode backend container.");
-        WriteSessionErrorDetails("docker", runResult.StdErr);
+        WriteSessionErrorDetails("docker", runResult.ErrorDetails);
         return false;
     }
 
@@ -534,38 +538,38 @@ internal sealed partial class OpencodeLauncherService : Singleton
         IReadOnlyDictionary<string, string?>? dockerEnvironmentVariables)
     {
         List<string> createArgs = ["create", .. containerArgs];
-        var createResult = await ProcessRunner.RunAsync("docker", createArgs, environmentVariables: dockerEnvironmentVariables);
-        if(!createResult.Success)
+        var createResult = await DockerCommand.RunAsync(createArgs, environmentVariables: dockerEnvironmentVariables);
+        if(createResult is not DockerValue<DockerOutput>)
         {
             WriteSessionError("docker", "Failed to create Docker container.");
-            WriteSessionErrorDetails("docker", createResult.StdErr);
+            WriteSessionErrorDetails("docker", createResult.ErrorDetails);
             return false;
         }
 
         foreach(string networkName in selectedDockerNetworks)
         {
-            var connectResult = await ProcessRunner.RunAsync("docker", ["network", "connect", networkName, _containerName!]);
-            if(connectResult.Success)
+            var connectResult = await DockerCommand.RunAsync(["network", "connect", networkName, _containerName!]);
+            if(connectResult is DockerValue<DockerOutput>)
             {
                 continue;
             }
 
             WriteSessionError("docker", $"Failed to attach container to Docker network '{networkName}'.");
-            WriteSessionErrorDetails("docker", connectResult.StdErr);
+            WriteSessionErrorDetails("docker", connectResult.ErrorDetails);
 
-            _ = ProcessRunner.CommandSucceedsBlocking("docker", ["rm", "-f", _containerName!]);
+            _ = DockerCommand.RunBlocking(["rm", "-f", _containerName!]);
             return false;
         }
 
-        var startResult = await ProcessRunner.RunAsync("docker", ["start", _containerName!]);
-        if(startResult.Success)
+        var startResult = await DockerCommand.RunAsync(["start", _containerName!]);
+        if(startResult is DockerValue<DockerOutput>)
         {
             return true;
         }
 
         WriteSessionError("docker", "Failed to start OpenCode backend container.");
-        WriteSessionErrorDetails("docker", startResult.StdErr);
-        _ = ProcessRunner.CommandSucceedsBlocking("docker", ["rm", "-f", _containerName!]);
+        WriteSessionErrorDetails("docker", startResult.ErrorDetails);
+        _ = DockerCommand.RunBlocking(["rm", "-f", _containerName!]);
         return false;
     }
 
@@ -1002,7 +1006,7 @@ internal sealed partial class OpencodeLauncherService : Singleton
                 ? ["rm", "-f", _containerName]
                 : ["rm", _containerName];
 
-            _ = ProcessRunner.CommandSucceedsBlocking("docker", args);
+            _ = DockerCommand.RunBlocking(args);
         }
 
         if(_hostSessionDirectory is not null)
@@ -1022,21 +1026,22 @@ internal sealed partial class OpencodeLauncherService : Singleton
 
     private async Task WriteContainerLogsAsync(string containerName)
     {
-        var logsResult = await ProcessRunner.RunAsync("docker", ["logs", containerName]);
-        if(!logsResult.Started)
+        var logsResult = await DockerCommand.RunAsync(["logs", containerName]);
+        if(logsResult is not DockerValue<DockerOutput> output)
         {
             _deferredSessionLogService.WriteWarningOrConsole("docker", $"Failed to read backend container logs for '{containerName}'.");
+            WriteSessionErrorDetails("docker", logsResult.ErrorDetails);
             return;
         }
 
-        if(String.IsNullOrWhiteSpace(logsResult.StdOut) && String.IsNullOrWhiteSpace(logsResult.StdErr))
+        if(String.IsNullOrWhiteSpace(output.Value.StdOut) && String.IsNullOrWhiteSpace(output.Value.StdErr))
         {
             _deferredSessionLogService.WriteWarningOrConsole("docker", $"Backend container '{containerName}' produced no logs before readiness timed out.");
             return;
         }
 
         _deferredSessionLogService.Write("docker", $"backend container logs for '{containerName}':", LogLevel.Information);
-        WriteSessionErrorDetails("docker", logsResult.StdOut);
-        WriteSessionErrorDetails("docker", logsResult.StdErr);
+        WriteSessionErrorDetails("docker", output.Value.StdOut);
+        WriteSessionErrorDetails("docker", output.Value.StdErr);
     }
 }

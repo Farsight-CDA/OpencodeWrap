@@ -100,21 +100,14 @@ internal static class ContainerCleanupWatchdog
     private static async Task RetryCleanupContainerAsync(string containerName)
     {
         var deadlineUtc = DateTime.UtcNow + _removalRetryDuration;
-        bool sawContainer = false;
-
         while(DateTime.UtcNow < deadlineUtc)
         {
-            if(ProcessRunner.CommandSucceedsBlocking("docker", ["rm", "-f", containerName]))
+            if(await DockerCommand.RunAsync(["rm", "-f", containerName]) is DockerValue<DockerOutput>)
             {
                 return;
             }
 
-            bool containerExists = ContainerExists(containerName);
-            if(containerExists)
-            {
-                sawContainer = true;
-            }
-            else if(sawContainer)
+            if(await DockerCommand.InspectAsync("container", containerName) is DockerNotFound)
             {
                 return;
             }
@@ -223,7 +216,4 @@ internal static class ContainerCleanupWatchdog
         config = new WatchdogRunConfig(parentPid, parentStartTicks, containerName, sessionDirectoryPath, readyFilePath);
         return true;
     }
-
-    private static bool ContainerExists(string containerName)
-        => ProcessRunner.CommandSucceedsBlocking("docker", ["container", "inspect", containerName]);
 }

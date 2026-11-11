@@ -51,62 +51,35 @@ internal sealed partial class DockerHostService : Singleton
         return DockerDesktopHostNetworkingState.Unknown;
     }
 
-    public async Task<bool> EnsureHostAndDockerAsync()
+    public async Task<DockerResult<IReadOnlyList<string>>> TryListNetworkNamesAsync()
     {
-        var dockerCheck = await ProcessRunner.RunAsync("docker", ["version"]);
-        if(dockerCheck.Success)
-        {
-            return true;
-        }
-
-        _deferredSessionLogService.WriteErrorOrConsole(LogCategories.DOCKER, "Docker is required but is not functional on this host.");
-        WriteDockerErrorDetails(dockerCheck.StdErr);
-        return false;
-    }
-
-    public async Task<(bool Success, IReadOnlyList<string> NetworkNames)> TryListNetworkNamesAsync()
-    {
-        if(!await EnsureHostAndDockerAsync())
-        {
-            return (false, []);
-        }
-
-        var networkList = await ProcessRunner.RunAsync("docker", ["network", "ls", "--format", "{{.Name}}"]);
-        if(!networkList.Success)
+        var networkList = await DockerCommand.RunAsync(["network", "ls", "--format", "{{.Name}}"]);
+        if(networkList is not DockerValue<DockerOutput>)
         {
             _deferredSessionLogService.WriteErrorOrConsole(LogCategories.DOCKER, "Failed to list Docker networks.");
-            WriteDockerErrorDetails(networkList.StdErr);
-            return (false, []);
+            WriteDockerErrorDetails(networkList.ErrorDetails);
         }
 
-        string[] networkNames = [.. networkList.StdOut
+        return networkList.Select<IReadOnlyList<string>>(output => [.. output.StdOut
             .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Where(name => !_reservedNetworkModeNames.Contains(name))
             .Distinct(StringComparer.Ordinal)
-            .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)];
-        return (true, networkNames);
+            .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)]);
     }
 
-    public async Task<(bool Success, IReadOnlyList<string> VolumeNames)> TryListVolumeNamesAsync()
+    public async Task<DockerResult<IReadOnlyList<string>>> TryListVolumeNamesAsync()
     {
-        if(!await EnsureHostAndDockerAsync())
-        {
-            return (false, []);
-        }
-
-        var volumeList = await ProcessRunner.RunAsync("docker", ["volume", "ls", "--format", "{{.Name}}"]);
-        if(!volumeList.Success)
+        var volumeList = await DockerCommand.RunAsync(["volume", "ls", "--format", "{{.Name}}"]);
+        if(volumeList is not DockerValue<DockerOutput>)
         {
             _deferredSessionLogService.WriteErrorOrConsole(LogCategories.DOCKER, "Failed to list Docker volumes.");
-            WriteDockerErrorDetails(volumeList.StdErr);
-            return (false, []);
+            WriteDockerErrorDetails(volumeList.ErrorDetails);
         }
 
-        string[] volumeNames = [.. volumeList.StdOut
+        return volumeList.Select<IReadOnlyList<string>>(output => [.. output.StdOut
             .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Distinct(StringComparer.Ordinal)
-            .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)];
-        return (true, volumeNames);
+            .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)]);
     }
 
     public bool TryEnsureGlobalConfigDirectory(out string configDirectory)
@@ -172,7 +145,6 @@ internal sealed partial class DockerHostService : Singleton
 
         return false;
     }
-
 }
 
 internal enum DockerDesktopHostNetworkingState

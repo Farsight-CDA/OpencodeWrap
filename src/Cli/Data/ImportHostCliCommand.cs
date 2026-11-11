@@ -27,12 +27,12 @@ internal sealed class ImportHostCliCommand : Command
 
     private async Task<int> ExecuteAsync(bool force)
     {
-        if(!await AppIO.RunWithLoadingStateAsync("Checking Docker volume...", _volumeService.EnsureVolumeReadyAsync))
+        if(await AppIO.RunWithLoadingStateAsync("Checking Docker volume...", _volumeService.EnsureVolumeReadyAsync) is not DockerValue<DockerCompleted>)
         {
             return 1;
         }
 
-        if(!await _volumeService.ValidateImportTargetStateAsync(force))
+        if(await _volumeService.ValidateImportTargetStateAsync(force) is not DockerValue<DockerCompleted>)
         {
             return 1;
         }
@@ -44,7 +44,7 @@ internal sealed class ImportHostCliCommand : Command
             return 1;
         }
 
-        if(!await AppIO.RunWithLoadingStateAsync("Importing host state into volume...", () => _volumeService.ImportStateFromRootDirectoryAsync(sourceRoot)))
+        if(await AppIO.RunWithLoadingStateAsync("Importing host state into volume...", () => _volumeService.ImportStateFromRootDirectoryAsync(sourceRoot)) is not DockerValue<DockerCompleted>)
         {
             return 1;
         }

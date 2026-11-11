@@ -3,89 +3,81 @@ namespace OpencodeWrap.Services.Docker;
 internal sealed partial class VolumeStateService : Singleton
 {
     [Inject]
-    private readonly DockerHostService _hostService;
-
-    [Inject]
     private readonly DeferredSessionLogService _deferredSessionLogService;
 
-    public async Task<bool> EnsureVolumeReadyAsync()
-    {
-        if(!await _hostService.EnsureHostAndDockerAsync())
-        {
-            return false;
-        }
+    public Task<DockerResult<DockerCompleted>> EnsureVolumeReadyAsync()
+        => EnsureVolumeAsync(OpencodeWrapConstants.XDG_VOLUME_NAME);
 
-        return await EnsureVolumeAsync(OpencodeWrapConstants.XDG_VOLUME_NAME);
-    }
-
-    public async Task<bool> ValidateImportTargetStateAsync(bool force)
+    public async Task<DockerResult<DockerCompleted>> ValidateImportTargetStateAsync(bool force)
     {
         if(force)
         {
-            return true;
+            return new DockerValue<DockerCompleted>(new DockerCompleted());
         }
 
-        var (success, hasContent) = await TryVolumeHasAnyContentAsync(OpencodeWrapConstants.XDG_VOLUME_NAME);
-        if(!success)
+        var content = await TryVolumeHasAnyContentAsync(OpencodeWrapConstants.XDG_VOLUME_NAME);
+        if(content is not DockerValue<bool> hasContent)
         {
-            return false;
+            return content.Select(_ => new DockerCompleted());
         }
 
-        if(!hasContent)
+        if(!hasContent.Value)
         {
-            return true;
+            return new DockerValue<DockerCompleted>(new DockerCompleted());
         }
 
-        _deferredSessionLogService.WriteErrorOrConsole("docker", $"Docker volume '{OpencodeWrapConstants.XDG_VOLUME_NAME}' already contains data. Use -f or --force to replace it.");
-        return false;
+        string message = $"Docker volume '{OpencodeWrapConstants.XDG_VOLUME_NAME}' already contains data. Use -f or --force to replace it.";
+        _deferredSessionLogService.WriteErrorOrConsole("docker", message);
+        return new DockerFailure(message);
     }
 
-    public async Task<bool> ImportStateFromRootDirectoryAsync(string sourceRoot)
+    public async Task<DockerResult<DockerCompleted>> ImportStateFromRootDirectoryAsync(string sourceRoot)
     {
         string sourceShare = Path.Combine(sourceRoot, ".local", "share", "opencode");
         string sourceState = Path.Combine(sourceRoot, ".local", "state", "opencode");
         if(!Directory.Exists(sourceShare) && !Directory.Exists(sourceState))
         {
-            _deferredSessionLogService.WriteErrorOrConsole("docker", $"Import source must contain at least one of '{sourceShare}' or '{sourceState}'.");
-            return false;
+            string message = $"Import source must contain at least one of '{sourceShare}' or '{sourceState}'.";
+            _deferredSessionLogService.WriteErrorOrConsole("docker", message);
+            return new DockerFailure(message);
         }
 
-        var (resetSuccess, _) = await ResetNamedVolumeAsync();
-        if(!resetSuccess)
+        var reset = await ResetNamedVolumeAsync();
+        if(reset is not DockerValue<DockerVolumeReset>)
         {
-            return false;
+            return reset.Select(_ => new DockerCompleted());
         }
 
         return await CopyHostXdgDirectoryToVolumeAsync(sourceRoot, OpencodeWrapConstants.XDG_VOLUME_NAME);
     }
 
-    public Task<bool> ExportVolumeToHostArchiveAsync(string destinationArchive)
+    public Task<DockerResult<DockerCompleted>> ExportVolumeToHostArchiveAsync(string destinationArchive)
         => CreateVolumeArchiveOnHostAsync(OpencodeWrapConstants.XDG_VOLUME_NAME, destinationArchive);
 
-    public async Task<(bool Success, bool Removed)> ResetNamedVolumeAsync()
+    public async Task<DockerResult<DockerVolumeReset>> ResetNamedVolumeAsync()
     {
-        if(!await _hostService.EnsureHostAndDockerAsync())
-        {
-            return (false, false);
-        }
-
         string volumeName = OpencodeWrapConstants.XDG_VOLUME_NAME;
-        var inspect = await ProcessRunner.RunAsync("docker", ["volume", "inspect", volumeName]);
-        if(!inspect.Success)
+        var inspect = await DockerCommand.InspectAsync("volume", volumeName);
+        if(inspect is DockerNotFound)
         {
-            return (true, false);
+            return new DockerValue<DockerVolumeReset>(DockerVolumeReset.AlreadyAbsent);
         }
 
-        var remove = await ProcessRunner.RunAsync("docker", ["volume", "rm", "-f", volumeName]);
-        if(!remove.Success)
+        if(inspect is not DockerValue<DockerOutput>)
+        {
+            _deferredSessionLogService.WriteErrorOrConsole("docker", $"Failed to inspect Docker volume '{volumeName}'.");
+            _deferredSessionLogService.WriteErrorDetailsOrConsole("docker", inspect.Require().ErrorDetails);
+            return inspect.Require().Select(_ => DockerVolumeReset.Removed);
+        }
+
+        var remove = await DockerCommand.RunAsync(["volume", "rm", "-f", volumeName]);
+        if(remove is not DockerValue<DockerOutput>)
         {
             _deferredSessionLogService.WriteErrorOrConsole("docker", $"Failed to remove Docker volume '{volumeName}'.");
-            _deferredSessionLogService.WriteErrorDetailsOrConsole("docker", remove.StdErr);
-
-            return (false, false);
+            _deferredSessionLogService.WriteErrorDetailsOrConsole("docker", remove.ErrorDetails);
         }
 
-        return (true, true);
+        return remove.Select(_ => DockerVolumeReset.Removed);
     }
 
     public string BuildBindMount(string source, string target)
@@ -99,30 +91,34 @@ internal sealed partial class VolumeStateService : Singleton
             ? $"\"{field.Replace("\"", "\"\"")}\""
             : field;
 
-    private async Task<bool> EnsureVolumeAsync(string volumeName)
+    private async Task<DockerResult<DockerCompleted>> EnsureVolumeAsync(string volumeName)
     {
-        var inspect = await ProcessRunner.RunAsync("docker", ["volume", "inspect", volumeName]);
-        if(inspect.Success)
+        var inspect = await DockerCommand.InspectAsync("volume", volumeName);
+        if(inspect is DockerValue<DockerOutput>)
         {
-            return true;
+            return new DockerValue<DockerCompleted>(new DockerCompleted());
         }
 
-        var create = await ProcessRunner.RunAsync("docker", ["volume", "create", volumeName]);
-        if(!create.Success)
+        if(inspect is not DockerNotFound)
+        {
+            _deferredSessionLogService.WriteErrorOrConsole("docker", $"Failed to inspect Docker volume '{volumeName}'.");
+            _deferredSessionLogService.WriteErrorDetailsOrConsole("docker", inspect.Require().ErrorDetails);
+            return inspect.Require().Select(_ => new DockerCompleted());
+        }
+
+        var create = await DockerCommand.RunAsync(["volume", "create", volumeName]);
+        if(create is not DockerValue<DockerOutput>)
         {
             _deferredSessionLogService.WriteErrorOrConsole("docker", $"Failed to create Docker volume '{volumeName}'.");
-            _deferredSessionLogService.WriteErrorDetailsOrConsole("docker", create.StdErr);
-
-            return false;
+            _deferredSessionLogService.WriteErrorDetailsOrConsole("docker", create.ErrorDetails);
         }
 
-        return true;
+        return create.Select(_ => new DockerCompleted());
     }
 
-    private async Task<bool> CopyHostXdgDirectoryToVolumeAsync(string sourceRootDirectory, string volumeName)
+    private async Task<DockerResult<DockerCompleted>> CopyHostXdgDirectoryToVolumeAsync(string sourceRootDirectory, string volumeName)
     {
-        var result = await ProcessRunner.RunAsync(
-            "docker",
+        var result = await DockerCommand.RunAsync(
             [
                 "run",
                 "--rm",
@@ -151,26 +147,27 @@ internal sealed partial class VolumeStateService : Singleton
                 """
             ]);
 
-        if(!result.Success)
+        if(result is not DockerValue<DockerOutput>)
         {
             _deferredSessionLogService.WriteErrorOrConsole("docker", $"Failed to import state from '{sourceRootDirectory}' into volume '{volumeName}'.");
-            _deferredSessionLogService.WriteErrorDetailsOrConsole("docker", result.StdErr);
+            _deferredSessionLogService.WriteErrorDetailsOrConsole("docker", result.ErrorDetails);
         }
 
-        return result.Success;
+        return result.Select(_ => new DockerCompleted());
     }
 
-    private async Task<bool> CreateVolumeArchiveOnHostAsync(string volumeName, string destinationArchive)
+    private async Task<DockerResult<DockerCompleted>> CreateVolumeArchiveOnHostAsync(string volumeName, string destinationArchive)
     {
         string destinationDirectory = Path.GetDirectoryName(destinationArchive) ?? "";
         string archiveFileName = Path.GetFileName(destinationArchive);
         if(String.IsNullOrWhiteSpace(destinationDirectory) || String.IsNullOrWhiteSpace(archiveFileName))
         {
-            _deferredSessionLogService.WriteErrorOrConsole("docker", $"Invalid export archive path '{destinationArchive}'.");
-            return false;
+            string message = $"Invalid export archive path '{destinationArchive}'.";
+            _deferredSessionLogService.WriteErrorOrConsole("docker", message);
+            return new DockerFailure(message);
         }
 
-        var result = await ProcessRunner.RunAsync("docker",
+        var result = await DockerCommand.RunAsync(
         [
             "run", "--rm",
             "--mount", BuildVolumeMount(volumeName, "/source"),
@@ -260,26 +257,26 @@ internal sealed partial class VolumeStateService : Singleton
             archiveFileName
         ]);
 
-        if(!result.Success)
+        if(result is not DockerValue<DockerOutput>)
         {
             _deferredSessionLogService.WriteErrorOrConsole("docker", $"Failed to create export archive '{destinationArchive}' from Docker volume '{volumeName}'.");
-            _deferredSessionLogService.WriteErrorDetailsOrConsole("docker", result.StdErr);
-            return false;
+            _deferredSessionLogService.WriteErrorDetailsOrConsole("docker", result.ErrorDetails);
+            return result.Select(_ => new DockerCompleted());
         }
 
         if(!File.Exists(destinationArchive))
         {
-            _deferredSessionLogService.WriteErrorOrConsole("docker", $"Docker reported success but export archive '{destinationArchive}' was not created.");
-            return false;
+            string message = $"Docker reported success but export archive '{destinationArchive}' was not created.";
+            _deferredSessionLogService.WriteErrorOrConsole("docker", message);
+            return new DockerFailure(message);
         }
 
-        return true;
+        return new DockerValue<DockerCompleted>(new DockerCompleted());
     }
 
-    private async Task<(bool Success, bool HasContent)> TryVolumeHasAnyContentAsync(string volumeName)
+    private async Task<DockerResult<bool>> TryVolumeHasAnyContentAsync(string volumeName)
     {
-        var result = await ProcessRunner.RunAsync(
-            "docker",
+        var result = await DockerCommand.RunAsync(
             [
                 "run",
                 "--rm",
@@ -294,15 +291,26 @@ internal sealed partial class VolumeStateService : Singleton
                 """
             ]);
 
-        if(!result.Success)
+        if(result is not DockerValue<DockerOutput> output)
         {
             _deferredSessionLogService.WriteErrorOrConsole("docker", $"Failed to inspect Docker volume '{volumeName}' before import.");
-            _deferredSessionLogService.WriteErrorDetailsOrConsole("docker", result.StdErr);
+            _deferredSessionLogService.WriteErrorDetailsOrConsole("docker", result.ErrorDetails);
 
-            return (false, false);
+            return result.Select(_ => false);
         }
 
-        bool hasContent = String.Equals(result.StdOut.Trim(), "has-data", StringComparison.Ordinal);
-        return (true, hasContent);
+        return output.Value.StdOut.Trim() switch
+        {
+            "has-data" => new DockerValue<bool>(true),
+            "empty" => new DockerValue<bool>(false),
+            _ => InvalidContentResult()
+        };
+
+        DockerFailure InvalidContentResult()
+        {
+            string message = $"Docker returned an invalid content check for volume '{volumeName}'.";
+            _deferredSessionLogService.WriteErrorOrConsole("docker", message);
+            return new DockerFailure(message);
+        }
     }
 }

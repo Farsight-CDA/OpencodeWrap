@@ -98,17 +98,21 @@ internal sealed class RunCliCommand : Command
             return null;
         }
 
-        var (networkListSuccess, availableNetworkNames) = await _dockerHostService.TryListNetworkNamesAsync();
-        if(!networkListSuccess)
+        var networkListTask = _dockerHostService.TryListNetworkNamesAsync();
+        var volumeListTask = _dockerHostService.TryListVolumeNamesAsync();
+        await Task.WhenAll(networkListTask, volumeListTask);
+        if(await networkListTask is not DockerValue<IReadOnlyList<string>> networks)
         {
             return null;
         }
 
-        var (volumeListSuccess, availableVolumeNames) = await _dockerHostService.TryListVolumeNamesAsync();
-        if(!volumeListSuccess)
+        if(await volumeListTask is not DockerValue<IReadOnlyList<string>> volumes)
         {
             return null;
         }
+
+        var availableNetworkNames = networks.Value;
+        var availableVolumeNames = volumes.Value;
 
         string defaultProfileName = profileNames.Contains(runMenuDefaults.DefaultProfileName ?? "")
             ? runMenuDefaults.DefaultProfileName!
