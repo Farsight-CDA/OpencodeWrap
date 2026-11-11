@@ -141,7 +141,7 @@ jobs:
             package_dir: npm/ocw-win32-x64
             package_suffix: win32-x64
             asset_name: ocw-win-x64.exe
-          - os: macos-14
+          - os: macos-15
             runtime: osx-arm64
             binary: ocw
             package_dir: npm/ocw-darwin-arm64
@@ -158,7 +158,7 @@ jobs:
       - name: Setup .NET SDK
         uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: 10.0.x
+          dotnet-version: 11.0.x
 
       - name: Setup Node
         uses: actions/setup-node@v6
@@ -180,10 +180,10 @@ jobs:
           set -euo pipefail
 
           dotnet restore src/OpencodeWrap.csproj -r "${{ matrix.runtime }}"
-          dotnet publish src/OpencodeWrap.csproj -c Release -r "${{ matrix.runtime }}" --self-contained true -p:PublishAot=true -p:PublishSingleFile=true -p:PublishTrimmed=true -p:UseAppHost=true
+          dotnet publish src/OpencodeWrap.csproj -c Release -r "${{ matrix.runtime }}" --self-contained true -p:PublishAot=true -p:PublishSingleFile=true -p:PublishTrimmed=true
 
           mkdir -p "${{ matrix.package_dir }}/bin"
-          cp "src/bin/Release/net10.0/${{ matrix.runtime }}/publish/${{ matrix.binary }}" "${{ matrix.package_dir }}/bin/${{ matrix.binary }}"
+          cp "src/bin/Release/net11.0/${{ matrix.runtime }}/publish/${{ matrix.binary }}" "${{ matrix.package_dir }}/bin/${{ matrix.binary }}"
 
           if [[ "${{ matrix.binary }}" != *.exe ]]; then
             chmod +x "${{ matrix.package_dir }}/bin/${{ matrix.binary }}"
@@ -276,7 +276,7 @@ jobs:
             package_dir: npm/ocw-win32-x64
             package_suffix: win32-x64
             asset_name: ocw-win-x64.exe
-          - os: macos-14
+          - os: macos-15
             runtime: osx-arm64
             binary: ocw
             package_dir: npm/ocw-darwin-arm64
@@ -293,7 +293,7 @@ jobs:
       - name: Setup .NET SDK
         uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: 10.0.x
+          dotnet-version: 11.0.x
 
       - name: Setup Node
         uses: actions/setup-node@v6
@@ -317,11 +317,11 @@ jobs:
           set -euo pipefail
 
           dotnet restore src/OpencodeWrap.csproj -r "${{ matrix.runtime }}"
-          dotnet publish src/OpencodeWrap.csproj -c Release -r "${{ matrix.runtime }}" --self-contained true -p:PublishAot=true -p:PublishSingleFile=true -p:PublishTrimmed=true -p:UseAppHost=true
+          dotnet publish src/OpencodeWrap.csproj -c Release -r "${{ matrix.runtime }}" --self-contained true -p:PublishAot=true -p:PublishSingleFile=true -p:PublishTrimmed=true
 
           mkdir -p "${{ matrix.package_dir }}/bin" release-assets
-          cp "src/bin/Release/net10.0/${{ matrix.runtime }}/publish/${{ matrix.binary }}" "${{ matrix.package_dir }}/bin/${{ matrix.binary }}"
-          cp "src/bin/Release/net10.0/${{ matrix.runtime }}/publish/${{ matrix.binary }}" "release-assets/${{ matrix.asset_name }}"
+          cp "src/bin/Release/net11.0/${{ matrix.runtime }}/publish/${{ matrix.binary }}" "${{ matrix.package_dir }}/bin/${{ matrix.binary }}"
+          cp "src/bin/Release/net11.0/${{ matrix.runtime }}/publish/${{ matrix.binary }}" "release-assets/${{ matrix.asset_name }}"
 
           if [[ "${{ matrix.binary }}" != *.exe ]]; then
             chmod +x "${{ matrix.package_dir }}/bin/${{ matrix.binary }}"
