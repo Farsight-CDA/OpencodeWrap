@@ -13,6 +13,7 @@ RUN apt-get update \
         file \
         gh \
         git \
+        git-lfs \
         gnuplot \
         gpg \
         iproute2 \
