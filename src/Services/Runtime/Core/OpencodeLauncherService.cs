@@ -45,7 +45,9 @@ internal sealed partial class OpencodeLauncherService : Singleton
         DockerNetworkMode dockerNetworkMode = DockerNetworkMode.Bridge,
         IReadOnlyList<string>? dockerNetworks = null,
         bool privileged = false,
-        bool verboseSessionLogs = false)
+        bool mountDockerSocket = false,
+        bool verboseSessionLogs = false
+    )
     {
         bool useServeSession = runtimeMode is OpencodeRuntimeMode.HostClientToServe;
         bool useServerPassword = useServeSession || UsesServerPassword(opencodeArgs);
@@ -123,7 +125,7 @@ internal sealed partial class OpencodeLauncherService : Singleton
                 return 1;
             }
 
-            string runtimeAgentInstructions = _runtimeAgentInstructionsService.Build(containerWorkDir, workspaceMountMode, selectedContainerMounts);
+            string runtimeAgentInstructions = _runtimeAgentInstructionsService.Build(containerWorkDir, workspaceMountMode, selectedContainerMounts, mountDockerSocket);
 
             _containerName = $"opencode-wrap-{Guid.NewGuid():N}"[..27];
 
@@ -258,6 +260,12 @@ internal sealed partial class OpencodeLauncherService : Singleton
             if(privileged)
             {
                 containerArgs.Add("--privileged");
+            }
+
+            if(mountDockerSocket)
+            {
+                // This source belongs to Docker Desktop's Linux VM, not the Windows filesystem.
+                containerArgs.AddRange(["--mount", $"type=bind,source={OpencodeWrapConstants.DOCKER_SOCKET_PATH},target={OpencodeWrapConstants.DOCKER_SOCKET_PATH}"]);
             }
 
             foreach(var environmentVariable in sessionEnvironmentVariables)

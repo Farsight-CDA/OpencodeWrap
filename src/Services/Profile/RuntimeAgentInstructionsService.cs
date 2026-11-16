@@ -8,7 +8,9 @@ internal sealed partial class RuntimeAgentInstructionsService : Singleton
     public string Build(
         string containerWorkDir,
         WorkspaceMountMode workspaceMountMode,
-        IReadOnlyList<ContainerMount> containerMounts)
+        IReadOnlyList<ContainerMount> containerMounts,
+        bool mountDockerSocket
+    )
     {
         var builder = new StringBuilder();
         builder.AppendLine("# OCW Runtime Environment");
@@ -17,6 +19,11 @@ internal sealed partial class RuntimeAgentInstructionsService : Singleton
         builder.AppendLine("- You may clone temporary reference repositories and create scratch files under `/tmp`.");
         builder.AppendLine("- You may freely install tools into writable locations such as `/tmp`");
         builder.AppendLine("- The container runs as root.");
+
+        if(mountDockerSocket)
+        {
+            builder.AppendLine($"- Host Docker socket: `{OpencodeWrapConstants.DOCKER_SOCKET_PATH}`.");
+        }
 
         if(workspaceMountMode == WorkspaceMountMode.None)
         {

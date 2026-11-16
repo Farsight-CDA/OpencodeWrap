@@ -150,6 +150,11 @@ internal sealed partial class RunMenuDefaultsService : Singleton
                 writer.WriteBoolean("privileged", privileged);
             }
 
+            if(normalizedConfig.MountDockerSocket is { } mountDockerSocket)
+            {
+                writer.WriteBoolean("mountDockerSocket", mountDockerSocket);
+            }
+
             if(normalizedConfig.ContainerMounts.Count > 0)
             {
                 writer.WritePropertyName("containerMounts");
@@ -283,11 +288,19 @@ internal sealed partial class RunMenuDefaultsService : Singleton
             privileged = privilegedElement.GetBoolean();
         }
 
+        bool? mountDockerSocket = null;
+        if(rootElement.TryGetProperty("mountDockerSocket", out var mountDockerSocketElement)
+            && mountDockerSocketElement.ValueKind is JsonValueKind.True or JsonValueKind.False)
+        {
+            mountDockerSocket = mountDockerSocketElement.GetBoolean();
+        }
+
         return NormalizeWorkspaceConfig(new WorkspaceRunMenuConfig(
             profileName,
             workspaceMountMode,
             dockerNetworkMode,
             privileged,
+            mountDockerSocket,
             ReadContainerMounts(rootElement),
             ReadStringArray(rootElement, "sessionAddons"),
             ReadStringArray(rootElement, "dockerNetworks")));
@@ -552,6 +565,7 @@ internal sealed partial class RunMenuDefaultsService : Singleton
             config.WorkspaceMountMode,
             normalizedDefaults.DefaultDockerNetworkMode,
             config.Privileged,
+            config.MountDockerSocket,
             normalizedDefaults.ContainerMounts,
             normalizedDefaults.SessionAddons,
             normalizedDefaults.DockerNetworks);
@@ -562,6 +576,7 @@ internal sealed partial class RunMenuDefaultsService : Singleton
             && config.WorkspaceMountMode is null
             && config.DockerNetworkMode is null
             && config.Privileged is null
+            && config.MountDockerSocket is null
             && config.ContainerMounts.Count == 0
             && config.SessionAddons.Count == 0
             && config.DockerNetworks.Count == 0;
@@ -724,7 +739,7 @@ internal sealed record RunMenuDefaults(string? DefaultProfileName, DockerNetwork
     public static RunMenuDefaults Empty { get; } = new(null, null, [], [], []);
 }
 
-internal sealed record WorkspaceRunMenuConfig(string? ProfileName, WorkspaceMountMode? WorkspaceMountMode, DockerNetworkMode? DockerNetworkMode, bool? Privileged, IReadOnlyList<ContainerMount> ContainerMounts, IReadOnlyList<string> SessionAddons, IReadOnlyList<string> DockerNetworks)
+internal sealed record WorkspaceRunMenuConfig(string? ProfileName, WorkspaceMountMode? WorkspaceMountMode, DockerNetworkMode? DockerNetworkMode, bool? Privileged, bool? MountDockerSocket, IReadOnlyList<ContainerMount> ContainerMounts, IReadOnlyList<string> SessionAddons, IReadOnlyList<string> DockerNetworks)
 {
-    public static WorkspaceRunMenuConfig Empty { get; } = new(null, null, null, null, [], [], []);
+    public static WorkspaceRunMenuConfig Empty { get; } = new(null, null, null, null, null, [], [], []);
 }
