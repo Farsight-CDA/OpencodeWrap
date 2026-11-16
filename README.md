@@ -44,7 +44,7 @@ OCW resolves the current `@opencode-ai/cli@beta` release when a run starts, then
 
 | Profile | Best For |
 |---------|----------|
-| `all-in-one` | Combined frontend, .NET, Go, Rust, Postgres/data, and Solidity tooling |
+| `all-in-one` | Combined frontend, .NET, Go, Rust, Postgres/data, Solidity, and Ansible tooling |
 
 Create your own with `ocw profile add <name>`.
 
