@@ -11,7 +11,10 @@ internal sealed partial class HostOpencodeClientService : Singleton
     [Inject]
     private readonly SessionOutputService _sessionOutputService;
 
-    public async Task<int> RunAsync(string executablePath, string serverUrl, string serverPassword, string tuiChannel, string sessionDirectory)
+    [Inject]
+    private readonly DockerHostService _dockerHostService;
+
+    public async Task<int> RunAsync(string executablePath, string serverUrl, string serverPassword, string tuiChannel)
     {
         if(String.IsNullOrWhiteSpace(executablePath))
         {
@@ -36,7 +39,12 @@ internal sealed partial class HostOpencodeClientService : Singleton
 
         try
         {
-            string configDirectory = PrepareConfigDirectory(sessionDirectory);
+            if(!_dockerHostService.TryEnsureGlobalConfigDirectory(out string configRoot))
+            {
+                return 1;
+            }
+
+            string configDirectory = PrepareConfigDirectory(configRoot);
             var startInfo = BuildStartInfo(executablePath, serverUrl, serverPassword, tuiChannel, configDirectory);
             var process = await _sessionOutputService.RunWithLoadingStateAsync(
                 LogCategories.CLIENT,
@@ -89,19 +97,36 @@ internal sealed partial class HostOpencodeClientService : Singleton
         return startInfo;
     }
 
-    private static string PrepareConfigDirectory(string sessionDirectory)
+    private static string PrepareConfigDirectory(string configRoot)
     {
-        string directory = Path.Combine(sessionDirectory, "opencode-client-config");
+        string directory = Path.Combine(configRoot, "opencode-client-config");
         Directory.CreateDirectory(directory);
-        File.WriteAllText(
-            Path.Combine(directory, "cli.json"),
-            """
-            {
-              "session": {
-                "new_location": "inherit"
-              }
-            }
-            """);
+        string configPath = Path.Combine(directory, "cli.json");
+        FileStream stream;
+        try
+        {
+            stream = new FileStream(configPath, FileMode.CreateNew, FileAccess.Write);
+        }
+        catch(IOException) when(File.Exists(configPath))
+        {
+            // Preserve existing settings, including when another launch created the file.
+            return directory;
+        }
+
+        using(stream)
+        using(var writer = new StreamWriter(stream))
+        {
+            writer.Write(
+                """
+                {
+                  "$schema": "https://opencode.ai/v2/cli.json",
+                  "session": {
+                    "new_location": "inherit"
+                  }
+                }
+                """);
+        }
+
         return directory;
     }
 

@@ -432,8 +432,7 @@ internal sealed partial class OpencodeLauncherService : Singleton
                     managedHostExecutablePath ?? String.Empty,
                     locationProxyLease.ServerUrl,
                     serverPassword!,
-                    $"ocw-{session.SessionId}",
-                    session.HostSessionDirectory);
+                    $"ocw-{session.SessionId}");
                 if(clientExitCode != 0)
                 {
                     clearConsoleOnSessionLogFlush = false;
