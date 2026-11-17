@@ -27,7 +27,7 @@ internal sealed partial class OpencodeServeHealthcheckService : Singleton
             return false;
         }
 
-        Uri healthUri = new(serverUri, "/api/health");
+        Uri healthUri = new(serverUri, "/api/info");
         _deferredSessionLogService.Write(LogCategories.STARTUP, $"waiting for backend readiness at '{healthUri}'", LogLevel.Information);
 
         using var handler = new SocketsHttpHandler
@@ -93,7 +93,7 @@ internal sealed partial class OpencodeServeHealthcheckService : Singleton
 
     internal static HttpRequestMessage CreateHealthRequest(Uri serverUri, string serverPassword)
     {
-        var request = new HttpRequestMessage(HttpMethod.Get, new Uri(serverUri, "/api/health"));
+        var request = new HttpRequestMessage(HttpMethod.Get, new Uri(serverUri, "/api/info"));
         string credentials = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{OpencodeWrapConstants.OPENCODE_BASIC_AUTH_USERNAME}:{serverPassword}"));
         request.Headers.Authorization = new AuthenticationHeaderValue("Basic", credentials);
         return request;
@@ -106,20 +106,19 @@ internal sealed partial class OpencodeServeHealthcheckService : Singleton
         {
             using var document = JsonDocument.Parse(json);
             var root = document.RootElement;
-            if(root.ValueKind != JsonValueKind.Object
-                || !root.TryGetProperty("healthy", out var healthyElement)
-                || healthyElement.ValueKind != JsonValueKind.True)
+            if(root.ValueKind != JsonValueKind.Object)
             {
-                errorMessage = "health response did not report healthy=true";
+                errorMessage = "server info response was not a JSON object";
                 return false;
             }
 
             string version = root.TryGetProperty("version", out var versionElement)
+                && versionElement.ValueKind == JsonValueKind.String
                 ? versionElement.GetString() ?? String.Empty
                 : String.Empty;
             if(!String.Equals(version, expectedVersion, StringComparison.Ordinal))
             {
-                errorMessage = $"health response version '{version}' did not match session version '{expectedVersion}'";
+                errorMessage = $"server info response version '{version}' did not match session version '{expectedVersion}'";
                 return false;
             }
 
@@ -128,7 +127,7 @@ internal sealed partial class OpencodeServeHealthcheckService : Singleton
                 || !pidElement.TryGetInt64(out long pid)
                 || pid <= 0)
             {
-                errorMessage = "health response did not include a positive server pid";
+                errorMessage = "server info response did not include a positive server pid";
                 return false;
             }
 
@@ -136,7 +135,7 @@ internal sealed partial class OpencodeServeHealthcheckService : Singleton
         }
         catch(JsonException ex)
         {
-            errorMessage = $"health response was not valid JSON: {ex.Message}";
+            errorMessage = $"server info response was not valid JSON: {ex.Message}";
             return false;
         }
     }

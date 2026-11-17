@@ -194,7 +194,7 @@ internal sealed partial class ManagedHostOpencodeService : Singleton
             string actualVersion = FirstNonEmptyLine(versionResult.StdOut, versionResult.StdErr);
             _deferredSessionLogService.WriteErrorOrConsole(
                 LogCategories.OPENCODE_HOST,
-                $"Managed host OpenCode V2 version mismatch: expected 'opencode2 v{expectedVersion}', received '{actualVersion}'.");
+                $"Managed host OpenCode V2 version mismatch: expected 'opencode v{expectedVersion}', received '{actualVersion}'.");
             return false;
         }
 
@@ -204,7 +204,7 @@ internal sealed partial class ManagedHostOpencodeService : Singleton
     internal static bool IsExpectedVersionOutput(string stdout, string stderr, string expectedVersion)
         => String.Equals(
             FirstNonEmptyLine(stdout, stderr),
-            $"opencode2 v{expectedVersion}",
+            $"opencode v{expectedVersion}",
             StringComparison.Ordinal);
 
     private bool TryInstallVersion(string extractedRoot, string versionRoot, string version)

@@ -1,10 +1,10 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Hosting.Server;
+using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
-using Microsoft.AspNetCore.Hosting.Server;
-using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Primitives;
@@ -262,7 +262,7 @@ internal sealed partial class OpencodeLocationProxyService : Singleton
         }
 
         string path = request.Path.Value ?? String.Empty;
-        return path is "/api/session" or "/api/session/import" or "/api/pty" or "/api/shell" or "/api/worktree"
+        return path is "/api/session" or "/api/experimental/session/import" or "/api/pty" or "/api/shell" or "/api/worktree"
             || (path.StartsWith("/api/session/", StringComparison.Ordinal) && path.EndsWith("/move", StringComparison.Ordinal))
             || (path.StartsWith("/experimental/project/", StringComparison.Ordinal) && path.EndsWith("/copy", StringComparison.Ordinal));
     }
@@ -270,7 +270,7 @@ internal sealed partial class OpencodeLocationProxyService : Singleton
     private static bool RewriteJsonLocation(HttpRequest request, JsonObject root, OpencodeLocationMapper mapper)
     {
         string path = request.Path.Value ?? String.Empty;
-        if(path is "/api/session" or "/api/session/import")
+        if(path is "/api/session" or "/api/experimental/session/import")
         {
             JsonObject location;
             if(root["location"] is JsonObject existingLocation)

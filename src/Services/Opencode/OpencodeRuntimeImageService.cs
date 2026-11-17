@@ -121,7 +121,7 @@ internal sealed partial class OpencodeRuntimeImageService : Singleton
         LABEL org.opencontainers.image.title="ocw-opencode2-runtime"
         LABEL org.opencontainers.image.version="$OPENCODE_VERSION"
         COPY --from=opencode-install --chmod=0755 /tmp/ocw-opencode2 /opt/opencode/bin/opencode2
-        RUN test "$(/opt/opencode/bin/opencode2 --version)" = "opencode2 v${OPENCODE_VERSION}"
+        RUN test "$(/opt/opencode/bin/opencode2 --version)" = "opencode v${OPENCODE_VERSION}"
         """;
 
     private static string ComputeSha256(string value)

@@ -22,8 +22,8 @@ internal sealed record ResolvedOpencodeBinaryAsset(
 internal sealed partial class OpencodeReleaseMetadataService : Singleton
 {
     private const string NPM_REGISTRY_ROOT = "https://registry.npmjs.org";
-    private const string OPENCODE_V2_PACKAGE_NAME = "@opencode-ai/cli";
-    private const string OPENCODE_V2_DIST_TAG = "beta";
+    private const string OPENCODE_V2_PACKAGE_NAME = "@opencode/cli";
+    private const string OPENCODE_V2_DIST_TAG = "latest";
     private static readonly string[] _requiredPlatformTargets =
     [
         "windows-arm64",
@@ -153,7 +153,7 @@ internal sealed partial class OpencodeReleaseMetadataService : Singleton
         if(release.PlatformPackages.TryGetValue(packageName, out var package)
             && String.Equals(package.Version, release.Version, StringComparison.Ordinal))
         {
-            return (true, new ResolvedOpencodeBinaryAsset("opencode2.exe", package));
+            return (true, new ResolvedOpencodeBinaryAsset("opencode.exe", package));
         }
 
         _deferredSessionLogService.WriteErrorOrConsole(
