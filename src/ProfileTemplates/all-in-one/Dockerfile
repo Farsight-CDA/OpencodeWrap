@@ -60,17 +60,7 @@ RUN npm install -g --no-fund --no-audit npm@latest corepack@latest \
 
 RUN dotnet tool install --global dotnet-t4
 
-RUN arch="$(dpkg --print-architecture)" \
-    && case "$arch" in \
-        amd64) go_arch='amd64' ;; \
-        arm64) go_arch='arm64' ;; \
-        *) echo "Unsupported Go architecture: $arch" >&2; exit 1 ;; \
-    esac \
-    && go_version="$(curl -fsSL https://go.dev/dl/?mode=json | jq -r 'map(select(.stable)) | first | .version')" \
-    && curl -fsSL "https://go.dev/dl/${go_version}.linux-${go_arch}.tar.gz" -o /tmp/go.tgz \
-    && rm -rf /usr/local/go \
-    && tar -C /usr/local -xzf /tmp/go.tgz \
-    && rm /tmp/go.tgz
+COPY --from=golang:1.27-bookworm /usr/local/go/ /usr/local/go/
 
 ARG SOLC_VERSION=0.8.38
 
@@ -92,8 +82,7 @@ RUN npm install -g --no-fund --no-audit \
 
 RUN curl -fsSL https://bun.sh/install | bash
 
-RUN curl https://sh.rustup.rs -sSf | bash -s -- -y --profile minimal \
-    && /root/.cargo/bin/rustup component add rustfmt
+RUN curl https://sh.rustup.rs -sSf | bash -s -- -y --profile minimal --component rustfmt
 
 RUN curl -L https://foundry.paradigm.xyz | bash \
     && /root/.foundry/bin/foundryup
