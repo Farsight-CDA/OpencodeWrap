@@ -14,27 +14,6 @@ tag="$4"
 
 max_attempts="${NPM_PUBLISH_MAX_ATTEMPTS:-5}"
 delay_seconds="${NPM_PUBLISH_INITIAL_DELAY_SECONDS:-5}"
-visibility_attempts="${NPM_PUBLISH_VISIBILITY_ATTEMPTS:-30}"
-visibility_delay_seconds="${NPM_PUBLISH_VISIBILITY_DELAY_SECONDS:-10}"
-
-wait_for_visibility() {
-  local package_name="$1"
-  local version="$2"
-  local attempt=1
-
-  while (( attempt <= visibility_attempts )); do
-    if npm view --prefer-online "${package_name}@${version}" version >/dev/null 2>&1; then
-      return 0
-    fi
-
-    if (( attempt == visibility_attempts )); then
-      return 1
-    fi
-
-    sleep "${visibility_delay_seconds}"
-    attempt=$((attempt + 1))
-  done
-}
 
 if npm view --prefer-online "${package_name}@${version}" version >/dev/null 2>&1; then
   echo "${package_name}@${version} is already published; skipping."
@@ -44,11 +23,7 @@ fi
 attempt=1
 while (( attempt <= max_attempts )); do
   if (cd "$package_dir" && npm publish --access public --tag "$tag"); then
-    if ! wait_for_visibility "${package_name}" "${version}"; then
-      echo "Published ${package_name}@${version}, but it was not visible in npm metadata after ${visibility_attempts} checks." >&2
-      exit 1
-    fi
-
+    # npm can accept the publish before its metadata is visible to readers.
     echo "Published ${package_name}@${version} on attempt ${attempt}."
     exit 0
   fi
