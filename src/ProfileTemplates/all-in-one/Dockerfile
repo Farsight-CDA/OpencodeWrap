@@ -62,6 +62,13 @@ RUN dotnet tool install --global dotnet-t4
 
 COPY --from=golang:1.27-bookworm /usr/local/go/ /usr/local/go/
 
+ARG PROTOC_VERSION=36.2
+
+RUN protoc_arch="$(uname -m | sed 's/aarch64/aarch_64/')" \
+    && curl -fsSL "https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOC_VERSION}/protoc-${PROTOC_VERSION}-linux-${protoc_arch}.zip" -o /tmp/protoc.zip \
+    && unzip -q /tmp/protoc.zip 'bin/*' 'include/*' -d /usr/local \
+    && rm /tmp/protoc.zip
+
 ARG SOLC_VERSION=0.8.38
 
 RUN npm install -g --no-fund --no-audit \
