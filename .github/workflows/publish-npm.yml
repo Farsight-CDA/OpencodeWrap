@@ -127,6 +127,9 @@ jobs:
     concurrency:
       group: npm-publish-win32-x64
       cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
 
     steps:
       - name: Checkout
@@ -149,7 +152,6 @@ jobs:
       - name: Build and publish platform package
         shell: bash
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           VERSION: ${{ needs.resolve-publish-context.outputs.dev_version }}
         run: |
           set -euo pipefail
@@ -182,6 +184,7 @@ jobs:
       cancel-in-progress: false
     permissions:
       contents: read
+      id-token: write
     env:
       VERSION: ${{ needs.resolve-publish-context.outputs.dev_version }}
 
@@ -200,8 +203,6 @@ jobs:
 
       - name: Prepare and publish main package
         shell: bash
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           set -euo pipefail
 
@@ -231,6 +232,7 @@ jobs:
       cancel-in-progress: false
     permissions:
       contents: write
+      id-token: write
 
     steps:
       - name: Checkout
@@ -254,7 +256,6 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           RELEASE_TAG: v${{ needs.resolve-publish-context.outputs.release_version }}
           VERSION: ${{ needs.resolve-publish-context.outputs.release_version }}
         run: |
@@ -290,6 +291,7 @@ jobs:
       cancel-in-progress: false
     permissions:
       contents: read
+      id-token: write
     env:
       VERSION: ${{ needs.resolve-publish-context.outputs.release_version }}
 
@@ -308,8 +310,6 @@ jobs:
 
       - name: Prepare and publish main package
         shell: bash
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           set -euo pipefail
 

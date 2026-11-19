@@ -3,6 +3,11 @@
   "version": "0.0.0-development",
   "description": "Windows x64 binary for ocw.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Farsight-CDA/OpencodeWrap.git",
+    "directory": "npm/ocw-win32-x64"
+  },
   "os": [
     "win32"
   ],
