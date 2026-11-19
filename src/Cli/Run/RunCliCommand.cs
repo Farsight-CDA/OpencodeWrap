@@ -1991,11 +1991,11 @@ internal sealed class RunCliCommand : Command
                 var childDirectories = GetChildDirectories(currentDirectory);
                 if(Directory.GetParent(currentDirectory) is not null)
                 {
-                    entries.Add(new ExplorerEntry(".. (parent)", ExplorerEntryType.Parent));
+                    entries.Add(new ExplorerEntry("(parent)", ExplorerEntryType.Parent));
                 }
                 else
                 {
-                    entries.Add(new ExplorerEntry(".. (drives)", ExplorerEntryType.Parent));
+                    entries.Add(new ExplorerEntry("(drives)", ExplorerEntryType.Parent));
                 }
 
                 foreach(string childDirectory in childDirectories)
