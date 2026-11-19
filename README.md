@@ -1,22 +1,14 @@
-# OpencodeWrap
+# OpencodeWrap (`ocw`)
 
-**Run OpenCode V2 in Docker—no config needed.**
+Run [OpenCode](https://opencode.ai) V2 in Docker on Windows. The OpenCode server and every command it runs live in a container, while the TUI runs natively in your terminal. Your project folder is mounted in, and sessions, auth and settings persist between runs.
 
-Your backend sessions and server data persist. Just type `ocw run`.
+![ocw run menu](docs/images/run-menu.png)
 
----
+## Requirements
 
-## Highlights
-
-- **Zero setup** — One npm install, then just run
-- **Your data stays** — Backend sessions and server state persist across runs
-- **Smart profiles** — Built-in all-in-one setup plus custom profiles
-- **Session addons** — Drop in custom tools and configurations
-- **Auto-updates** — Resolves the current OpenCode V2 release when each run starts
-- **Terminal UI** — Connect a local V2 TUI to the containerized backend
-- **Windows host** — Native Windows x64 launcher with a containerized backend
-
----
+- Windows x64 with an AVX2-capable CPU
+- Docker Desktop running Linux containers
+- Node.js / npm, for installing and updating
 
 ## Install
 
@@ -24,50 +16,80 @@ Your backend sessions and server data persist. Just type `ocw run`.
 npm i -g @farsight-cda/ocw
 ```
 
-Windows x64 with AVX2 support and Docker Desktop configured for Linux containers are required.
-
----
-
-## Quick Start
+## Usage
 
 ```powershell
+cd C:\path\to\your\project
 ocw run
 ```
 
-Choose a profile and start coding with the built-in all-in-one profile or your own custom one.
+Pick a setup and press **Enter**. The current folder is mounted at `/workspace/<folder-name>`. Each run uses the latest stable OpenCode release and pins it for that session.
 
-OCW resolves the current stable `@opencode/cli@latest` release when a run starts, then disables OpenCode's own updater for that session so its server and client stay on the same resolved version. A session-local loopback bridge maps Windows host paths to their container mounts. The host tab strip is scoped to each run; backend sessions remain persistent and can be reopened with `/sessions`. V2 state uses the fresh `opencode-wrap-xdg-v2` Docker volume; OCW does not automatically import the old V1 volume.
+Entries marked ★ are your personal defaults. Entries marked ◆ come from the project's `ocw.json`, which you can commit to share the setup.
 
----
+### Extra mounts
 
-## Built-in Profiles
+Add more host folders or Docker named volumes, read-only or read-write. They're mounted at `/resources/<name>` by default.
 
-| Profile | Best For |
-|---------|----------|
-| `all-in-one` | Combined frontend, .NET, Go, Rust, Postgres/data, Solidity, and Ansible tooling |
+![Extra mounts tab](docs/images/run-mounts.png)
 
-Create your own with `ocw profile add <name>`.
+### Session addons
 
-Custom profile images must provide Node.js and npm. OCW uses OpenCode's upstream npm installer during the runtime-image build to select the appropriate Linux binary for the profile. The exact session-resolved version is installed and verified, and the resulting image is cached; cached launches do not start a platform-probe container.
+Turn [addons](#addons) on or off for this run.
 
----
+![Session addons tab](docs/images/run-addons.png)
 
-## Session Addons
+### Docker networks
 
-Enhance your sessions with custom configurations:
+Use `bridge` (the default) or `host`. `host` requires host networking to be enabled in Docker Desktop. In bridge mode you can also attach existing networks, such as your compose project's network.
 
-- Drop addon folders in `%USERPROFILE%\.opencode-wrap\addons\`
-- Enable them when running `ocw run`
-- `opencode/AGENTS.md`, root `.env`, and `opencode/opencode.json` are merged across the profile and active addons
-- Built-in addons include **frontend-design**, which installs the frontend design skill
-- A custom root `entrypoint.sh` can override profile startup when needed
+![Docker networks tab](docs/images/run-networks.png)
 
----
+### Docker options
+
+Disable the workspace mount, run the container privileged, or mount the Docker daemon. Mounting the daemon gives the agent access to your host's Docker.
+
+![Docker options tab](docs/images/run-docker.png)
+
+## Profiles
+
+A profile defines the container's toolchain. The built-in **`all-in-one`** profile covers frontend, .NET, Go, Rust, Postgres/data, Solidity and Ansible.
+
+```powershell
+ocw profile add <name>       # create %USERPROFILE%\.opencode-wrap\profiles\<name>
+ocw profile add all-in-one   # editable copy that overrides the built-in
+ocw profile build <name>     # rebuild the image without cache
+ocw profile <list|open|delete>
+```
+
+```text
+<name>\
+├── Dockerfile      # your toolchain; must include Node.js + npm
+├── bin\            # added to PATH
+├── opencode\       # OpenCode config dir: opencode.json, AGENTS.md, skills, ...
+├── .env            # optional, container environment variables
+└── entrypoint.sh   # optional custom startup; must exec opencode2 "$@"
+```
+
+## Addons
+
+Addons are folders that get layered on top of the profile for a single run. Use them for skills, agent instructions, MCP config or scripts you don't want baked into every profile. **frontend-design** is built in.
+
+```powershell
+ocw addon add <name>   # create %USERPROFILE%\.opencode-wrap\addons\<name>
+ocw addon <list|open|delete>
+```
+
+Addons use the same layout as a profile, minus the `Dockerfile`. `opencode/opencode.json`, `opencode/AGENTS.md` and `.env` are merged. If any other file collides with the profile or another addon, the launch is blocked.
+
+
+## Update
+
+```powershell
+ocw update           # install the latest release
+ocw update --check   # check only
+```
 
 ## License
 
-MIT
-
----
-
-<p align="center">Built for the OpenCode community</p>
+[MIT](LICENSE.txt)
