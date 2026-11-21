@@ -73,7 +73,14 @@ ocw profile <list|open|delete>
 
 ## Addons
 
-Addons are folders that get layered on top of the profile for a single run. Use them for skills, agent instructions, MCP config or scripts you don't want baked into every profile. **frontend-design** is built in.
+Addons are folders that get layered on top of the profile for a run. Use them for skills, agent instructions, MCP config, or optional tools you don't want baked into every profile. Built-in addons:
+
+| Addon | Adds |
+| --- | --- |
+| `frontend-design` | The frontend design skill |
+| `claude-code` | The `claude` CLI, formerly included in `all-in-one`. Enable this addon to keep using it; the sign-in directory is still `/ocw/state/claude-code`. |
+| `antigravity` | Google's `agy` CLI and the pinned `opencode-antigravity-acp@0.2.0` plugin. Run `agy` in the terminal pane or select an **Antigravity (ACP)** model in OpenCode. |
+| `antigravity-code-mode` | Select alongside `antigravity` to enable the plugin's Code Mode bridge by default for Antigravity sessions. AGY approval defaults are unchanged. |
 
 ```powershell
 ocw addon add <name>   # create %USERPROFILE%\.opencode-wrap\addons\<name>
@@ -82,6 +89,30 @@ ocw addon <list|open|delete>
 
 Addons use the same layout as a profile, minus the `Dockerfile`. `opencode/opencode.json`, `opencode/AGENTS.md` and `.env` are merged. If any other file collides with the profile or another addon, the launch is blocked.
 
+### Installing tools with an addon
+
+An optional `build/install.sh` runs in Linux during a Docker image build, not on Windows or at session startup. Save it with LF line endings. OCW runs it with Bash from the addon build directory, so it can use sibling files by relative path:
+
+```text
+my-addon/
+├── build/
+│   ├── install.sh
+│   └── tool-config.json
+├── .env
+└── opencode/
+```
+
+Only `build/` is sent to Docker as addon build input. Its files aren't included in the runtime overlay; the script must install tools and files you want to keep somewhere outside the build directory. Keep credentials out of `build/`. Symlinks and junctions aren't supported there.
+
+The image order is **base profile → OpenCode runtime → selected build addons**. Addon layers are built in alphabetical order and cached by parent image and `build/` contents. Config-only addons don't create layers. The run menu marks addons with install scripts as **(image build)**.
+
+On a fresh container, the Antigravity launcher links `~/.gemini` to `/ocw/state/antigravity` without replacing an existing directory. Google OAuth reuse across containers depends on AGY's credential storage; if needed, use `agy acp --login` in the terminal to sign in without a browser in the container.
+
+The Antigravity plugin is enabled through the addon's session config, not installed into your global OpenCode config. Deselecting the addon stops OpenCode from loading it on the next run unless another config also enables it. Cached files and AGY state are retained. If you previously copied the built-in addon to your local `addons/antigravity` directory, that copy takes precedence; add the plugin entry there to opt in.
+
+With OCW-managed AGY state, `agy` also discovers the selected profile's and addons' `opencode/skills/` folders. This works in Pure ACP and in the standalone CLI. OCW adds one reference to AGY's `skills.json`; it points to an index of skill directories in the current container. Skill files and their supporting files aren't copied into AGY state. Deselecting a skill addon removes its skills from the next run. Use directory-based `SKILL.md` skills for sharing; OpenCode-only flat Markdown skills and external skill catalogs are not included.
+
+Without `antigravity-code-mode`, the pinned plugin defaults to Pure ACP. With both addons selected, OCW enables the bridge before each OpenCode session's first Antigravity model request. The extra addon does not affect the standalone `agy` CLI or non-Antigravity models.
 
 ## Update
 

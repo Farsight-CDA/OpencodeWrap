@@ -320,7 +320,7 @@ internal sealed class RunCliCommand : Command
                 && configuredPrivileged == privileged;
             bool isDockerSocketConfigured = workspaceConfig.MountDockerSocket is { } configuredMountDockerSocket
                 && configuredMountDockerSocket == mountDockerSocket;
-            RenderRunSelectionScreen(profileChoices, selectedIndex, selectedTab, mountMode, configuredMountMode == mountMode, currentWorkspacePath, availableVolumeNames, selectedContainerMounts, defaultContainerMounts, configuredContainerMounts, selectedVolumeIndex, addonCatalog.AddonsRoot, availableAddonNames, defaultAddonNames, configuredAddonNames, selectedAddonIndex, activeAddonNames, availableNetworkNames, defaultNetworkNames, configuredNetworkNames, selectedNetworkIndex, selectedNetworkMode, defaultNetworkMode, configuredNetworkMode, activeNetworkNames, selectedDockerOptionIndex, privileged, isPrivilegedConfigured, mountDockerSocket, isDockerSocketConfigured);
+            RenderRunSelectionScreen(profileChoices, selectedIndex, selectedTab, mountMode, configuredMountMode == mountMode, currentWorkspacePath, availableVolumeNames, selectedContainerMounts, defaultContainerMounts, configuredContainerMounts, selectedVolumeIndex, addonCatalog, availableAddonNames, defaultAddonNames, configuredAddonNames, selectedAddonIndex, activeAddonNames, availableNetworkNames, defaultNetworkNames, configuredNetworkNames, selectedNetworkIndex, selectedNetworkMode, defaultNetworkMode, configuredNetworkMode, activeNetworkNames, selectedDockerOptionIndex, privileged, isPrivilegedConfigured, mountDockerSocket, isDockerSocketConfigured);
             var keyInfo = AnsiConsole.Console.Input.ReadKey(intercept: true);
             if(keyInfo is null)
             {
@@ -887,7 +887,7 @@ internal sealed class RunCliCommand : Command
         HashSet<ContainerMount> defaultContainerMounts,
         HashSet<ContainerMount> configuredContainerMounts,
         int selectedVolumeIndex,
-        string addonsRootPath,
+        SessionAddonCatalog addonCatalog,
         IReadOnlyList<string> availableAddonNames,
         HashSet<string> defaultAddonNames,
         HashSet<string> configuredAddonNames,
@@ -940,7 +940,7 @@ internal sealed class RunCliCommand : Command
         var activeContent = selectedTab switch
         {
             RunSelectionTab.Volumes => CreateVolumeSelectionContent(availableVolumeNames, selectedContainerMounts, defaultContainerMounts, configuredContainerMounts, selectedVolumeIndex),
-            RunSelectionTab.Addons => CreateAddonSelectionContent(addonsRootPath, availableAddonNames, defaultAddonNames, configuredAddonNames, selectedAddonIndex, activeAddonNames),
+            RunSelectionTab.Addons => CreateAddonSelectionContent(addonCatalog, availableAddonNames, defaultAddonNames, configuredAddonNames, selectedAddonIndex, activeAddonNames),
             RunSelectionTab.Networks => CreateNetworkSelectionContent(availableNetworkNames, defaultNetworkNames, configuredNetworkNames, selectedNetworkIndex, selectedNetworkMode, defaultNetworkMode, configuredNetworkMode, activeNetworkNames),
             RunSelectionTab.Docker => CreateDockerSelectionContent(mountMode, isMountModeConfigured, selectedDockerOptionIndex, privileged, isPrivilegedConfigured, mountDockerSocket, isDockerSocketConfigured),
             _ => CreateProfileSelectionContent(profileChoices, selectedIndex)
@@ -1114,13 +1114,13 @@ internal sealed class RunCliCommand : Command
         return new Markup(content.ToString());
     }
 
-    private static Markup CreateAddonSelectionContent(string addonsRootPath, IReadOnlyList<string> availableAddonNames, HashSet<string> defaultAddonNames, HashSet<string> configuredAddonNames, int selectedAddonIndex, HashSet<string> activeAddonNames)
+    private static Markup CreateAddonSelectionContent(SessionAddonCatalog addonCatalog, IReadOnlyList<string> availableAddonNames, HashSet<string> defaultAddonNames, HashSet<string> configuredAddonNames, int selectedAddonIndex, HashSet<string> activeAddonNames)
     {
         var content = new StringBuilder();
 
         if(availableAddonNames.Count == 0)
         {
-            content.AppendLine($"[grey]No addons.[/] [grey58]{Markup.Escape(addonsRootPath)}[/]");
+            content.AppendLine($"[grey]No addons.[/] [grey58]{Markup.Escape(addonCatalog.AddonsRoot)}[/]");
             content.AppendLine("[grey]Conflicting files block launch except opencode/AGENTS.md, root .env, and opencode/opencode.json (merged).[/]");
             return new Markup(content.ToString());
         }
@@ -1135,14 +1135,15 @@ internal sealed class RunCliCommand : Command
             bool isSelected = selectedAddonIndex == i;
             string checkbox = isActive ? "[green]☑[/]" : "[grey]☐[/]";
             string sourceMarkers = CreateSourceMarkers(defaultAddonNames.Contains(addonName), configuredAddonNames.Contains(addonName));
+            string buildMarker = addonCatalog.Addons[addonName].HasBuildStep ? " [yellow](image build)[/]" : "";
 
             if(isSelected)
             {
-                content.AppendLine($"[dodgerblue1]▶[/] {checkbox} [bold white]{Markup.Escape(addonName)}[/]{sourceMarkers}");
+                content.AppendLine($"[dodgerblue1]▶[/] {checkbox} [bold white]{Markup.Escape(addonName)}[/]{sourceMarkers}{buildMarker}");
             }
             else
             {
-                content.AppendLine($"  {checkbox} [grey70]{Markup.Escape(addonName)}[/]{sourceMarkers}");
+                content.AppendLine($"  {checkbox} [grey70]{Markup.Escape(addonName)}[/]{sourceMarkers}{buildMarker}");
             }
         }
 

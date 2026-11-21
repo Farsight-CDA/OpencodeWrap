@@ -17,6 +17,7 @@ internal sealed partial class OpencodeLauncherService : Singleton
     [Inject] private readonly ManagedHostOpencodeService _managedHostOpencodeService;
     [Inject] private readonly OpencodeReleaseMetadataService _opencodeReleaseMetadataService;
     [Inject] private readonly OpencodeRuntimeImageService _opencodeRuntimeImageService;
+    [Inject] private readonly SessionAddonImageService _sessionAddonImageService;
     [Inject] private readonly SessionStagingService _sessionStagingService;
     [Inject] private readonly SessionAddonService _sessionAddonService;
     [Inject] private readonly DeferredSessionLogService _deferredSessionLogService;
@@ -245,6 +246,15 @@ internal sealed partial class OpencodeLauncherService : Singleton
             string runtimeImageTag = runtimeImage.Value;
             LogStartupPhase($"OpenCode runtime image ready: '{runtimeImageTag}'", LogLevel.Debug);
 
+            var addonImageResult = await _sessionAddonImageService.TryEnsureImageAsync(runtimeImageTag, resolvedSessionAddons);
+            if(addonImageResult is not DockerValue<string> sessionImage)
+            {
+                clearConsoleOnSessionLogFlush = false;
+                WriteSessionError("docker", "Failed to prepare session addon images.");
+                WriteSessionErrorDetails("docker", addonImageResult.ErrorDetails);
+                return 1;
+            }
+
             string containerXdgConfigHome = includeProfileConfig
                 ? (await ResolvePersistentConfigHomeAsync(profile.ConfigDirectoryPath, resolvedOpencodeVersion)) ?? OpencodeWrapConstants.CONTAINER_PROFILE_ROOT
                 : OpencodeWrapConstants.CONTAINER_XDG_CONFIG_HOME;
@@ -345,7 +355,7 @@ internal sealed partial class OpencodeLauncherService : Singleton
             [
                 "--mount", _volumeService.BuildVolumeMount(OpencodeWrapConstants.XDG_VOLUME_NAME, OpencodeWrapConstants.CONTAINER_XDG_ROOT),
                 "-w", containerWorkDir,
-                runtimeImageTag,
+                sessionImage.Value,
                 "bash",
                 "-lc",
                 _containerCommand,
@@ -685,7 +695,9 @@ internal sealed partial class OpencodeLauncherService : Singleton
         {
             try
             {
-                foreach(string directoryPath in Directory.EnumerateDirectories(addon.DirectoryPath, "*", SearchOption.AllDirectories))
+                string[] runtimeDirectories = [.. Directory.EnumerateDirectories(addon.DirectoryPath)
+                    .Where(static path => !String.Equals(Path.GetFileName(path), OpencodeWrapConstants.ADDON_BUILD_DIRECTORY_NAME, StringComparison.OrdinalIgnoreCase))];
+                foreach(string directoryPath in runtimeDirectories.SelectMany(static path => Directory.EnumerateDirectories(path, "*", SearchOption.AllDirectories).Prepend(path)))
                 {
                     string relativePath = Path.GetRelativePath(addon.DirectoryPath, directoryPath);
                     string destinationDirectoryPath = Path.Combine(sessionProfileDirectoryPath, relativePath);
@@ -698,7 +710,8 @@ internal sealed partial class OpencodeLauncherService : Singleton
                     Directory.CreateDirectory(destinationDirectoryPath);
                 }
 
-                foreach(string filePath in Directory.EnumerateFiles(addon.DirectoryPath, "*", SearchOption.AllDirectories))
+                foreach(string filePath in Directory.EnumerateFiles(addon.DirectoryPath)
+                    .Concat(runtimeDirectories.SelectMany(static path => Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories))))
                 {
                     string relativePath = Path.GetRelativePath(addon.DirectoryPath, filePath);
                     if(IsSessionEnvFile(relativePath))

@@ -1,8 +1,20 @@
 namespace OpencodeWrap.Services.Profile;
 
 internal sealed record SessionAddonCatalog(string ConfigRoot, string AddonsRoot, IReadOnlyDictionary<string, SessionAddonCatalogEntry> Addons);
-internal sealed record SessionAddonCatalogEntry(string Name, string? DirectoryPath, BuiltInSessionAddon? BuiltInAddon = null);
-internal sealed record ResolvedSessionAddon(string Name, string DirectoryPath);
+internal sealed record SessionAddonCatalogEntry(string Name, string? DirectoryPath, BuiltInSessionAddon? BuiltInAddon = null)
+{
+    public bool HasBuildStep => DirectoryPath is { } directoryPath
+        ? ResolvedSessionAddon.HasBuildStepAt(directoryPath)
+        : BuiltInAddon?.HasBuildStep is true;
+}
+
+internal sealed record ResolvedSessionAddon(string Name, string DirectoryPath)
+{
+    public string BuildDirectoryPath => Path.Combine(DirectoryPath, OpencodeWrapConstants.ADDON_BUILD_DIRECTORY_NAME);
+
+    public static bool HasBuildStepAt(string directoryPath)
+        => File.Exists(Path.Combine(directoryPath, OpencodeWrapConstants.ADDON_BUILD_DIRECTORY_NAME, OpencodeWrapConstants.ADDON_INSTALL_FILE_NAME));
+}
 
 internal sealed partial class SessionAddonService : Singleton
 {
@@ -170,7 +182,8 @@ internal sealed partial class SessionAddonService : Singleton
                 continue;
             }
 
-            addons[addonName] = new SessionAddonCatalogEntry(addonName, directoryPath);
+            addons.TryGetValue(addonName, out var existingAddon);
+            addons[addonName] = new SessionAddonCatalogEntry(addonName, directoryPath, existingAddon?.BuiltInAddon);
         }
 
         return addons;

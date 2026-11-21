@@ -47,6 +47,11 @@ internal sealed class ListAddonsCliCommand : Command
                 ? hasOverride ? "🛠 built-in override" : "📦 built-in"
                 : "✨ custom";
 
+            if(addon.HasBuildStep)
+            {
+                typeLabel += " [yellow](image build)[/]";
+            }
+
             string displayPath;
             if(!hasOverride)
             {

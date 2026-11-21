@@ -1,0 +1,4 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "plugins": ["opencode-antigravity-acp@0.2.0"]
+}

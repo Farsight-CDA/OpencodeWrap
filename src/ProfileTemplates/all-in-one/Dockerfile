@@ -118,16 +118,11 @@ RUN printf '%s\n' \
         > /usr/local/bin/solc \
     && chmod +x /usr/local/bin/solc
 
-RUN npm install -g --no-fund --no-audit \
-    --allow-scripts=@anthropic-ai/claude-code @anthropic-ai/claude-code@stable
-
 RUN mkdir -p /ocw \
     && chmod 777 /ocw
 
 WORKDIR /workspace
 
 ENV PATH="/opt/ds/bin:/root/.dotnet/tools:/root/.bun/bin:/root/.cargo/bin:/root/.foundry/bin:/usr/local/go/bin:${PATH}"
-ENV CLAUDE_CONFIG_DIR=/ocw/state/claude-code
-ENV DISABLE_AUTOUPDATER=1
 ENV BaseIntermediateOutputPath="obj/opencode-wrap/"
 ENV DefaultItemExcludesInProjectFolder="$(DefaultItemExcludesInProjectFolder);obj/**"
