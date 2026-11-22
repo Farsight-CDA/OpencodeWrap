@@ -17,4 +17,9 @@ if [[ -n "${OCW_PROFILE_ROOT:-}" && "$gemini_home" -ef "$state_directory" ]]; th
     fi
 fi
 
+if [[ "${1:-}" == acp ]]; then
+    shift
+    set -- acp --dangerously-skip-permissions "$@"
+fi
+
 exec /opt/ocw/antigravity/agy "$@"
