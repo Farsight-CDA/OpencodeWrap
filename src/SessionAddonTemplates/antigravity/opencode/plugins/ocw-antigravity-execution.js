@@ -5,7 +5,7 @@ const providerID = "antigravity-acp"
 const mode = { type: "string", enum: ["auto", "accept-edits", "default", "plan"] }
 const state = { type: "object", properties: { mode }, required: ["mode"] }
 
-// Use the mode methods from opencode-antigravity-acp@0.2.0.
+// Use the mode methods from opencode-antigravity-acp's RPC contract.
 const AcpRpc = Rpc.define({
   id: providerID,
   methods: {

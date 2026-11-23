@@ -79,8 +79,7 @@ Addons are folders that get layered on top of the profile for a run. Use them fo
 | --- | --- |
 | `frontend-design` | The frontend design skill |
 | `claude-code` | The `claude` CLI, formerly included in `all-in-one`. Enable this addon to keep using it; the sign-in directory is still `/ocw/state/claude-code`. |
-| `antigravity` | Google's `agy` CLI and the pinned `opencode-antigravity-acp@0.2.0` plugin. Run `agy` in the terminal pane or select an **Antigravity (ACP)** model in OpenCode. |
-| `antigravity-code-mode` | Select alongside `antigravity` to enable the plugin's Code Mode bridge by default for Antigravity sessions. |
+| `antigravity` | Google's `agy` CLI and the pinned `opencode-antigravity-acp@0.2.2` plugin, with Code Mode enabled by default. Run `agy` in the terminal pane or select an **Antigravity (ACP)** model in OpenCode. |
 
 ```powershell
 ocw addon add <name>   # create %USERPROFILE%\.opencode-wrap\addons\<name>
