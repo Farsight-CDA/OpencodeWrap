@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-release_url=https://storage.googleapis.com/antigravity-public/antigravity-cli/1.5.14-5302690847260672
+release_url=https://storage.googleapis.com/antigravity-public/antigravity-cli/1.5.17-4823843970351104
 case "$(uname -m)" in
     x86_64)
         archive=linux-x64/cli_linux_x64.tar.gz
-        checksum=83311d3f354567612dc16c1ae2ea9b503d6f6833aa4e138d39aa229da3f3bb99b0e4d7cca0bce4796b0060d6a51d8113eb7449ed5dc0e7900bf217107ea5bff9
+        checksum=71a967aa16e0ab5d87196bcd6772130bdab55b2fd768cd24d21b1da401ff9f60280b976cad3dc14a2d646233b0eaf8caf87c490eed73044d54550cbb3d8d67d2
         ;;
     aarch64)
         archive=linux-arm/cli_linux_arm64.tar.gz
-        checksum=c9b29bba475f63a1a80161ae93ba72b221c7a586d9851e4d0061546704bab66d6b2760b25d716d191724fc7564f3246456ee151e28aa37af48dbcd72bdc6c463
+        checksum=e4f086d0730b325cfd438ea90396ee78eb23a3110ef7f792824c8817b8d0432462b7b5f91b3d933fc1932a6f4ba73de505e2e96f44448c9fb2427292ead716f7
         ;;
     *)
         printf 'Antigravity CLI does not support architecture %s.\n' "$(uname -m)" >&2
