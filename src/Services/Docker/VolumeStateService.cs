@@ -1,7 +1,13 @@
+using System.Runtime.InteropServices;
+
 namespace OpencodeWrap.Services.Docker;
 
 internal sealed partial class VolumeStateService : Singleton
 {
+    private const int ERROR_INSUFFICIENT_BUFFER = 122;
+    private const string WSL_LOCALHOST_DEVICE_PREFIX = @"\??\UNC\wsl.localhost\";
+    private const string WSL_DEVICE_PREFIX = @"\??\UNC\wsl$\";
+
     [Inject]
     private readonly DeferredSessionLogService _deferredSessionLogService;
 
@@ -43,12 +49,9 @@ internal sealed partial class VolumeStateService : Singleton
         }
 
         var reset = await ResetNamedVolumeAsync();
-        if(reset is not DockerValue<DockerVolumeReset>)
-        {
-            return reset.Select(_ => new DockerCompleted());
-        }
-
-        return await CopyHostXdgDirectoryToVolumeAsync(sourceRoot, OpencodeWrapConstants.XDG_VOLUME_NAME);
+        return reset is not DockerValue<DockerVolumeReset>
+            ? reset.Select(_ => new DockerCompleted())
+            : await CopyHostXdgDirectoryToVolumeAsync(sourceRoot, OpencodeWrapConstants.XDG_VOLUME_NAME);
     }
 
     public Task<DockerResult<DockerCompleted>> ExportVolumeToHostArchiveAsync(string destinationArchive)
@@ -81,10 +84,62 @@ internal sealed partial class VolumeStateService : Singleton
     }
 
     public string BuildBindMount(string source, string target)
-        => $"type=bind,{EscapeMountField($"src={Path.GetFullPath(source)}")},{EscapeMountField($"dst={target}")}";
+        => $"type=bind,{EscapeMountField($"src={ResolveBindSource(source)}")},{EscapeMountField($"dst={target}")}";
 
     public string BuildVolumeMount(string source, string target)
         => $"type=volume,{EscapeMountField($"src={source}")},{EscapeMountField($"dst={target}")}";
+
+    private static unsafe string ResolveBindSource(string source)
+    {
+        string fullPath = Path.GetFullPath(source);
+        if(!OperatingSystem.IsWindows() || fullPath.Length < 3 || fullPath[1] != ':')
+        {
+            return fullPath;
+        }
+
+        string drive = fullPath[..2];
+        Span<char> buffer = stackalloc char[512];
+        while(true)
+        {
+            uint length;
+            fixed(char* target = buffer)
+            {
+                length = QueryDosDevice(drive, target, (uint) buffer.Length);
+            }
+
+            if(length != 0)
+            {
+                // The first string is the current mapping; subsequent strings are prior mappings.
+                var deviceTarget = buffer[..(int) length];
+                deviceTarget = deviceTarget[..deviceTarget.IndexOf('\0')];
+                if(deviceTarget.StartsWith(WSL_LOCALHOST_DEVICE_PREFIX, StringComparison.OrdinalIgnoreCase))
+                {
+                    deviceTarget = deviceTarget[WSL_LOCALHOST_DEVICE_PREFIX.Length..];
+                }
+                else if(deviceTarget.StartsWith(WSL_DEVICE_PREFIX, StringComparison.OrdinalIgnoreCase))
+                {
+                    deviceTarget = deviceTarget[WSL_DEVICE_PREFIX.Length..];
+                }
+                else
+                {
+                    return fullPath;
+                }
+
+                // Docker Desktop recognizes WSL bind sources in the \\wsl$\ form.
+                return Path.Join(String.Concat(@"\\wsl$\", deviceTarget), fullPath.AsSpan(3));
+            }
+
+            if(Marshal.GetLastPInvokeError() != ERROR_INSUFFICIENT_BUFFER)
+            {
+                return fullPath;
+            }
+
+            buffer = new char[buffer.Length * 2];
+        }
+    }
+
+    [LibraryImport("kernel32.dll", EntryPoint = "QueryDosDeviceW", SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
+    private static unsafe partial uint QueryDosDevice(string deviceName, char* targetPath, uint maxChars);
 
     private static string EscapeMountField(string field)
         => field.IndexOfAny([',', '"', '\r', '\n']) >= 0
